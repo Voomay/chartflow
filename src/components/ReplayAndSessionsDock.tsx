@@ -10,6 +10,7 @@ import {
 } from '../types/trading';
 import { getActiveSessionsAtTime } from '../services/goldDataService';
 import {
+  BarChart3,
   ChevronDown,
   ChevronUp,
   Clock,
@@ -23,6 +24,7 @@ import {
   Scissors,
   SkipBack,
   SkipForward,
+  Sparkles,
   TrendingDown,
   TrendingUp,
   XCircle,
@@ -58,6 +60,7 @@ interface ReplayAndSessionsDockProps {
   realizedPnL: number;
   atr14: number;
   timeframe: Timeframe;
+  requestedTab?: 'backtest' | 'analytics' | 'sessions' | null;
 }
 
 export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
@@ -83,11 +86,18 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   onClosePosition,
   onResetBacktestAccount,
   realizedPnL,
-  atr14,
   timeframe,
+  requestedTab,
 }) => {
-  const [dockTab, setDockTab] = useState<'sessions' | 'backtest'>('backtest');
+  const [dockTab, setDockTab] = useState<'backtest' | 'analytics' | 'sessions'>('backtest');
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (requestedTab) {
+      setDockTab(requestedTab);
+      setIsCollapsed(false);
+    }
+  }, [requestedTab]);
 
   // Order Ticket State: Lot Size (1.00 Lot = 100 oz), SL ($ distance), TP ($ distance), or Exact Prices
   const [lotSize, setLotSize] = useState<number>(1.0);
@@ -116,22 +126,82 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   const activeSessionIds = new Set(activeSessions.map((s) => s.id));
 
   const openPositions = positions.filter((p) => p.status === 'OPEN');
-  const closedPositions = positions.filter((p) => p.status !== 'OPEN');
+  const pendingPositions = positions.filter((p) => p.status === 'PENDING');
+  const closedPositions = positions.filter(
+    (p) => p.status !== 'OPEN' && p.status !== 'PENDING'
+  );
   const unrealizedPnL = openPositions.reduce((sum, p) => sum + p.pnl, 0);
   const totalEquity = 100000 + realizedPnL + unrealizedPnL;
-  const winningTrades = closedPositions.filter((p) => p.pnl > 0).length;
+
+  const winningTrades = closedPositions.filter((p) => p.pnl > 0);
+  const losingTrades = closedPositions.filter((p) => p.pnl <= 0);
   const winRate =
     closedPositions.length > 0
-      ? Math.round((winningTrades / closedPositions.length) * 100)
+      ? Math.round((winningTrades.length / closedPositions.length) * 100)
+      : 0;
+
+  const grossProfit = winningTrades.reduce((s, p) => s + p.pnl, 0);
+  const grossLoss = Math.abs(losingTrades.reduce((s, p) => s + p.pnl, 0));
+  const profitFactor =
+    grossLoss > 0
+      ? Number((grossProfit / grossLoss).toFixed(2))
+      : grossProfit > 0
+      ? 99.9
+      : 0;
+
+  const avgRMultiple =
+    closedPositions.length > 0
+      ? Number(
+          (
+            closedPositions.reduce((s, p) => s + p.rMultiple, 0) /
+            closedPositions.length
+          ).toFixed(2)
+        )
+      : 0;
+
+  const avgTradeExpectancy =
+    closedPositions.length > 0
+      ? Number((realizedPnL / closedPositions.length).toFixed(2))
+      : 0;
+
+  const bestTradePnl =
+    closedPositions.length > 0
+      ? Math.max(...closedPositions.map((p) => p.pnl))
+      : 0;
+  const worstTradePnl =
+    closedPositions.length > 0
+      ? Math.min(...closedPositions.map((p) => p.pnl))
+      : 0;
+
+  const longClosed = closedPositions.filter((p) => p.side === 'LONG');
+  const longWinRate =
+    longClosed.length > 0
+      ? Math.round(
+          (longClosed.filter((p) => p.pnl > 0).length / longClosed.length) * 100
+        )
+      : 0;
+
+  const shortClosed = closedPositions.filter((p) => p.side === 'SHORT');
+  const shortWinRate =
+    shortClosed.length > 0
+      ? Math.round(
+          (shortClosed.filter((p) => p.pnl > 0).length / shortClosed.length) * 100
+        )
       : 0;
 
   // Calculate projected Risk & Profit in USD (1.00 Lot = 100 oz)
   const sizeOz = Math.max(1, lotSize * 100);
   const effectiveSlDist = useExactPrices
-    ? Math.max(0.5, Math.abs(currentPrice - (parseFloat(customSlPrice) || currentPrice - slDistance)))
+    ? Math.max(
+        0.5,
+        Math.abs(currentPrice - (parseFloat(customSlPrice) || currentPrice - slDistance))
+      )
     : Math.max(0.5, slDistance);
   const effectiveTpDist = useExactPrices
-    ? Math.max(0.5, Math.abs((parseFloat(customTpPrice) || currentPrice + tpDistance) - currentPrice))
+    ? Math.max(
+        0.5,
+        Math.abs((parseFloat(customTpPrice) || currentPrice + tpDistance) - currentPrice)
+      )
     : Math.max(0.5, tpDistance);
 
   const projectedRiskUsd = Number((effectiveSlDist * sizeOz).toFixed(2));
@@ -200,7 +270,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                 ? 'bg-amber-500 text-[#0b0e14] border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)]'
                 : 'bg-[#1e222d] hover:bg-[#262b38] text-amber-400 border-amber-500/40'
             }`}
-            title="Click any bar on the chart to rewind time to that candle"
+            title="Click any bar on the chart to rewind time to that candle (100% Free)"
           >
             <Scissors className="w-3.5 h-3.5" />
             <span>Rewind to Bar</span>
@@ -330,7 +400,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               value={lotSize}
               onChange={(e) => setLotSize(Math.max(0.01, parseFloat(e.target.value) || 0.01))}
               className="w-14 bg-[#1e222d] text-amber-300 font-bold px-1.5 py-0.5 rounded border border-[#2a2e39] focus:border-amber-400 outline-none text-center"
-              title="Standard Gold Lot Size (1.00 Lot = 100 oz = $100 per $1 move)"
+              title="Standard Lot Size"
             />
           </div>
 
@@ -344,7 +414,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               setUseExactPrices((v) => !v);
             }}
             className="px-2 py-1 rounded bg-[#1e222d] hover:bg-[#262b38] border border-[#2a2e39] text-[10px] font-mono text-amber-300 transition"
-            title="Switch between setting SL/TP by Dollar Distance ($) or Exact Price ($4,1xx.xx)"
+            title="Switch between setting SL/TP by Distance ($) or Exact Price"
           >
             {useExactPrices ? 'Mode: Exact $' : 'Mode: ±Offset $'}
           </button>
@@ -361,7 +431,6 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                   value={slDistance}
                   onChange={(e) => setSlDistance(Math.max(0.5, parseFloat(e.target.value) || 1))}
                   className="w-14 bg-[#1e222d] text-[#f87171] font-bold px-1.5 py-0.5 rounded border border-[#2a2e39] outline-none text-center"
-                  title="Stop Loss distance in $/oz from Entry Price"
                 />
                 <span className="text-[10px] text-rose-400/90 hidden sm:inline">
                   (-${projectedRiskUsd.toFixed(0)})
@@ -378,7 +447,6 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                   value={tpDistance}
                   onChange={(e) => setTpDistance(Math.max(0.5, parseFloat(e.target.value) || 1))}
                   className="w-14 bg-[#1e222d] text-[#34d399] font-bold px-1.5 py-0.5 rounded border border-[#2a2e39] outline-none text-center"
-                  title="Take Profit distance in $/oz from Entry Price"
                 />
                 <span className="text-[10px] text-emerald-400/90 hidden sm:inline">
                   (+${projectedProfitUsd.toFixed(0)} · {projectedRR}R)
@@ -433,24 +501,24 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
         </div>
       </div>
 
-      {/* Row 2: Dock Sub-Header Tabs (Backtest Journal vs Trading Sessions) */}
-      <div className="px-3 py-1.5 bg-[#131722] border-b border-[#2a2e39] flex items-center justify-between text-xs">
+      {/* Row 2: Dock Sub-Header Tabs (Strategy Positions · Free Analytics · Global Sessions) */}
+      <div className="px-3 py-1.5 bg-[#131722] border-b border-[#2a2e39] flex items-center justify-between text-xs overflow-x-auto no-scrollbar">
         <div className="flex items-center gap-4">
           <button
             onClick={() => {
               setDockTab('backtest');
               setIsCollapsed(false);
             }}
-            className={`flex items-center gap-1.5 py-1 font-semibold border-b-2 transition ${
+            className={`flex items-center gap-1.5 py-1 font-semibold border-b-2 transition whitespace-nowrap ${
               dockTab === 'backtest' && !isCollapsed
-                ? 'border-amber-400 text-amber-400'
+                ? 'border-[#2962ff] text-[#2962ff]'
                 : 'border-transparent text-[#787b86] hover:text-gray-200'
             }`}
           >
             <History className="w-3.5 h-3.5" />
             <span>
-              Backtest Positions & P&L ({openPositions.length} Open · {closedPositions.length}{' '}
-              Settled)
+              Strategy Positions ({openPositions.length} Open · {pendingPositions.length} Pending ·{' '}
+              {closedPositions.length} Settled)
             </span>
             <span
               className={`font-mono text-[11px] px-1.5 py-0.2 rounded font-bold ${
@@ -459,8 +527,26 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                   : 'bg-[#f23645]/20 text-[#f23645]'
               }`}
             >
-              Total P&L: {realizedPnL + unrealizedPnL >= 0 ? '+' : ''}$
+              Net P&L: {realizedPnL + unrealizedPnL >= 0 ? '+' : ''}$
               {(realizedPnL + unrealizedPnL).toFixed(2)}
+            </span>
+          </button>
+
+          <button
+            onClick={() => {
+              setDockTab('analytics');
+              setIsCollapsed(false);
+            }}
+            className={`flex items-center gap-1.5 py-1 font-semibold border-b-2 transition whitespace-nowrap ${
+              dockTab === 'analytics' && !isCollapsed
+                ? 'border-emerald-400 text-emerald-400'
+                : 'border-transparent text-[#787b86] hover:text-gray-200'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Free Strategy Analytics</span>
+            <span className="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 text-[10px] font-mono font-bold">
+              FREE
             </span>
           </button>
 
@@ -469,14 +555,14 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               setDockTab('sessions');
               setIsCollapsed(false);
             }}
-            className={`flex items-center gap-1.5 py-1 font-semibold border-b-2 transition ${
+            className={`flex items-center gap-1.5 py-1 font-semibold border-b-2 transition whitespace-nowrap ${
               dockTab === 'sessions' && !isCollapsed
                 ? 'border-amber-400 text-amber-400'
                 : 'border-transparent text-[#787b86] hover:text-gray-200'
             }`}
           >
             <Globe className="w-3.5 h-3.5" />
-            <span>Global Trading Sessions (Australia · Asia · London · New York)</span>
+            <span>Global Trading Sessions (Sydney · Tokyo · London · NY)</span>
             {isLondonNYOverlap && (
               <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono">
                 OVERLAP LIVE
@@ -487,7 +573,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
 
         <button
           onClick={() => setIsCollapsed((v) => !v)}
-          className="flex items-center gap-1 text-[11px] text-[#787b86] hover:text-white transition"
+          className="flex items-center gap-1 text-[11px] text-[#787b86] hover:text-white transition shrink-0 ml-2"
         >
           {isCollapsed ? (
             <>
@@ -505,8 +591,8 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
 
       {/* Row 3: Collapsible Body */}
       {!isCollapsed && (
-        <div className="p-3 bg-[#0f131d] max-h-[195px] overflow-y-auto custom-scrollbar">
-          {dockTab === 'backtest' ? (
+        <div className="p-3 bg-[#0f131d] max-h-[205px] overflow-y-auto custom-scrollbar">
+          {dockTab === 'backtest' && (
             <div className="space-y-2.5">
               {/* Account Summary Metrics */}
               <div className="flex flex-wrap items-center justify-between gap-2 bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39] font-mono text-xs">
@@ -544,7 +630,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                   <div>
                     <span className="text-[10px] text-[#787b86] block">WIN RATE</span>
                     <span className="text-amber-400 font-bold text-sm">
-                      {winRate}% ({winningTrades}W / {closedPositions.length - winningTrades}L)
+                      {winRate}% ({winningTrades.length}W / {losingTrades.length}L)
                     </span>
                   </div>
                 </div>
@@ -581,18 +667,17 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                 <div className="text-center py-3.5 text-xs text-[#787b86]">
                   Set your <strong className="text-amber-300">Lot Size</strong>,{' '}
                   <strong className="text-[#f23645]">Stop Loss (SL)</strong>, and{' '}
-                  <strong className="text-[#089981]">Take Profit (TP)</strong> above, click{' '}
-                  <strong className="text-[#089981]">Buy / Long</strong> or{' '}
-                  <strong className="text-[#f23645]">Sell / Short</strong>, then press{' '}
-                  <strong className="text-blue-400">Play</strong> to watch the candles play out and
-                  see if it hits your TP or SL!
+                  <strong className="text-[#089981]">Take Profit (TP)</strong> above (or draw a{' '}
+                  <strong className="text-[#2962ff]">Long / Short Position box</strong> on the
+                  chart), then press <strong className="text-blue-400">Play</strong> to test your
+                  strategy completely free!
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left font-mono text-xs border-collapse">
                     <thead>
                       <tr className="text-[10px] text-[#787b86] border-b border-[#2a2e39]">
-                        <th className="py-1.5 px-2">SIDE</th>
+                        <th className="py-1.5 px-2">SIDE / TYPE</th>
                         <th className="py-1.5 px-2">LOT SIZE</th>
                         <th className="py-1.5 px-2">ENTRY PRICE</th>
                         <th className="py-1.5 px-2">STOP LOSS (RISK)</th>
@@ -615,9 +700,12 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                             >
                               {pos.side}
                             </span>
+                            <span className="ml-1.5 text-[10px] text-[#787b86]">
+                              {pos.orderType}
+                            </span>
                           </td>
                           <td className="py-1.5 px-2 text-amber-300 font-bold">
-                            {pos.lotSize.toFixed(2)} Lot ({pos.sizeOz}oz)
+                            {pos.lotSize.toFixed(2)} Lot
                           </td>
                           <td className="py-1.5 px-2 text-white">${pos.entryPrice.toFixed(2)}</td>
                           <td className="py-1.5 px-2 text-[#f23645]">
@@ -635,7 +723,9 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                           <td className="py-1.5 px-2">
                             <span
                               className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                pos.status === 'OPEN'
+                                pos.status === 'PENDING'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : pos.status === 'OPEN'
                                   ? 'bg-blue-500/20 text-blue-300 animate-pulse'
                                   : pos.status === 'CLOSED_TP'
                                   ? 'bg-[#089981]/25 text-[#34d399] border border-[#089981]/50'
@@ -644,7 +734,9 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                                   : 'bg-gray-600/30 text-gray-300'
                               }`}
                             >
-                              {pos.status === 'OPEN'
+                              {pos.status === 'PENDING'
+                                ? '⏳ PENDING TOUCH'
+                                : pos.status === 'OPEN'
                                 ? '● ACTIVE IN PLAY'
                                 : pos.status === 'CLOSED_TP'
                                 ? '🎯 HIT TAKE PROFIT!'
@@ -655,23 +747,35 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                           </td>
                           <td
                             className={`py-1.5 px-2 font-extrabold text-xs ${
-                              pos.pnl >= 0 ? 'text-[#089981]' : 'text-[#f23645]'
+                              pos.status === 'PENDING'
+                                ? 'text-[#787b86]'
+                                : pos.pnl >= 0
+                                ? 'text-[#089981]'
+                                : 'text-[#f23645]'
                             }`}
                           >
-                            {pos.pnl >= 0 ? `+$${pos.pnl.toFixed(2)}` : `-$${Math.abs(pos.pnl).toFixed(2)}`}{' '}
-                            <span className="text-[10px] font-normal">
-                              ({pos.rMultiple >= 0 ? '+' : ''}
-                              {pos.rMultiple.toFixed(2)}R)
-                            </span>
+                            {pos.status === 'PENDING' ? (
+                              'Waiting for fill'
+                            ) : (
+                              <>
+                                {pos.pnl >= 0
+                                  ? `+$${pos.pnl.toFixed(2)}`
+                                  : `-$${Math.abs(pos.pnl).toFixed(2)}`}{' '}
+                                <span className="text-[10px] font-normal">
+                                  ({pos.rMultiple >= 0 ? '+' : ''}
+                                  {pos.rMultiple.toFixed(2)}R)
+                                </span>
+                              </>
+                            )}
                           </td>
                           <td className="py-1.5 px-2 text-right">
-                            {pos.status === 'OPEN' ? (
+                            {pos.status === 'OPEN' || pos.status === 'PENDING' ? (
                               <button
                                 onClick={() => onClosePosition(pos.id)}
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[10px] font-semibold transition"
                               >
                                 <XCircle className="w-3 h-3" />
-                                Close Trade
+                                {pos.status === 'PENDING' ? 'Cancel Order' : 'Close Trade'}
                               </button>
                             ) : (
                               <span className="text-[10px] text-[#787b86]">
@@ -686,7 +790,107 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                 </div>
               )}
             </div>
-          ) : (
+          )}
+
+          {dockTab === 'analytics' && (
+            <div className="space-y-3">
+              {/* Top 6 Quantitative Strategy KPIs */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 font-mono">
+                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
+                  <span className="text-[10px] text-[#787b86] block">WIN RATE</span>
+                  <span className="text-base font-black text-emerald-400">{winRate}%</span>
+                  <span className="text-[10px] text-[#787b86] block">
+                    {winningTrades.length} Wins / {losingTrades.length} Losses
+                  </span>
+                </div>
+
+                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
+                  <span className="text-[10px] text-[#787b86] block">PROFIT FACTOR</span>
+                  <span className="text-base font-black text-[#2962ff]">{profitFactor}</span>
+                  <span className="text-[10px] text-[#787b86] block">
+                    Gross +${grossProfit.toFixed(0)} / -${grossLoss.toFixed(0)}
+                  </span>
+                </div>
+
+                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
+                  <span className="text-[10px] text-[#787b86] block">AVG R-MULTIPLE</span>
+                  <span
+                    className={`text-base font-black ${
+                      avgRMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    {avgRMultiple >= 0 ? `+${avgRMultiple}R` : `${avgRMultiple}R`}
+                  </span>
+                  <span className="text-[10px] text-[#787b86] block">
+                    Expectancy: {avgTradeExpectancy >= 0 ? '+' : ''}${avgTradeExpectancy}
+                  </span>
+                </div>
+
+                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
+                  <span className="text-[10px] text-[#787b86] block">LONG VS SHORT</span>
+                  <span className="text-base font-black text-amber-400">
+                    L: {longWinRate}% · S: {shortWinRate}%
+                  </span>
+                  <span className="text-[10px] text-[#787b86] block">
+                    {longClosed.length} Longs · {shortClosed.length} Shorts
+                  </span>
+                </div>
+
+                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
+                  <span className="text-[10px] text-[#787b86] block">BEST TRADE</span>
+                  <span className="text-base font-black text-[#089981]">
+                    +${ Math.max(0, bestTradePnl).toFixed(2) }
+                  </span>
+                  <span className="text-[10px] text-[#787b86] block">Peak Single Return</span>
+                </div>
+
+                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
+                  <span className="text-[10px] text-[#787b86] block">MAX DRAWDOWN TRADE</span>
+                  <span className="text-base font-black text-[#f23645]">
+                    -${ Math.abs(Math.min(0, worstTradePnl)).toFixed(2) }
+                  </span>
+                  <span className="text-[10px] text-[#787b86] block">Largest Single Loss</span>
+                </div>
+              </div>
+
+              {/* Visual R-Multiple & Trade Distribution Strip */}
+              <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39] flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                  <span className="font-bold text-white">
+                    Chart Flow Strategy Sequence (Recent Trades):
+                  </span>
+                </div>
+
+                {closedPositions.length === 0 ? (
+                  <span className="text-[#787b86] font-mono text-[11px]">
+                    Complete at least 1 backtest trade to populate your live R-Multiple & Session
+                    distribution!
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-1.5 overflow-x-auto">
+                    {[...closedPositions].reverse().map((t, idx) => (
+                      <span
+                        key={t.id}
+                        className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold border ${
+                          t.pnl >= 0
+                            ? 'bg-[#089981]/20 border-[#089981]/50 text-emerald-300'
+                            : 'bg-[#f23645]/20 border-[#f23645]/50 text-rose-300'
+                        }`}
+                        title={`Trade #${idx + 1} (${t.sessionAtEntry}): ${
+                          t.pnl >= 0 ? '+' : ''
+                        }$${t.pnl.toFixed(2)}`}
+                      >
+                        #{idx + 1} {t.rMultiple >= 0 ? `+${t.rMultiple}R` : `${t.rMultiple}R`}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {dockTab === 'sessions' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
               {sessions.map((session) => {
                 const isOpenNow = activeSessionIds.has(session.id);

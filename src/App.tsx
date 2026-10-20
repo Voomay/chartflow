@@ -6,6 +6,7 @@ import {
   ChartDrawing,
   DrawingTool,
   GoldNewsItem,
+  InstrumentSymbol,
   MacroEnvironment,
   SessionConfig,
   SessionId,
@@ -17,6 +18,7 @@ import {
   fetchGoldCandles,
   fetchLatestGoldCandles,
   getActiveSessionsAtTime,
+  getInstrumentConfig,
   INITIAL_SESSIONS,
   TIMEFRAME_CONFIG,
 } from './services/goldDataService';
@@ -31,6 +33,8 @@ import { LeftToolbar } from './components/LeftToolbar';
 import { TradingChart } from './components/TradingChart';
 import { GoldIntelligenceWidget } from './components/GoldIntelligenceWidget';
 import { ReplayAndSessionsDock } from './components/ReplayAndSessionsDock';
+import { LandingPage } from './components/LandingPage';
+import { ChartFlowUser, LoginPage } from './components/LoginPage';
 import { ShieldAlert, Trophy, X } from 'lucide-react';
 
 function formatCountdown(secondsLeft: number): string {
@@ -47,6 +51,18 @@ function formatCountdown(secondsLeft: number): string {
 }
 
 export function App() {
+  const [symbol, setSymbol] = useState<InstrumentSymbol>('XAUUSD');
+  const [activeView, setActiveView] = useState<'terminal' | 'landing' | 'login'>('terminal');
+  const [loginInitialMode, setLoginInitialMode] = useState<'login' | 'signup'>('login');
+  const [requestedDockTab, setRequestedDockTab] = useState<
+    'backtest' | 'analytics' | 'sessions' | null
+  >(null);
+  const [currentUser, setCurrentUser] = useState<ChartFlowUser | null>({
+    name: 'Pro Gold Trader',
+    email: 'trader@chartflow.io',
+    plan: 'FREE_FOREVER',
+    joinedAt: '2026-10-20',
+  });
   const [timeframe, setTimeframe] = useState<Timeframe>('15m');
   const [allCandles, setAllCandles] = useState<Candle[]>([]);
   const [dataSource, setDataSource] = useState<'LIVE_SPOT_FEED' | 'SYNTHETIC_FALLBACK'>(
@@ -82,7 +98,8 @@ export function App() {
   const [hideDrawings, setHideDrawings] = useState<boolean>(false);
   const [magnetMode, setMagnetMode] = useState<boolean>(false);
 
-  const [showRightWidget, setShowRightWidget] = useState<boolean>(true);
+  // Hide Gold Intelligence Widget by default as requested
+  const [showRightWidget, setShowRightWidget] = useState<boolean>(false);
   const [isChartWideMode, setIsChartWideMode] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
@@ -111,6 +128,8 @@ export function App() {
   const [activeMacroPreset, setActiveMacroPreset] = useState<
     'BASELINE' | 'DOVISH_FED' | 'HAWKISH_CPI' | 'GEO_ESCALATION'
   >('BASELINE');
+
+  const instCfg = useMemo(() => getInstrumentConfig(symbol), [symbol]);
 
   const showToast = useCallback(
     (text: string, tone: 'up' | 'down' | 'info' = 'info') => {
@@ -149,10 +168,10 @@ export function App() {
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
-  const loadTimeframeData = useCallback(async (tf: Timeframe) => {
+  const loadTimeframeData = useCallback(async (tf: Timeframe, sym: InstrumentSymbol) => {
     setIsLoading(true);
     setIsPlaying(false);
-    const { candles, source } = await fetchGoldCandles(tf, 1000);
+    const { candles, source } = await fetchGoldCandles(tf, 1000, sym);
     setAllCandles(candles);
     setDataSource(source);
     setReplayIndex(Math.max(0, candles.length - 1));
@@ -161,123 +180,171 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    loadTimeframeData(timeframe);
-  }, [timeframe, loadTimeframeData]);
+    loadTimeframeData(timeframe, symbol);
+  }, [timeframe, symbol, loadTimeframeData]);
 
-  const evaluatePositionsForCandle = useCallback((candle: Candle) => {
-    setPositions((prev) => {
-      let realizedDelta = 0;
-      let hasChanges = false;
+  const evaluatePositionsForCandle = useCallback(
+    (candle: Candle) => {
+      const dec = instCfg.decimals;
+      const minRisk = instCfg.minMove;
 
-      const updated = prev.map((pos) => {
-        if (pos.status !== 'OPEN') return pos;
-        hasChanges = true;
+      setPositions((prev) => {
+        let realizedDelta = 0;
+        let hasChanges = false;
 
-        const riskPerOz = Math.max(0.1, Math.abs(pos.entryPrice - pos.stopLoss));
+        const updated = prev.map((pos) => {
+          // 1. Check if a PENDING order is touched by this candle!
+          let activePos = pos;
+          if (activePos.status === 'PENDING') {
+            const touched =
+              candle.low <= activePos.entryPrice && candle.high >= activePos.entryPrice;
+            if (!touched) {
+              return activePos;
+            }
+            hasChanges = true;
+            activePos = {
+              ...activePos,
+              status: 'OPEN' as const,
+              triggeredTime: candle.time,
+            };
+            showToast(
+              `⚡ Pending ${activePos.side} ${activePos.lotSize.toFixed(2)} Lot triggered @ ${activePos.entryPrice.toFixed(
+                dec
+              )} — P&L is now OPEN!`,
+              activePos.side === 'LONG' ? 'up' : 'down'
+            );
+          }
 
-        if (pos.side === 'LONG') {
-          if (candle.low <= pos.stopLoss) {
-            const pnl = Number(((pos.stopLoss - pos.entryPrice) * pos.sizeOz).toFixed(2));
-            realizedDelta += pnl;
-            setOutcomeBanner({
-              type: 'SL',
-              side: pos.side,
-              lotSize: pos.lotSize,
-              entryPrice: pos.entryPrice,
-              exitPrice: pos.stopLoss,
-              pnl,
-              rMultiple: -1.0,
-            });
-            return {
-              ...pos,
-              status: 'CLOSED_SL' as const,
-              exitPrice: pos.stopLoss,
-              exitTime: candle.time,
-              pnl,
-              rMultiple: -1.0,
-            };
+          if (activePos.status !== 'OPEN') return activePos;
+          hasChanges = true;
+
+          const riskPerUnit = Math.max(minRisk, Math.abs(activePos.entryPrice - activePos.stopLoss));
+
+          if (activePos.side === 'LONG') {
+            if (candle.low <= activePos.stopLoss) {
+              const pnl = Number(
+                ((activePos.stopLoss - activePos.entryPrice) * activePos.sizeOz).toFixed(2)
+              );
+              realizedDelta += pnl;
+              setOutcomeBanner({
+                type: 'SL',
+                side: activePos.side,
+                lotSize: activePos.lotSize,
+                entryPrice: activePos.entryPrice,
+                exitPrice: activePos.stopLoss,
+                pnl,
+                rMultiple: -1.0,
+              });
+              return {
+                ...activePos,
+                status: 'CLOSED_SL' as const,
+                exitPrice: activePos.stopLoss,
+                exitTime: candle.time,
+                pnl,
+                rMultiple: -1.0,
+              };
+            }
+            if (candle.high >= activePos.takeProfit) {
+              const pnl = Number(
+                ((activePos.takeProfit - activePos.entryPrice) * activePos.sizeOz).toFixed(2)
+              );
+              const rMult = Number(
+                ((activePos.takeProfit - activePos.entryPrice) / riskPerUnit).toFixed(2)
+              );
+              realizedDelta += pnl;
+              setOutcomeBanner({
+                type: 'TP',
+                side: activePos.side,
+                lotSize: activePos.lotSize,
+                entryPrice: activePos.entryPrice,
+                exitPrice: activePos.takeProfit,
+                pnl,
+                rMultiple: rMult,
+              });
+              return {
+                ...activePos,
+                status: 'CLOSED_TP' as const,
+                exitPrice: activePos.takeProfit,
+                exitTime: candle.time,
+                pnl,
+                rMultiple: rMult,
+              };
+            }
+            const floatingPnl = Number(
+              ((candle.close - activePos.entryPrice) * activePos.sizeOz).toFixed(2)
+            );
+            const floatingR = Number(
+              ((candle.close - activePos.entryPrice) / riskPerUnit).toFixed(2)
+            );
+            return { ...activePos, pnl: floatingPnl, rMultiple: floatingR };
+          } else {
+            if (candle.high >= activePos.stopLoss) {
+              const pnl = Number(
+                ((activePos.entryPrice - activePos.stopLoss) * activePos.sizeOz).toFixed(2)
+              );
+              realizedDelta += pnl;
+              setOutcomeBanner({
+                type: 'SL',
+                side: activePos.side,
+                lotSize: activePos.lotSize,
+                entryPrice: activePos.entryPrice,
+                exitPrice: activePos.stopLoss,
+                pnl,
+                rMultiple: -1.0,
+              });
+              return {
+                ...activePos,
+                status: 'CLOSED_SL' as const,
+                exitPrice: activePos.stopLoss,
+                exitTime: candle.time,
+                pnl,
+                rMultiple: -1.0,
+              };
+            }
+            if (candle.low <= activePos.takeProfit) {
+              const pnl = Number(
+                ((activePos.entryPrice - activePos.takeProfit) * activePos.sizeOz).toFixed(2)
+              );
+              const rMult = Number(
+                ((activePos.entryPrice - activePos.takeProfit) / riskPerUnit).toFixed(2)
+              );
+              realizedDelta += pnl;
+              setOutcomeBanner({
+                type: 'TP',
+                side: activePos.side,
+                lotSize: activePos.lotSize,
+                entryPrice: activePos.entryPrice,
+                exitPrice: activePos.takeProfit,
+                pnl,
+                rMultiple: rMult,
+              });
+              return {
+                ...activePos,
+                status: 'CLOSED_TP' as const,
+                exitPrice: activePos.takeProfit,
+                exitTime: candle.time,
+                pnl,
+                rMultiple: rMult,
+              };
+            }
+            const floatingPnl = Number(
+              ((activePos.entryPrice - candle.close) * activePos.sizeOz).toFixed(2)
+            );
+            const floatingR = Number(
+              ((activePos.entryPrice - candle.close) / riskPerUnit).toFixed(2)
+            );
+            return { ...activePos, pnl: floatingPnl, rMultiple: floatingR };
           }
-          if (candle.high >= pos.takeProfit) {
-            const pnl = Number(((pos.takeProfit - pos.entryPrice) * pos.sizeOz).toFixed(2));
-            const rMult = Number(((pos.takeProfit - pos.entryPrice) / riskPerOz).toFixed(2));
-            realizedDelta += pnl;
-            setOutcomeBanner({
-              type: 'TP',
-              side: pos.side,
-              lotSize: pos.lotSize,
-              entryPrice: pos.entryPrice,
-              exitPrice: pos.takeProfit,
-              pnl,
-              rMultiple: rMult,
-            });
-            return {
-              ...pos,
-              status: 'CLOSED_TP' as const,
-              exitPrice: pos.takeProfit,
-              exitTime: candle.time,
-              pnl,
-              rMultiple: rMult,
-            };
-          }
-          const floatingPnl = Number(((candle.close - pos.entryPrice) * pos.sizeOz).toFixed(2));
-          const floatingR = Number(((candle.close - pos.entryPrice) / riskPerOz).toFixed(2));
-          return { ...pos, pnl: floatingPnl, rMultiple: floatingR };
-        } else {
-          if (candle.high >= pos.stopLoss) {
-            const pnl = Number(((pos.entryPrice - pos.stopLoss) * pos.sizeOz).toFixed(2));
-            realizedDelta += pnl;
-            setOutcomeBanner({
-              type: 'SL',
-              side: pos.side,
-              lotSize: pos.lotSize,
-              entryPrice: pos.entryPrice,
-              exitPrice: pos.stopLoss,
-              pnl,
-              rMultiple: -1.0,
-            });
-            return {
-              ...pos,
-              status: 'CLOSED_SL' as const,
-              exitPrice: pos.stopLoss,
-              exitTime: candle.time,
-              pnl,
-              rMultiple: -1.0,
-            };
-          }
-          if (candle.low <= pos.takeProfit) {
-            const pnl = Number(((pos.entryPrice - pos.takeProfit) * pos.sizeOz).toFixed(2));
-            const rMult = Number(((pos.entryPrice - pos.takeProfit) / riskPerOz).toFixed(2));
-            realizedDelta += pnl;
-            setOutcomeBanner({
-              type: 'TP',
-              side: pos.side,
-              lotSize: pos.lotSize,
-              entryPrice: pos.entryPrice,
-              exitPrice: pos.takeProfit,
-              pnl,
-              rMultiple: rMult,
-            });
-            return {
-              ...pos,
-              status: 'CLOSED_TP' as const,
-              exitPrice: pos.takeProfit,
-              exitTime: candle.time,
-              pnl,
-              rMultiple: rMult,
-            };
-          }
-          const floatingPnl = Number(((pos.entryPrice - candle.close) * pos.sizeOz).toFixed(2));
-          const floatingR = Number(((pos.entryPrice - candle.close) / riskPerOz).toFixed(2));
-          return { ...pos, pnl: floatingPnl, rMultiple: floatingR };
+        });
+
+        if (realizedDelta !== 0) {
+          setRealizedPnL((r) => Number((r + realizedDelta).toFixed(2)));
         }
+        return hasChanges ? updated : prev;
       });
-
-      if (realizedDelta !== 0) {
-        setRealizedPnL((r) => Number((r + realizedDelta).toFixed(2)));
-      }
-      return hasChanges ? updated : prev;
-    });
-  }, []);
+    },
+    [instCfg.decimals, instCfg.minMove, showToast]
+  );
 
   const isReplayModeRef = useRef(isReplayMode);
   useEffect(() => {
@@ -287,6 +354,8 @@ export function App() {
   useEffect(() => {
     const tfSeconds = TIMEFRAME_CONFIG[timeframe].seconds;
     const interval = TIMEFRAME_CONFIG[timeframe].binanceInterval;
+    const dec = instCfg.decimals;
+    const volStep = instCfg.volatility1m * 0.12;
     let ws: WebSocket | null = null;
     let lastLiveTickMs = Date.now();
     let isUnmounted = false;
@@ -308,9 +377,9 @@ export function App() {
           const updated: Candle = {
             time: incoming.time,
             open: stitchedOpen,
-            high: Number(Math.max(incoming.high, stitchedOpen, incoming.close).toFixed(2)),
-            low: Number(Math.min(incoming.low, stitchedOpen, incoming.close).toFixed(2)),
-            close: incoming.close,
+            high: Number(Math.max(incoming.high, stitchedOpen, incoming.close).toFixed(dec)),
+            low: Number(Math.min(incoming.low, stitchedOpen, incoming.close).toFixed(dec)),
+            close: Number(incoming.close.toFixed(dec)),
             volume: incoming.volume,
           };
           evaluatePositionsForCandle(updated);
@@ -321,9 +390,9 @@ export function App() {
           const appended: Candle = {
             time: incoming.time,
             open: stitchedOpen,
-            high: Number(Math.max(incoming.high, stitchedOpen, incoming.close).toFixed(2)),
-            low: Number(Math.min(incoming.low, stitchedOpen, incoming.close).toFixed(2)),
-            close: incoming.close,
+            high: Number(Math.max(incoming.high, stitchedOpen, incoming.close).toFixed(dec)),
+            low: Number(Math.min(incoming.low, stitchedOpen, incoming.close).toFixed(dec)),
+            close: Number(incoming.close.toFixed(dec)),
             volume: incoming.volume,
           };
           const next = [...prev, appended];
@@ -335,39 +404,40 @@ export function App() {
       });
     };
 
-    try {
-      ws = new WebSocket(`wss://fstream.binance.com/ws/xauusdt@kline_${interval}`);
-      ws.onmessage = (event) => {
-        if (isReplayModeRef.current) return;
-        try {
-          const msg = JSON.parse(event.data);
-          if (!msg.k) return;
-          const k = msg.k;
-          mergeLiveCandle({
-            time: Math.floor(Number(k.t) / 1000),
-            open: Number(parseFloat(k.o).toFixed(2)),
-            high: Number(parseFloat(k.h).toFixed(2)),
-            low: Number(parseFloat(k.l).toFixed(2)),
-            close: Number(parseFloat(k.c).toFixed(2)),
-            volume: Number(parseFloat(k.v).toFixed(2)),
-          });
-        } catch {
-          // ignore
-        }
-      };
-    } catch {
-      // fallback handled by live HTTP poll
+    if (symbol === 'XAUUSD') {
+      try {
+        ws = new WebSocket(`wss://fstream.binance.com/ws/xauusdt@kline_${interval}`);
+        ws.onmessage = (event) => {
+          if (isReplayModeRef.current) return;
+          try {
+            const msg = JSON.parse(event.data);
+            if (!msg.k) return;
+            const k = msg.k;
+            mergeLiveCandle({
+              time: Math.floor(Number(k.t) / 1000),
+              open: Number(parseFloat(k.o).toFixed(dec)),
+              high: Number(parseFloat(k.h).toFixed(dec)),
+              low: Number(parseFloat(k.l).toFixed(dec)),
+              close: Number(parseFloat(k.c).toFixed(dec)),
+              volume: Number(parseFloat(k.v).toFixed(2)),
+            });
+          } catch {
+            // ignore
+          }
+        };
+      } catch {
+        // fallback handled by live HTTP poll
+      }
     }
 
-    // High-reliability 1.5s HTTP kline sync for XAUUSDT (works even if WebSocket port is blocked)
     const pollTimer = setInterval(async () => {
       if (isReplayModeRef.current || isUnmounted) return;
-      const latest = await fetchLatestGoldCandles(timeframe, 2);
+      const latest = await fetchLatestGoldCandles(timeframe, 2, symbol);
       if (!latest || latest.length === 0 || isUnmounted) return;
       for (const c of latest) {
         mergeLiveCandle(c);
       }
-    }, 1500);
+    }, 2000);
 
     const liveTimer = setInterval(() => {
       const nowSec = Math.floor(Date.now() / 1000);
@@ -378,8 +448,7 @@ export function App() {
 
       if (isReplayModeRef.current) return;
 
-      // Offline fallback only if neither WS nor HTTP poll responded for 6+ seconds
-      if (Date.now() - lastLiveTickMs > 6000) {
+      if (Date.now() - lastLiveTickMs > 3000) {
         setAllCandles((prev) => {
           if (prev.length === 0) return prev;
           const last = prev[prev.length - 1];
@@ -388,8 +457,8 @@ export function App() {
             const newBar: Candle = {
               time: currentBucketStart,
               open: last.close,
-              high: Number((last.close + 0.12).toFixed(2)),
-              low: Number((last.close - 0.12).toFixed(2)),
+              high: Number((last.close + volStep).toFixed(dec)),
+              low: Number((last.close - volStep).toFixed(dec)),
               close: last.close,
               volume: 1,
             };
@@ -399,13 +468,13 @@ export function App() {
             return next;
           }
 
-          const microDelta = (Math.random() - 0.5) * 0.18;
-          const nextClose = Number((last.close + microDelta).toFixed(2));
+          const microDelta = (Math.random() - 0.5) * volStep * 1.4;
+          const nextClose = Number((last.close + microDelta).toFixed(dec));
           const updatedBar: Candle = {
             ...last,
             close: nextClose,
-            high: Number(Math.max(last.high, last.open, nextClose).toFixed(2)),
-            low: Number(Math.min(last.low, last.open, nextClose).toFixed(2)),
+            high: Number(Math.max(last.high, last.open, nextClose).toFixed(dec)),
+            low: Number(Math.min(last.low, last.open, nextClose).toFixed(dec)),
             volume: Number((last.volume + Math.random() * 1.2).toFixed(2)),
           };
           evaluatePositionsForCandle(updatedBar);
@@ -420,7 +489,7 @@ export function App() {
       clearInterval(liveTimer);
       if (ws) ws.close();
     };
-  }, [timeframe, evaluatePositionsForCandle]);
+  }, [timeframe, symbol, instCfg.decimals, instCfg.volatility1m, evaluatePositionsForCandle]);
 
   const visibleCandles = useMemo(() => {
     if (allCandles.length === 0) return [];
@@ -517,8 +586,8 @@ export function App() {
     setIsReplayMode(false);
     setReplayIndex(Math.max(0, allCandles.length - 1));
     setActiveTool('cursor');
-    showToast('Returned to Live Real-Time Gold Feed', 'info');
-  }, [allCandles.length, showToast]);
+    showToast(`Returned to Live Real-Time ${instCfg.displaySymbol} Feed`, 'info');
+  }, [allCandles.length, instCfg.displaySymbol, showToast]);
 
   const handleToggleSessionEnabled = useCallback((id: SessionId) => {
     setSessions((prev) =>
@@ -546,19 +615,25 @@ export function App() {
     setDrawings([]);
   }, []);
 
-  // Open Market Order with Lot Size, Stop Loss Price, and Take Profit Price
+  // Open Market or Pending Order with Lot Size, Stop Loss Price, and Take Profit Price
   const handleOpenMarketOrder = useCallback(
     (
       side: 'LONG' | 'SHORT',
       lotSize: number,
       stopLossPrice: number,
-      takeProfitPrice: number
+      takeProfitPrice: number,
+      orderType: 'MARKET' | 'PENDING' = 'MARKET',
+      pendingEntryPrice?: number
     ) => {
       const last = visibleCandles[visibleCandles.length - 1];
       if (!last) return;
 
-      const entryPrice = last.close;
-      const sizeOz = Math.max(1, Math.round(lotSize * 100));
+      const dec = instCfg.decimals;
+      const entryPrice =
+        orderType === 'PENDING' && pendingEntryPrice !== undefined
+          ? Number(pendingEntryPrice.toFixed(dec))
+          : last.close;
+      const sizeOz = Math.max(0.01, lotSize * instCfg.contractSize);
       const riskDollars = Number((Math.abs(entryPrice - stopLossPrice) * sizeOz).toFixed(2));
       const rewardDollars = Number((Math.abs(takeProfitPrice - entryPrice) * sizeOz).toFixed(2));
 
@@ -566,15 +641,17 @@ export function App() {
       const sessionLabel = active.map((s) => s.city).join('/') || 'Rollover';
 
       const newPos: BacktestPosition = {
-        id: `pos-${Date.now()}`,
+        id: `pos-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         side,
+        orderType,
         entryPrice,
         entryTime: last.time,
-        stopLoss: Number(stopLossPrice.toFixed(2)),
-        takeProfit: Number(takeProfitPrice.toFixed(2)),
+        triggeredTime: orderType === 'MARKET' ? last.time : undefined,
+        stopLoss: Number(stopLossPrice.toFixed(dec)),
+        takeProfit: Number(takeProfitPrice.toFixed(dec)),
         lotSize,
         sizeOz,
-        status: 'OPEN',
+        status: orderType === 'PENDING' ? 'PENDING' : 'OPEN',
         pnl: 0,
         rMultiple: 0,
         riskDollars,
@@ -583,17 +660,61 @@ export function App() {
       };
 
       setPositions((prev) => [newPos, ...prev]);
-      showToast(
-        `Opened ${side} ${lotSize.toFixed(2)} Lot @ $${entryPrice.toFixed(
-          2
-        )} — Drag the TP / SL handles on chart to adjust!`,
-        side === 'LONG' ? 'up' : 'down'
-      );
+      if (orderType === 'PENDING') {
+        showToast(
+          `⏳ Placed Pending ${side} (${lotSize.toFixed(2)} Lot) @ ${entryPrice.toFixed(
+            dec
+          )} — Will trigger when price touches entry line!`,
+          'info'
+        );
+      } else {
+        showToast(
+          `⚡ Executed Market ${side} ${lotSize.toFixed(2)} Lot @ ${entryPrice.toFixed(
+            dec
+          )} — Live P&L is now open!`,
+          side === 'LONG' ? 'up' : 'down'
+        );
+      }
     },
-    [visibleCandles, sessions, showToast]
+    [visibleCandles, instCfg.decimals, instCfg.contractSize, sessions, showToast]
   );
 
-  // Live Drag-and-Drop Update for Active Position SL / TP / Entry / Width on Chart!
+  // Convert a Long/Short Position box placed on the chart into a PENDING or MARKET order!
+  const handlePlaceOrderFromDrawing = useCallback(
+    (drawing: ChartDrawing, orderType: 'MARKET' | 'PENDING') => {
+      const last = visibleCandles[visibleCandles.length - 1];
+      if (!last) return;
+
+      const side: 'LONG' | 'SHORT' =
+        drawing.type === 'short_position' ? 'SHORT' : 'LONG';
+      const lotSize = drawing.lotSize ?? 1.0;
+      const drawnEntry = drawing.price1;
+      const fallbackDist = instCfg.volatility1m * 4;
+      const drawnSl =
+        drawing.stopLoss ??
+        (side === 'LONG' ? drawnEntry - fallbackDist : drawnEntry + fallbackDist);
+      const drawnTp =
+        drawing.takeProfit ??
+        (side === 'LONG' ? drawnEntry + fallbackDist * 2 : drawnEntry - fallbackDist * 2);
+
+      if (orderType === 'MARKET') {
+        // Preserve the user's drawn SL & TP distances around the current market price
+        const slDist = Math.max(instCfg.minMove * 2, Math.abs(drawnEntry - drawnSl));
+        const tpDist = Math.max(instCfg.minMove * 2, Math.abs(drawnTp - drawnEntry));
+        const marketSl = side === 'LONG' ? last.close - slDist : last.close + slDist;
+        const marketTp = side === 'LONG' ? last.close + tpDist : last.close - tpDist;
+        handleOpenMarketOrder(side, lotSize, marketSl, marketTp, 'MARKET');
+      } else {
+        handleOpenMarketOrder(side, lotSize, drawnSl, drawnTp, 'PENDING', drawnEntry);
+      }
+
+      // Remove the draft drawing since it is now a live tracked BacktestPosition on the chart
+      setDrawings((prev) => prev.filter((d) => d.id !== drawing.id));
+    },
+    [visibleCandles, instCfg.volatility1m, instCfg.minMove, handleOpenMarketOrder]
+  );
+
+  // Live Drag-and-Drop Update for Active or Pending Position SL / TP / Entry / Width on Chart!
   const handleUpdatePositionSLTP = useCallback(
     (
       id: string,
@@ -605,20 +726,27 @@ export function App() {
       const lastClose = visibleCandles[visibleCandles.length - 1]?.close;
       setPositions((prev) =>
         prev.map((pos) => {
-          if (pos.id !== id || pos.status !== 'OPEN') return pos;
+          if (pos.id !== id || (pos.status !== 'OPEN' && pos.status !== 'PENDING')) {
+            return pos;
+          }
           const entry = newEntryPrice !== undefined ? newEntryPrice : pos.entryPrice;
           const riskDollars = Number((Math.abs(entry - newSL) * pos.sizeOz).toFixed(2));
           const rewardDollars = Number((Math.abs(newTP - entry) * pos.sizeOz).toFixed(2));
-          const riskPerOz = Math.max(0.05, Math.abs(entry - newSL));
+          const riskPerUnit = Math.max(instCfg.minMove, Math.abs(entry - newSL));
           const refClose = lastClose ?? entry;
+
           const pnl =
-            pos.side === 'LONG'
+            pos.status === 'PENDING'
+              ? 0
+              : pos.side === 'LONG'
               ? Number(((refClose - entry) * pos.sizeOz).toFixed(2))
               : Number(((entry - refClose) * pos.sizeOz).toFixed(2));
           const rMultiple =
-            pos.side === 'LONG'
-              ? Number(((refClose - entry) / riskPerOz).toFixed(2))
-              : Number(((entry - refClose) / riskPerOz).toFixed(2));
+            pos.status === 'PENDING'
+              ? 0
+              : pos.side === 'LONG'
+              ? Number(((refClose - entry) / riskPerUnit).toFixed(2))
+              : Number(((entry - refClose) / riskPerUnit).toFixed(2));
 
           return {
             ...pos,
@@ -634,7 +762,7 @@ export function App() {
         })
       );
     },
-    [visibleCandles]
+    [visibleCandles, instCfg.minMove]
   );
 
   const goldReport = useMemo(
@@ -647,19 +775,28 @@ export function App() {
     (side: 'LONG' | 'SHORT') => {
       const last = visibleCandles[visibleCandles.length - 1];
       if (!last) return;
-      const atr = Math.max(3, goldReport.atr14 || 5);
-      const slDist = Number((atr * 1.5).toFixed(2));
-      const tpDist = Number((atr * 2.5).toFixed(2));
+      const dec = instCfg.decimals;
+      const defaultAtr = instCfg.volatility1m * 3.5;
+      const atr = Math.max(instCfg.minMove * 10, goldReport.atr14 || defaultAtr);
+      const slDist = Number((atr * 1.5).toFixed(dec));
+      const tpDist = Number((atr * 2.5).toFixed(dec));
       const sl = side === 'LONG' ? last.close - slDist : last.close + slDist;
       const tp = side === 'LONG' ? last.close + tpDist : last.close - tpDist;
-      handleOpenMarketOrder(side, 1.0, sl, tp);
+      handleOpenMarketOrder(side, 1.0, sl, tp, 'MARKET');
     },
-    [visibleCandles, goldReport.atr14, handleOpenMarketOrder]
+    [
+      visibleCandles,
+      instCfg.decimals,
+      instCfg.volatility1m,
+      instCfg.minMove,
+      goldReport.atr14,
+      handleOpenMarketOrder,
+    ]
   );
 
   const handleExecuteRecommendedTrade = useCallback(
     (side: 'LONG' | 'SHORT', stopLoss: number, takeProfit: number) => {
-      handleOpenMarketOrder(side, 1.0, stopLoss, takeProfit);
+      handleOpenMarketOrder(side, 1.0, stopLoss, takeProfit, 'MARKET');
     },
     [handleOpenMarketOrder]
   );
@@ -668,32 +805,43 @@ export function App() {
     (id: string) => {
       const last = visibleCandles[visibleCandles.length - 1];
       if (!last) return;
+      const dec = instCfg.decimals;
 
       setPositions((prev) =>
-        prev.map((pos) => {
-          if (pos.id !== id || pos.status !== 'OPEN') return pos;
+        prev.flatMap((pos) => {
+          if (pos.id !== id) return [pos];
+          if (pos.status === 'PENDING') {
+            showToast(
+              `Cancelled Pending ${pos.side} Order @ ${pos.entryPrice.toFixed(dec)}`,
+              'info'
+            );
+            return [];
+          }
+          if (pos.status !== 'OPEN') return [pos];
           const pnl =
             pos.side === 'LONG'
               ? Number(((last.close - pos.entryPrice) * pos.sizeOz).toFixed(2))
               : Number(((pos.entryPrice - last.close) * pos.sizeOz).toFixed(2));
           setRealizedPnL((r) => Number((r + pnl).toFixed(2)));
           showToast(
-            `Closed ${pos.side} ${pos.lotSize.toFixed(2)} Lot @ $${last.close.toFixed(2)} (${
+            `Closed ${pos.side} ${pos.lotSize.toFixed(2)} Lot @ ${last.close.toFixed(dec)} (${
               pnl >= 0 ? `You Made +$${pnl.toFixed(2)}` : `Result: -$${Math.abs(pnl).toFixed(2)}`
             })`,
             pnl >= 0 ? 'up' : 'down'
           );
-          return {
-            ...pos,
-            status: 'CLOSED_MANUAL' as const,
-            exitPrice: last.close,
-            exitTime: last.time,
-            pnl,
-          };
+          return [
+            {
+              ...pos,
+              status: 'CLOSED_MANUAL' as const,
+              exitPrice: last.close,
+              exitTime: last.time,
+              pnl,
+            },
+          ];
         })
       );
     },
-    [visibleCandles, showToast]
+    [visibleCandles, instCfg.decimals, showToast]
   );
 
   const handleResetBacktestAccount = useCallback(() => {
@@ -777,12 +925,12 @@ export function App() {
   );
 
   const sessionBoxes = useMemo(
-    () => computeSessionBoxes(visibleCandles, sessions, timeframe),
-    [visibleCandles, sessions, timeframe]
+    () => computeSessionBoxes(visibleCandles, sessions, timeframe, instCfg.decimals),
+    [visibleCandles, sessions, timeframe, instCfg.decimals]
   );
 
   const lastCandle = visibleCandles[visibleCandles.length - 1];
-  const currentPrice = lastCandle?.close ?? 4140.0;
+  const currentPrice = lastCandle?.close ?? instCfg.basePrice;
   const currentTimestamp = lastCandle?.time ?? Math.floor(Date.now() / 1000);
 
   const lookback24h = visibleCandles.slice(-Math.min(visibleCandles.length, 96));
@@ -794,6 +942,72 @@ export function App() {
   const low24h =
     lookback24h.length > 0 ? Math.min(...lookback24h.map((c) => c.low)) : currentPrice;
 
+  // Navigation Handlers for Landing Page & Login Page
+  const handleLaunchTerminal = useCallback(
+    (initialAction: 'default' | 'replay' | 'analytics' = 'default') => {
+      setActiveView('terminal');
+      if (initialAction === 'replay') {
+        setActiveTool('replay_cut');
+        setRequestedDockTab('backtest');
+        showToast('✂ Click any candle on the chart to rewind & start free Bar Replay!', 'info');
+      } else if (initialAction === 'analytics') {
+        setRequestedDockTab('analytics');
+        showToast('📊 Opened Free Strategy Analytics Suite', 'info');
+      }
+    },
+    [showToast]
+  );
+
+  const handleSuccessAuth = useCallback(
+    (user: ChartFlowUser) => {
+      setCurrentUser(user);
+      try {
+        localStorage.setItem('chart_flow_user', JSON.stringify(user));
+      } catch {
+        // ignore storage errors
+      }
+      setActiveView('terminal');
+      showToast(`Welcome to Chart Flow, ${user.name}! All tools 100% Free.`, 'up');
+    },
+    [showToast]
+  );
+
+  const handleLogout = useCallback(() => {
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem('chart_flow_user');
+    } catch {
+      // ignore
+    }
+    showToast('Signed out — continuing in Free Guest Mode', 'info');
+  }, [showToast]);
+
+  if (activeView === 'landing') {
+    return (
+      <LandingPage
+        onLaunchTerminal={handleLaunchTerminal}
+        onOpenLogin={(mode = 'login') => {
+          setLoginInitialMode(mode);
+          setActiveView('login');
+        }}
+        currentUser={currentUser}
+      />
+    );
+  }
+
+  if (activeView === 'login') {
+    return (
+      <LoginPage
+        initialMode={loginInitialMode}
+        currentUser={currentUser}
+        onSuccessAuth={handleSuccessAuth}
+        onLogout={handleLogout}
+        onBackToLanding={() => setActiveView('landing')}
+        onSkipToTerminal={() => handleLaunchTerminal('default')}
+      />
+    );
+  }
+
   return (
     <div
       className={`h-screen w-screen flex flex-col overflow-hidden ${
@@ -802,8 +1016,19 @@ export function App() {
           : 'bg-[#0b0e14] text-[#d1d4dc]'
       }`}
     >
-      {/* Top TradingView Header */}
+      {/* Top Chart Flow Header */}
       <TopNavigation
+        symbol={symbol}
+        onSelectSymbol={(sym) => {
+          setSymbol(sym);
+          setDrawings([]);
+          setPositions([]);
+          setOutcomeBanner(null);
+          showToast(
+            `Switched to ${getInstrumentConfig(sym).displaySymbol} — Live Chart & Free Replay Ready`,
+            'info'
+          );
+        }}
         timeframe={timeframe}
         onSelectTimeframe={setTimeframe}
         currentPrice={currentPrice}
@@ -813,7 +1038,7 @@ export function App() {
         low24h={low24h}
         dataSource={dataSource}
         isLoading={isLoading}
-        onRefreshData={() => loadTimeframeData(timeframe)}
+        onRefreshData={() => loadTimeframeData(timeframe, symbol)}
         isReplayMode={isReplayMode}
         onToggleReplayCutTool={() =>
           setActiveTool((t) => (t === 'replay_cut' ? 'cursor' : 'replay_cut'))
@@ -840,6 +1065,12 @@ export function App() {
             c === 'tv_blue_black' ? 'classic_green_red' : 'tv_blue_black'
           )
         }
+        onOpenLanding={() => setActiveView('landing')}
+        onOpenLogin={() => {
+          setLoginInitialMode('login');
+          setActiveView('login');
+        }}
+        currentUser={currentUser}
       />
 
       {/* Main Workspace */}
@@ -873,6 +1104,7 @@ export function App() {
         {/* Center Column: Candlestick Chart + Bottom Replay/Sessions/Backtest Dock */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden relative">
           <TradingChart
+            symbol={symbol}
             candles={visibleCandles}
             totalCandlesCount={allCandles.length}
             timeframe={timeframe}
@@ -886,6 +1118,7 @@ export function App() {
             positions={positions}
             onUpdatePositionSLTP={handleUpdatePositionSLTP}
             onQuickBuySell={handleQuickBuySell}
+            onPlaceOrderFromDrawing={handlePlaceOrderFromDrawing}
             activeTool={activeTool}
             onSelectTool={setActiveTool}
             drawingColor={drawingColor}
@@ -951,9 +1184,9 @@ export function App() {
                   </span>
                 </div>
                 <div className="text-[11px] text-gray-200 mt-0.5">
-                  {outcomeBanner.side} {outcomeBanner.lotSize.toFixed(2)} Lot · Entry $
-                  {outcomeBanner.entryPrice.toFixed(2)} → Exit $
-                  {outcomeBanner.exitPrice.toFixed(2)}
+                  {outcomeBanner.side} {outcomeBanner.lotSize.toFixed(2)} Lot · Entry{' '}
+                  {outcomeBanner.entryPrice.toFixed(instCfg.decimals)} → Exit{' '}
+                  {outcomeBanner.exitPrice.toFixed(instCfg.decimals)}
                 </div>
               </div>
               <button
@@ -980,7 +1213,7 @@ export function App() {
             </div>
           )}
 
-          {/* Bottom Bar Replay, Trading Sessions & Backtesting Dock (Hidden when Wide Chart Mode is on) */}
+          {/* Bottom Bar Replay, Strategy Analytics & Sessions Dock */}
           {!isChartWideMode && (
             <ReplayAndSessionsDock
               candles={visibleCandles}
@@ -1007,11 +1240,12 @@ export function App() {
               realizedPnL={realizedPnL}
               atr14={goldReport.atr14}
               timeframe={timeframe}
+              requestedTab={requestedDockTab}
             />
           )}
         </div>
 
-        {/* Right Side Widget: Gold Intelligence, Momentum & News Sentiment */}
+        {/* Right Side Widget: Flow AI Intelligence, Momentum & News Sentiment */}
         {showRightWidget && !isChartWideMode && (
           <GoldIntelligenceWidget
             report={goldReport}

@@ -79,16 +79,16 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
           <div>
             <div className="flex items-center gap-1.5">
               <h2 className="text-xs font-bold tracking-wide text-white uppercase">
-                Gold Intelligence Engine
+                Chart Flow AI Engine
               </h2>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-semibold">
-                XAU/USD
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-semibold">
+                FREE
               </span>
             </div>
             <p className="text-[10px] text-[#787b86]">
               {isReplayMode
                 ? 'Synced to Historical Replay Candle'
-                : 'Real-Time Momentum, News & Sentiment'}
+                : 'Free Real-Time Momentum, News & Sentiment'}
             </p>
           </div>
         </div>
@@ -607,7 +607,7 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
                         : 'bg-[#131722] border-[#2a2e39] text-gray-400 hover:text-white'
                     }`}
                   >
-                    ⚖️ Live Baseline
+                    Live Baseline
                   </button>
                   <button
                     onClick={() => onSelectMacroPreset('DOVISH_FED')}
@@ -617,7 +617,7 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
                         : 'bg-[#131722] border-[#2a2e39] text-gray-400 hover:text-white'
                     }`}
                   >
-                    🕊️ Dovish Fed / DXY Drop
+                    Dovish Fed / DXY Drop
                   </button>
                   <button
                     onClick={() => onSelectMacroPreset('HAWKISH_CPI')}
@@ -627,7 +627,7 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
                         : 'bg-[#131722] border-[#2a2e39] text-gray-400 hover:text-white'
                     }`}
                   >
-                    🦅 Hot CPI / Yield Surge
+                    Hot CPI / Yield Surge
                   </button>
                   <button
                     onClick={() => onSelectMacroPreset('GEO_ESCALATION')}
@@ -637,7 +637,7 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
                         : 'bg-[#131722] border-[#2a2e39] text-gray-400 hover:text-white'
                     }`}
                   >
-                    🛡️ Safe-Haven Rush
+                    Safe-Haven Rush
                   </button>
                 </div>
               </div>
@@ -718,7 +718,7 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
                     {item.summary}
                   </p>
                   <div className="text-[10px] font-mono text-amber-300/90 bg-[#131722] px-2 py-1 rounded border border-[#2a2e39]">
-                    💡 {item.keyTakeaway}
+                    Takeaway: {item.keyTakeaway}
                   </div>
                 </div>
               ))}

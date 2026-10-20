@@ -1,5 +1,38 @@
 export type Timeframe = '1m' | '5m' | '15m' | '30m' | '1H' | '4H' | '1D';
 
+export type InstrumentSymbol =
+  | 'XAUUSD'
+  | 'NAS100'
+  | 'GER30'
+  | 'EURUSD'
+  | 'GBPUSD'
+  | 'USDJPY'
+  | 'USDCHF'
+  | 'AUDUSD'
+  | 'USDCAD'
+  | 'NZDUSD'
+  | 'GBPJPY'
+  | 'EURJPY';
+
+export type InstrumentCategory = 'ALL' | 'FOREX_MAJORS' | 'INDICES' | 'METALS';
+
+export interface InstrumentConfig {
+  symbol: InstrumentSymbol;
+  displaySymbol: string;
+  name: string;
+  exchange: string;
+  category: Exclude<InstrumentCategory, 'ALL'>;
+  icon: string;
+  badgeColor: string;
+  decimals: number;
+  minMove: number;
+  pipSize: number;
+  contractSize: number; // Units per 1.00 standard lot (in USD PnL terms per 1.00 price move)
+  defaultSpread: number;
+  basePrice: number;
+  volatility1m: number;
+}
+
 export type ThemeMode = 'dark' | 'light';
 export type CandleColorStyle = 'tv_blue_black' | 'classic_green_red';
 
@@ -50,14 +83,16 @@ export interface SessionBox {
 export interface BacktestPosition {
   id: string;
   side: 'LONG' | 'SHORT';
+  orderType: 'MARKET' | 'PENDING';
   entryPrice: number;
   entryTime: number;
+  triggeredTime?: number;
   endTime?: number; // Right edge of the visual position box
   stopLoss: number;
   takeProfit: number;
   lotSize: number; // 1.00 standard lot = 100 oz of Gold
   sizeOz: number; // lotSize * 100
-  status: 'OPEN' | 'CLOSED_TP' | 'CLOSED_SL' | 'CLOSED_MANUAL';
+  status: 'PENDING' | 'OPEN' | 'CLOSED_TP' | 'CLOSED_SL' | 'CLOSED_MANUAL';
   exitPrice?: number;
   exitTime?: number;
   pnl: number;

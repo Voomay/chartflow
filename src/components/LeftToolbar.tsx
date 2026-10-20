@@ -261,19 +261,19 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
               onClick={() => selectAndClose('long_position')}
               className="w-full px-3 py-2 flex items-center justify-between hover:bg-emerald-500/15 text-[#089981] font-semibold"
             >
-              <span>📈 Long Position (Buy R:R Box)</span>
+              <span>Long Position (Buy R:R Box)</span>
             </button>
             <button
               onClick={() => selectAndClose('short_position')}
               className="w-full px-3 py-2 flex items-center justify-between hover:bg-rose-500/15 text-[#f23645] font-semibold"
             >
-              <span>📉 Short Position (Sell R:R Box)</span>
+              <span>Short Position (Sell R:R Box)</span>
             </button>
             <button
               onClick={() => selectAndClose('ruler')}
               className="w-full px-3 py-2 flex items-center justify-between hover:bg-blue-500/10"
             >
-              <span>📏 Price & Bar Range Ruler</span>
+              <span>Price & Bar Range Ruler</span>
             </button>
           </div>
         )}
@@ -319,7 +319,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
               onClick={() => selectAndClose('brush')}
               className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-blue-500/10"
             >
-              <span>🖌️ Freehand Brush</span>
+              <span>Freehand Brush</span>
             </button>
             <div className="px-3 py-1 mt-1 text-[10px] font-bold uppercase tracking-wider opacity-60 border-t border-gray-500/20">
               Arrows

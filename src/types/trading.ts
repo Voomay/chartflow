@@ -575,6 +575,7 @@ export interface ChartDrawing {
   extendRight?: boolean;
   locked?: boolean;
   fontSize?: number;
+  labelPosition?: 'top' | 'middle' | 'bottom';
 }
 
 export interface GoldNewsItem {

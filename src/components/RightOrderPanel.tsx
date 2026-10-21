@@ -461,7 +461,19 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
       side === 'LONG'
         ? effectiveEntryPrice + slDist * targetR
         : effectiveEntryPrice - slDist * targetR;
-    setTakeProfitInput(Number(nextTP.toFixed(spec.decimals)).toFixed(spec.decimals));
+    const roundedTP = Number(nextTP.toFixed(spec.decimals));
+    setTakeProfitInput(roundedTP.toFixed(spec.decimals));
+
+    // Also automatically update any active position tool on the chart!
+    if (onAddOrUpdatePositionDrawing) {
+      onAddOrUpdatePositionDrawing(
+        side,
+        effectiveEntryPrice,
+        Number(currentSL.toFixed(spec.decimals)),
+        roundedTP,
+        effectiveLotSize
+      );
+    }
   };
 
   const handleSubmitOrder = () => {
@@ -561,10 +573,9 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
         }`}
       >
         <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-emerald-400" />
           <div>
             <h2 className="text-xs font-extrabold tracking-tight uppercase">
-              Execution Ticket
+              Execution Order
             </h2>
             <p className="text-[10px] opacity-65 font-mono">
               {symbol} · {spec.contractSize.toLocaleString()}{' '}
@@ -829,17 +840,8 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
               </div>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min={0.1}
-                  max={20}
-                  step={0.25}
-                  value={riskPctInput}
-                  onChange={(e) => setRiskPctInput(e.target.value)}
-                  className={`flex-1 px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none ${inputBg}`}
-                />
                 {[0.5, 1.0, 2.0].map((pct) => {
                   const isSelectedRisk =
                     Math.abs((Number(riskPctInput) || 0) - pct) < 0.001;
@@ -848,7 +850,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                       key={pct}
                       type="button"
                       onClick={() => setRiskPctInput(pct.toFixed(1))}
-                      className={`px-2 py-1.5 rounded-lg border text-[10px] font-mono font-bold transition ${
+                      className={`flex-1 py-1 rounded-lg border text-[11px] font-mono font-bold transition ${
                         isSelectedRisk
                           ? 'bg-emerald-600 text-white keep-white border-emerald-500 shadow-sm'
                           : `${cardBg} hover:border-emerald-500/50`
@@ -858,6 +860,20 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                     </button>
                   );
                 })}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold opacity-60 shrink-0">Custom %</span>
+                <input
+                  type="number"
+                  min={0.05}
+                  max={50}
+                  step={0.1}
+                  value={riskPctInput}
+                  placeholder="Custom %"
+                  onChange={(e) => setRiskPctInput(e.target.value)}
+                  className={`flex-1 px-2 py-1 rounded-lg border text-xs font-mono font-bold outline-none ${inputBg}`}
+                />
+                <span className="text-xs font-mono font-bold opacity-60">%</span>
               </div>
               <div className="text-[10px] text-emerald-400 font-mono font-bold">
                 Auto-Sized: {effectiveLotSize.toFixed(2)} lots

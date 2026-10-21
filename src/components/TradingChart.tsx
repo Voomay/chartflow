@@ -1318,6 +1318,46 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
+      // Price Badges on the right price scale for TP, Entry, and SL
+      if (priceScaleWidth > 30) {
+        const badgeX = chartPlotWidth + 2;
+        const badgeW = Math.max(38, priceScaleWidth - 4);
+        const badgeH = 15;
+
+        // TP Price Badge (Emerald)
+        if (yTP >= 8 && yTP <= chartPlotHeight - 8) {
+          ctx.fillStyle = '#089981';
+          ctx.beginPath();
+          ctx.roundRect(badgeX, yTP - 7.5, badgeW, badgeH, 2);
+          ctx.fill();
+          ctx.font = 'bold 9px JetBrains Mono, monospace';
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(takeProfit.toFixed(decimals), badgeX + 4, yTP + 3.5);
+        }
+
+        // SL Price Badge (Red)
+        if (ySL >= 8 && ySL <= chartPlotHeight - 8) {
+          ctx.fillStyle = '#f23645';
+          ctx.beginPath();
+          ctx.roundRect(badgeX, ySL - 7.5, badgeW, badgeH, 2);
+          ctx.fill();
+          ctx.font = 'bold 9px JetBrains Mono, monospace';
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(stopLoss.toFixed(decimals), badgeX + 4, ySL + 3.5);
+        }
+
+        // Entry Price Badge (Blue or Amber for pending)
+        if (yEntry >= 8 && yEntry <= chartPlotHeight - 8) {
+          ctx.fillStyle = boxMode === 'PENDING' ? '#f59e0b' : '#2962ff';
+          ctx.beginPath();
+          ctx.roundRect(badgeX, yEntry - 7.5, badgeW, badgeH, 2);
+          ctx.fill();
+          ctx.font = 'bold 9px JetBrains Mono, monospace';
+          ctx.fillStyle = boxMode === 'PENDING' ? '#000000' : '#ffffff';
+          ctx.fillText(entryPrice.toFixed(decimals), badgeX + 4, yEntry + 3.5);
+        }
+      }
+
       // 6 Small Handle Dots around the Position Box
       drawSmallDot(ctx, left, yTP);
       drawSmallDot(ctx, right, yTP);
@@ -1354,15 +1394,22 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        const label = `${d.label || 'LEVEL'} ${d.price1.toFixed(decimals)}`;
-        const tw = ctx.measureText(label).width + 10;
+        const pos = d.labelPosition ?? 'top';
+        const customText = d.label && d.label !== 'LEVEL' ? d.label : '';
+        const label = customText ? `${customText} · ${d.price1.toFixed(decimals)}` : d.price1.toFixed(decimals);
+        const tw = ctx.measureText(label).width + 12;
+        const boxH = 15;
+        const boxX = 20;
+        const boxY = pos === 'middle' ? y1 - boxH / 2 : pos === 'bottom' ? y1 + 3 : y1 - boxH - 3;
+
         ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
-        ctx.fillRect(16, y1 - 15, tw, 14);
+        ctx.fillRect(boxX, boxY, tw, boxH);
         ctx.strokeStyle = d.color;
         ctx.lineWidth = 1;
-        ctx.strokeRect(16, y1 - 15, tw, 14);
+        ctx.strokeRect(boxX, boxY, tw, boxH);
         ctx.fillStyle = d.color;
-        ctx.fillText(label, 21, y1 - 5);
+        ctx.font = 'bold 9.5px JetBrains Mono, monospace';
+        ctx.fillText(label, boxX + 6, boxY + 11);
 
         if (showDetails) {
           drawSmallDot(
@@ -1389,14 +1436,24 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           .slice(5, 16);
         const vLabel = `${d.label && d.label !== 'TIME' ? d.label + ' · ' : ''}${dateStr}`;
         const tw = ctx.measureText(vLabel).width + 10;
+        const pos = d.labelPosition ?? 'bottom';
+        const boxH = 15;
         const pillX = Math.max(4, Math.min(chartPlotWidth - tw - 4, x1 - tw / 2));
+        const pillY =
+          pos === 'top'
+            ? 8
+            : pos === 'middle'
+            ? (y1 !== null ? y1 - boxH / 2 : chartPlotHeight / 2 - boxH / 2)
+            : chartPlotHeight - 18;
+
         ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
-        ctx.fillRect(pillX, chartPlotHeight - 18, tw, 15);
+        ctx.fillRect(pillX, pillY, tw, boxH);
         ctx.strokeStyle = d.color;
         ctx.lineWidth = 1;
-        ctx.strokeRect(pillX, chartPlotHeight - 18, tw, 15);
+        ctx.strokeRect(pillX, pillY, tw, boxH);
         ctx.fillStyle = d.color;
-        ctx.fillText(vLabel, pillX + 5, chartPlotHeight - 7.5);
+        ctx.font = 'bold 9.5px JetBrains Mono, monospace';
+        ctx.fillText(vLabel, pillX + 5, pillY + 10.5);
 
         if (showDetails) {
           drawSmallDot(ctx, x1, y1 !== null ? y1 : chartPlotHeight / 2);
@@ -1427,8 +1484,19 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         if (d.label) {
           const midX = (x1 + x2) / 2;
           const midY = (y1 + y2) / 2;
+          const tw = ctx.measureText(d.label).width + 8;
+          const pos = d.labelPosition ?? 'top';
+          const tX = Math.max(4, Math.min(chartPlotWidth - tw - 4, midX - tw / 2));
+          const tY = pos === 'middle' ? midY - 7 : pos === 'bottom' ? midY + 4 : midY - 18;
+
+          ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
+          ctx.fillRect(tX, tY, tw, 14);
+          ctx.strokeStyle = d.color;
+          ctx.lineWidth = 0.8;
+          ctx.strokeRect(tX, tY, tw, 14);
           ctx.fillStyle = d.color;
-          ctx.fillText(d.label, midX + 6, midY - 6);
+          ctx.font = 'bold 9.5px JetBrains Mono, monospace';
+          ctx.fillText(d.label, tX + 4, tY + 10);
         }
 
         if (showDetails) {
@@ -3990,8 +4058,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               </div>
             )}
 
-          {/* 3. Text Note Quick Edit Button */}
-          {selectedDrawing.type === 'text' && (
+          {/* 3. Text / Line Note Quick Edit Button */}
+          {['text', 'hline', 'vline', 'trendline'].includes(selectedDrawing.type) && (
             <button
               onClick={() => {
                 const chart = chartRef.current;
@@ -4001,6 +4069,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     : 180;
                 const yCoord =
                   (chart ? priceToY(selectedDrawing.price1, chart) : null) ?? 180;
+                const existingLabel =
+                  selectedDrawing.type === 'text'
+                    ? selectedDrawing.label || ''
+                    : selectedDrawing.label && selectedDrawing.label !== 'LEVEL' && selectedDrawing.label !== 'TIME'
+                    ? selectedDrawing.label
+                    : '';
                 setTextEditor({
                   mode: 'edit',
                   drawingId: selectedDrawing.id,
@@ -4008,17 +4082,46 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   y: Math.max(56, Math.min(containerH - 160, yCoord)),
                   time: selectedDrawing.time1,
                   price: selectedDrawing.price1,
-                  text: selectedDrawing.label || '',
+                  text: existingLabel,
                   color: selectedDrawing.color,
                   locked: selectedDrawing.locked ?? true,
                 });
               }}
               className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-[#2962ff] font-semibold transition"
-              title="Edit Chart Note Text"
+              title="Add or Edit Text / Label on this line"
             >
               <Edit3 className="w-3 h-3" />
-              <span>Edit Note</span>
+              <span>{selectedDrawing.label ? 'Edit Text' : 'Add Text'}</span>
             </button>
+          )}
+
+          {/* Line Text Position Selector for hline, vline, trendline */}
+          {['hline', 'vline', 'trendline'].includes(selectedDrawing.type) && (
+            <div className="flex items-center gap-0.5 border-l border-gray-400/25 pl-1.5 text-[10px] font-bold">
+              <span className="opacity-60 text-[9px] mr-1">Position:</span>
+              {(['top', 'middle', 'bottom'] as const).map((pos) => {
+                const active = (selectedDrawing.labelPosition ?? (selectedDrawing.type === 'vline' ? 'bottom' : 'top')) === pos;
+                return (
+                  <button
+                    key={pos}
+                    type="button"
+                    onClick={() =>
+                      onUpdateDrawing({
+                        ...selectedDrawing,
+                        labelPosition: pos,
+                      })
+                    }
+                    className={`px-1.5 py-0.5 rounded uppercase font-mono text-[9px] transition ${
+                      active
+                        ? 'bg-[#2962ff] text-white'
+                        : 'opacity-70 hover:opacity-100 hover:bg-gray-500/20'
+                    }`}
+                  >
+                    {pos}
+                  </button>
+                );
+              })}
+            </div>
           )}
 
           {/* 4. Long / Short Position Compact Controls (Lot + Popover R:R + Execute) */}

@@ -169,7 +169,23 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   requestedJournalTradeId,
 }) => {
   const isLight = theme === 'light';
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  // Bottom content starts collapsed (control bar stays visible); expand chevron nudges until first click
+  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [dockHintActive, setDockHintActive] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('chart_replay_dock_hint_dismissed_v1') !== '1';
+    } catch {
+      return true;
+    }
+  });
+  const dismissDockHint = () => {
+    setDockHintActive(false);
+    try {
+      localStorage.setItem('chart_replay_dock_hint_dismissed_v1', '1');
+    } catch {
+      // ignore
+    }
+  };
   const [activeTab, setActiveTab] = useState<
     'open_positions' | 'pending_orders' | 'closed_trades' | 'journal' | 'challenge_objectives'
   >('open_positions');
@@ -400,8 +416,9 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   return (
     <div className={`border-t flex flex-col select-none shrink-0 z-20 ${dockBg}`}>
       {/* TOP BAR: Authoritative Replay Controls & Bottom Panel Tabs */}
+      <div className={`h-11 border-b flex items-center gap-2 pr-3 ${subBarBg}`}>
       <div
-        className={`h-11 px-3 border-b flex items-center justify-between gap-2 overflow-x-auto no-scrollbar ${subBarBg}`}
+        className={`flex-1 min-w-0 h-full pl-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar`}
       >
         {/* Left: Replay Transport Controls */}
         <div className="flex items-center gap-1.5 shrink-0" data-tour="replay-controls">
@@ -605,6 +622,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                 onClick={() => {
                   setActiveTab(tab.id);
                   setIsCollapsed(false);
+                  dismissDockHint();
                 }}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 border transition ${
                   active
@@ -625,23 +643,36 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               </button>
             );
           })}
-
-          <button
-            onClick={() => setIsCollapsed((v) => !v)}
-            className={`p-1.5 rounded border ${cardBg}`}
-            title={
-              isCollapsed
-                ? 'Expand Bottom Workspace Panel'
-                : 'Collapse Bottom Workspace Panel'
-            }
-          >
-            {isCollapsed ? (
-              <ChevronUp className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5" />
-            )}
-          </button>
         </div>
+      </div>
+
+        {/* Pinned collapse/expand chevron (outside the horizontal scroll area) */}
+        <button
+          onClick={() => {
+            dismissDockHint();
+            setIsCollapsed((v) => !v);
+          }}
+          className={`relative shrink-0 p-1.5 rounded border ${
+            dockHintActive && isCollapsed
+              ? 'panel-hint-bounce bg-emerald-600 text-white keep-white border-emerald-500'
+              : cardBg
+          }`}
+          title={
+            isCollapsed
+              ? 'Expand Bottom Workspace Panel'
+              : 'Collapse Bottom Workspace Panel'
+          }
+          aria-label={isCollapsed ? 'Expand bottom workspace panel' : 'Collapse bottom workspace panel'}
+        >
+          {dockHintActive && isCollapsed && (
+            <span className="panel-hint-ring" aria-hidden="true" />
+          )}
+          {isCollapsed ? (
+            <ChevronUp className="w-3.5 h-3.5 relative" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 relative" />
+          )}
+        </button>
       </div>
 
       {/* Progress Bar across Session Date Range */}

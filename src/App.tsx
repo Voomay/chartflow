@@ -43,6 +43,7 @@ import {
   loadUserStrategies,
   saveUserCustomRuleProfiles,
   saveUserSessions,
+  deleteUserSession,
   saveUserStrategies,
   setActiveLoggedInUser,
 } from './services/storageAndAnalytics';
@@ -72,6 +73,8 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
+
+const DOCK_HINT_KEY = 'chart_replay_dock_hint_dismissed_v1';
 
 export function App() {
   // 1. User Account State
@@ -193,6 +196,21 @@ export function App() {
       );
     },
     [activeSession.id]
+  );
+
+  const handleDeleteSession = useCallback(
+    (sessId: string) => {
+      setTradingSessions((prev) => {
+        if (prev.length <= 1) return prev; // keep at least one session so the workspace never breaks
+        const remaining = prev.filter((s) => s.id !== sessId);
+        if (activeSessionId === sessId || activeSession?.id === sessId) {
+          setActiveSessionId(remaining[0].id);
+        }
+        return remaining;
+      });
+      if (currentUser?.email && tradingSessions.length > 1) deleteUserSession(currentUser.email, sessId);
+    },
+    [activeSessionId, activeSession?.id, currentUser?.email, tradingSessions.length]
   );
 
   // 4. Active Symbol & Timeframe (Synced with activeSession)
@@ -376,8 +394,17 @@ export function App() {
   const [lockDrawings, setLockDrawings] = useState<boolean>(false);
   const [hideDrawings, setHideDrawings] = useState<boolean>(false);
   const [magnetMode, setMagnetMode] = useState<boolean>(false);
-  const [showRightWidget, setShowRightWidget] = useState<boolean>(true);
   const [isChartWideMode, setIsChartWideMode] = useState<boolean>(false);
+  const [showRightWidget, setShowRightWidget] = useState<boolean>(true);
+  const handleToggleRightWidget = useCallback(() => {
+    if (isChartWideMode) {
+      // Panel is hidden by wide mode: leave wide mode and show the panel instead of silently flipping state
+      setIsChartWideMode(false);
+      setShowRightWidget(true);
+      return;
+    }
+    setShowRightWidget((v) => !v);
+  }, [isChartWideMode]);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
   // Guided product tour (spotlight coach-marks)
@@ -940,6 +967,12 @@ export function App() {
         initialMode={loginInitialMode}
         onSuccessAuth={(user: ChartFlowUser) => {
           setCurrentUser(user);
+          // Fresh sign-in: re-arm the bottom workspace panel expand hint
+          try {
+            localStorage.removeItem(DOCK_HINT_KEY);
+          } catch {
+            // ignore
+          }
           setActiveView('dashboard');
         }}
         onLogout={() => {
@@ -970,15 +1003,7 @@ export function App() {
             setHubInitialSection('analytics');
             setActiveView('analytics_page');
           }}
-          onDeleteSession={(sessId) => {
-            setTradingSessions((prev) => {
-              const remaining = prev.filter((s) => s.id !== sessId);
-              if (activeSessionId === sessId && remaining.length > 0) {
-                setActiveSessionId(remaining[0].id);
-              }
-              return remaining;
-            });
-          }}
+          onDeleteSession={handleDeleteSession}
           onUpdateSessionSettings={(sessId, updates) => {
             setTradingSessions((prev) =>
               prev.map((s) =>
@@ -1046,9 +1071,7 @@ export function App() {
             setIsCreateSessionModalOpen(false);
             setActiveView('terminal');
           }}
-          onDeleteSession={(sessId) => {
-            setTradingSessions((prev) => prev.filter((s) => s.id !== sessId));
-          }}
+          onDeleteSession={handleDeleteSession}
           savedStrategies={allStrategyNames}
           onAddStrategy={(newStratName: string) => {
             if (!allStrategyNames.includes(newStratName)) {
@@ -1120,7 +1143,7 @@ export function App() {
         }}
         isReplayCutActive={activeTool === 'replay_cut'}
         showRightWidget={showRightWidget}
-        onToggleRightWidget={() => setShowRightWidget((v) => !v)}
+        onToggleRightWidget={handleToggleRightWidget}
         isChartWideMode={isChartWideMode}
         onToggleChartWideMode={() => setIsChartWideMode((v) => !v)}
         sessions={sessionsConfig}
@@ -1604,9 +1627,7 @@ export function App() {
           setActiveSessionId(sessId);
           setIsCreateSessionModalOpen(false);
         }}
-        onDeleteSession={(sessId) => {
-          setTradingSessions((prev) => prev.filter((s) => s.id !== sessId));
-        }}
+        onDeleteSession={handleDeleteSession}
         savedStrategies={allStrategyNames}
         onAddStrategy={(newStratName: string) => {
           if (!allStrategyNames.includes(newStratName)) {

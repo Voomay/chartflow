@@ -50,6 +50,7 @@ import {
   Trophy,
   X,
   Zap,
+  Trash2,
 } from 'lucide-react';
 
 export type HubSidebarSection =
@@ -112,6 +113,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   onOpenLanding,
 }) => {
   const isLight = theme === 'light';
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [sidebarSection, setSidebarSection] =
     useState<HubSidebarSection>(initialSection);
 
@@ -848,6 +850,41 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                             <RotateCcw className="w-3.5 h-3.5" />
                           </button>
                         )}
+                      {onDeleteSession &&
+                        (confirmDeleteId === sess.id ? (
+                          <div className="flex items-center gap-1 text-[11px] font-bold">
+                            <span className="text-rose-400">Delete?</span>
+                            <button
+                              onClick={() => {
+                                onDeleteSession(sess.id);
+                                setConfirmDeleteId(null);
+                              }}
+                              className="py-1.5 px-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white keep-white"
+                            >
+                              Yes
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className={`py-1.5 px-2 rounded-lg border ${subCardBg}`}
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(sess.id)}
+                            disabled={sessions.length <= 1}
+                            className={`py-2 px-2.5 rounded-xl border text-xs flex items-center transition ${subCardBg} hover:border-rose-500/60 text-rose-400 disabled:opacity-40 disabled:cursor-not-allowed`}
+                            title={
+                              sessions.length <= 1
+                                ? 'Create another session before deleting your only session'
+                                : 'Delete session'
+                            }
+                            aria-label="Delete session"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        ))}
                     </div>
                   </div>
                 );

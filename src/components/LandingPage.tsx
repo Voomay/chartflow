@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import {
   ArrowRight,
   BarChart3,
@@ -6,13 +6,15 @@ import {
   CheckCircle2,
   Menu,
   ShieldCheck,
-  Sparkles,
   Target,
   TrendingUp,
   Trophy,
   X,
   Zap,
+  Handshake,
 } from 'lucide-react';
+import { ChartReplayLogo } from './ChartReplayLogo';
+import { ForexTicker, PlatformPreview } from './LandingExtras';
 
 export type LandingLaunchAction =
   | 'default'
@@ -28,28 +30,6 @@ interface LandingPageProps {
   currentUser: { name: string; email: string } | null;
 }
 
-const DEMO_CHART_CANDLES = [
-  { o: 2636.4, h: 2639.2, l: 2635.1, c: 2638.5 },
-  { o: 2638.5, h: 2641.8, l: 2637.6, c: 2640.9 },
-  { o: 2640.9, h: 2641.5, l: 2637.2, c: 2638.1 },
-  { o: 2638.1, h: 2642.4, l: 2637.8, c: 2641.7 },
-  { o: 2641.7, h: 2645.0, l: 2640.9, c: 2644.2 },
-  { o: 2644.2, h: 2644.8, l: 2641.0, c: 2642.0 },
-  { o: 2642.0, h: 2646.9, l: 2641.5, c: 2646.1 },
-  { o: 2646.1, h: 2649.4, l: 2645.2, c: 2648.6 },
-  { o: 2648.6, h: 2649.2, l: 2645.4, c: 2646.2 },
-  { o: 2646.2, h: 2651.8, l: 2645.8, c: 2651.2 },
-  { o: 2651.2, h: 2654.6, l: 2650.1, c: 2653.8 },
-  { o: 2653.8, h: 2654.2, l: 2650.9, c: 2652.1 },
-  { o: 2652.1, h: 2656.8, l: 2651.7, c: 2656.0 },
-  { o: 2656.0, h: 2659.5, l: 2655.1, c: 2658.7 },
-  { o: 2658.7, h: 2662.4, l: 2657.8, c: 2661.5 },
-  { o: 2661.5, h: 2662.1, l: 2658.9, c: 2660.2 },
-  { o: 2660.2, h: 2665.8, l: 2659.8, c: 2664.9 },
-  { o: 2664.9, h: 2668.9, l: 2664.1, c: 2668.1 },
-  { o: 2668.1, h: 2671.6, l: 2667.2, c: 2670.8 },
-];
-
 const DEMO_EQUITY_POINTS = [
   100000, 100850, 100190, 101780, 102650, 101420, 100240, 103100, 104420,
   103390, 105680, 106950, 105890, 108120, 109860,
@@ -59,26 +39,26 @@ const FEATURES = [
   {
     icon: CandlestickChart,
     title: 'Bar-by-Bar Replay',
-    desc: 'Step through deterministic 1-minute history with zero lookahead across synced 1m–1D timeframes.',
-    accent: 'from-[#2962ff] to-sky-400',
+    desc: 'Step through deterministic 1-minute history with zero lookahead across synced 1mâ€“1D timeframes.',
+    accent: 'from-emerald-400 to-teal-500',
   },
   {
     icon: Trophy,
     title: 'Prop Firm Simulator',
     desc: 'Practice FTMO-style evaluations with real daily loss, max drawdown and profit target rules.',
-    accent: 'from-emerald-400 to-teal-400',
+    accent: 'from-emerald-400 to-teal-500',
   },
   {
     icon: Target,
     title: 'Risk-Based Execution',
     desc: 'Draw R:R setups on the chart and fire Market, Limit or Stop orders auto-sized by risk %.',
-    accent: 'from-amber-400 to-orange-400',
+    accent: 'from-emerald-400 to-teal-500',
   },
   {
     icon: BarChart3,
     title: 'Deep Analytics & Journal',
     desc: 'Equity curves, P&L calendar, win rate, profit factor, R-multiples and CSV export for every trade.',
-    accent: 'from-fuchsia-400 to-violet-500',
+    accent: 'from-emerald-400 to-teal-500',
   },
 ];
 
@@ -91,76 +71,41 @@ const ANALYTICS_KPIS = [
 
 /* ---------- Small presentational helpers ---------- */
 
-const HeroChart: React.FC = () => {
-  const W = 380;
-  const H = 200;
-  const min = 2634;
-  const max = 2673;
-  const y = (v: number) => H - 14 - ((v - min) / (max - min)) * (H - 28);
-  const step = (W - 40) / DEMO_CHART_CANDLES.length;
-  const entryY = y(2651.2);
-  const tpY = y(2670.8);
-  const slY = y(2645.8);
+const PARTNER_EMAIL = 'info@voomay.co.za';
+const PARTNER_SUBJECT = 'Partnership Enquiry â€“ Chart Replay';
+const PARTNER_BODY =
+  "Hi Chart Replay team,\n\nI'm interested in partnering with Chart Replay.\n\nName:\nCompany / Brand:\nWebsite / Socials:\nPartnership idea (affiliate, prop firm, education, sponsorship, other):\n\nLooking forward to hearing from you.\n\nKind regards,";
+export const PARTNER_MAILTO = `mailto:${PARTNER_EMAIL}?subject=${encodeURIComponent(PARTNER_SUBJECT)}&body=${encodeURIComponent(PARTNER_BODY)}`;
 
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto block" role="img" aria-label="Replay chart preview">
-      <defs>
-        <linearGradient id="lp-tp" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#10b981" stopOpacity="0.28" />
-          <stop offset="100%" stopColor="#10b981" stopOpacity="0.04" />
-        </linearGradient>
-        <linearGradient id="lp-sl" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#f23645" stopOpacity="0.05" />
-          <stop offset="100%" stopColor="#f23645" stopOpacity="0.25" />
-        </linearGradient>
-        <linearGradient id="lp-ema" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#2962ff" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="#34d399" />
-        </linearGradient>
-      </defs>
+/** Inline South African flag (flag emoji don't render on Windows). */
+const SAFlag: React.FC<{ className?: string }> = ({ className = 'w-5 h-[14px]' }) => (
+  <svg viewBox="0 0 90 60" className={`shrink-0 rounded-[2px] ring-1 ring-white/20 ${className}`} role="img" aria-label="South African flag">
+    <rect width="90" height="30" fill="#E03C31" />
+    <rect y="30" width="90" height="30" fill="#001489" />
+    <path d="M0 0 L45 30 H90 M0 60 L45 30" fill="none" stroke="#fff" strokeWidth="20" />
+    <path d="M0 0 L45 30 H90 M0 60 L45 30" fill="none" stroke="#007749" strokeWidth="12" />
+    <path d="M0 9 L31 30 L0 51 Z" fill="#FFB81C" />
+    <path d="M0 15 L22 30 L0 45 Z" fill="#000" />
+  </svg>
+);
 
-      {[40, 80, 120, 160].map((gy) => (
-        <line key={gy} x1="0" y1={gy} x2={W - 40} y2={gy} stroke="#1c2433" strokeDasharray="3 4" />
-      ))}
-
-      {/* R:R position box */}
-      <rect x={step * 9 + 4} y={tpY} width={W - 40 - step * 9 - 4} height={entryY - tpY} fill="url(#lp-tp)" stroke="#10b981" strokeOpacity="0.45" rx="3" />
-      <rect x={step * 9 + 4} y={entryY} width={W - 40 - step * 9 - 4} height={slY - entryY} fill="url(#lp-sl)" stroke="#f23645" strokeOpacity="0.45" rx="3" />
-      <line x1={step * 9 + 4} y1={entryY} x2={W - 40} y2={entryY} stroke="#38bdf8" strokeWidth="1.2" />
-
-      <path
-        d={`M 8 ${y(2637)} Q 90 ${y(2640)}, 150 ${y(2645)} T 260 ${y(2655)} T ${W - 44} ${y(2667)}`}
-        fill="none"
-        stroke="url(#lp-ema)"
-        strokeWidth="2"
-      />
-
-      {DEMO_CHART_CANDLES.map((c, i) => {
-        const cx = 10 + i * step + step / 2 - 4;
-        const bull = c.c >= c.o;
-        const color = bull ? '#10b981' : '#f23645';
-        const top = y(Math.max(c.o, c.c));
-        const h = Math.max(2, Math.abs(y(c.o) - y(c.c)));
-        return (
-          <g key={i}>
-            <line x1={cx} y1={y(c.h)} x2={cx} y2={y(c.l)} stroke={color} strokeWidth="1.2" />
-            <rect x={cx - 4} y={top} width="8" height={h} rx="1.5" fill={color} />
-          </g>
-        );
-      })}
-
-      <line x1="0" y1={tpY} x2={W - 40} y2={tpY} stroke="#10b981" strokeDasharray="3 3" strokeOpacity="0.7" />
-      <rect x={W - 38} y={tpY - 8} width="36" height="16" rx="3" fill="#10b981" />
-      <text x={W - 34} y={tpY + 3.5} fill="#fff" fontSize="9" fontWeight="bold" fontFamily="monospace">
-        2670.8
-      </text>
-      <rect x={step * 9 + 10} y={tpY + 6} width="78" height="16" rx="3" fill="#064e3b" fillOpacity="0.9" />
-      <text x={step * 9 + 15} y={tpY + 17.5} fill="#6ee7b7" fontSize="9" fontWeight="bold" fontFamily="monospace">
-        TP · +3.4R
-      </text>
-    </svg>
-  );
-};
+const SWITCH_POINTS = [
+  {
+    icon: Zap,
+    title: 'Free, not $30+/month',
+    desc: 'Full bar replay, prop firm rules and analytics without a subscription paywall.',
+  },
+  {
+    icon: Trophy,
+    title: 'Built for prop-firm challenges',
+    desc: 'Daily loss, max drawdown and profit targets enforced exactly like real evaluations.',
+  },
+  {
+    icon: Handshake,
+    title: 'Made locally in South Africa',
+    desc: 'Proudly South African, with local support from a team that trades the same sessions you do.',
+  },
+];
 
 const EquityCurve: React.FC = () => {
   const W = 320;
@@ -229,19 +174,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
 
       {/* Navigation */}
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#06080d]/75 border-b border-white/[0.06]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           <button
             onClick={() => scrollToSection('top')}
             className="flex items-center gap-2.5 min-h-[44px] min-w-0"
             aria-label="Chart Replay home"
           >
-            <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-[#2962ff] via-sky-500 to-emerald-400 flex items-center justify-center text-white font-black text-xs shadow-[0_0_24px_rgba(41,98,255,0.45)] ring-1 ring-white/20">
-              CR
-            </div>
-            <span className="font-extrabold text-sm sm:text-base tracking-tight text-white truncate">
-              CHART{' '}
-              <span className="bg-gradient-to-r from-sky-400 to-emerald-400 bg-clip-text text-transparent">REPLAY</span>
-            </span>
+            <ChartReplayLogo size={36} />
           </button>
 
           <nav className="hidden md:flex items-center gap-1 text-sm font-semibold text-gray-300">
@@ -254,6 +193,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                 {l.label}
               </button>
             ))}
+            <a href={PARTNER_MAILTO} className="px-3 py-2 rounded-lg hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5">
+              <Handshake className="w-4 h-4 text-emerald-400" />
+              Partner with Us
+            </a>
           </nav>
 
           <div className="hidden md:flex items-center gap-2">
@@ -291,6 +234,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                   {l.label}
                 </button>
               ))}
+              <a href={PARTNER_MAILTO} onClick={() => setMobileNavOpen(false)} className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition">
+                <Handshake className="w-4 h-4 text-emerald-400" />
+                Partner with Us
+              </a>
               <div className="grid grid-cols-2 gap-2 pt-2 pb-1">
                 <button
                   onClick={() => openAuth('login')}
@@ -309,23 +256,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
 
       <main id="top" className="relative z-10 px-4 sm:px-6">
         {/* HERO */}
-        <section className="max-w-6xl mx-auto pt-12 sm:pt-20 pb-16 sm:pb-24 grid lg:grid-cols-[1.05fr_1fr] gap-12 lg:gap-10 items-center">
+        <section className="max-w-[1400px] mx-auto pt-12 sm:pt-20 pb-16 sm:pb-24 grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-12 items-center">
           <div className="text-center lg:text-left">
-            <div className="lp-fade-up inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.09] text-[11px] sm:text-xs font-mono font-semibold text-emerald-300 mb-6">
-              <Sparkles className="w-3.5 h-3.5 shrink-0" />
-              <span>BAR REPLAY · PROP FIRM SIMULATOR</span>
+            <div className="lp-fade-up flex justify-center lg:justify-start mb-5">
+              <span className="inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-400/25 text-[11px] sm:text-xs font-semibold text-emerald-200 max-w-full">
+                <span className="inline-flex items-center gap-1.5"><SAFlag className="w-4 h-[11px]" />Proudly South African</span>
+                <span className="text-emerald-400/60" aria-hidden="true">Â·</span>
+                <span>The #1 FX Replay alternative</span>
+              </span>
             </div>
 
-            <h1 className="lp-fade-up lp-d1 text-[2.4rem] leading-[1.05] sm:text-6xl lg:text-7xl font-black tracking-tight text-white mb-6">
-              Replay the Markets.
-              <span className="block mt-2 bg-gradient-to-r from-[#5b8cff] via-sky-400 to-emerald-400 bg-clip-text text-transparent lp-gradient-text">
-                Master Your Edge.
+            <h1 className="lp-fade-up lp-d1 text-[2.4rem] leading-[1.12] sm:text-6xl lg:text-[4.1rem] xl:text-7xl font-black tracking-tight text-white mb-6">
+              <span className="block lg:whitespace-nowrap">Replay the Markets.</span>
+              <span className="block mt-1 pb-[0.12em] lg:whitespace-nowrap bg-gradient-to-r from-[#5b8cff] via-sky-400 to-emerald-400 bg-clip-text text-transparent lp-gradient-text">
+                Master Your Trades.
               </span>
             </h1>
 
             <p className="lp-fade-up lp-d2 text-base sm:text-lg text-[#9ca3af] max-w-xl mx-auto lg:mx-0 leading-relaxed mb-8">
-              Backtest candle-by-candle on real historical data, simulate prop firm drawdown rules and audit every trade —{' '}
-              <strong className="text-emerald-400 font-bold">100% free, forever.</strong>
+              Backtest candle-by-candle on real historical data, simulate prop firm drawdown rules and audit every trade â€”{' '}
+              <strong className="text-emerald-400 font-bold">100% free.</strong>{' '}The best alternative to FX Replay â€” proudly made in South Africa.
             </p>
 
             <div className="lp-fade-up lp-d3 flex flex-col sm:flex-row items-stretch sm:items-center justify-center lg:justify-start gap-3 mb-8">
@@ -341,65 +291,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
               </button>
             </div>
 
-            <ul className="lp-fade-up lp-d4 flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2 text-xs sm:text-sm text-gray-400">
-              {['No credit card', 'Unlimited sessions', 'Full analytics'].map((t) => (
-                <li key={t} className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>{t}</span>
-                </li>
-              ))}
-            </ul>
           </div>
 
           {/* Hero visual */}
-          <div className="lp-fade-up lp-d2 relative w-full max-w-xl mx-auto lg:max-w-none">
+          <div className="lp-fade-up lp-d2 relative w-full max-w-2xl mx-auto lg:max-w-none min-w-0">
             <div className="absolute -inset-6 rounded-[2rem] bg-gradient-to-tr from-[#2962ff]/25 via-transparent to-emerald-400/25 blur-2xl" aria-hidden="true" />
-            <div className="lp-gradient-border relative rounded-2xl">
-              <div className="rounded-2xl bg-[#0a0e17]/95 overflow-hidden">
-                <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/[0.06] bg-white/[0.02]">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="hidden sm:flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
-                    </span>
-                    <span className="text-xs font-mono font-bold text-white">XAU/USD</span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#2962ff]/20 text-blue-300 font-bold">15m</span>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-emerald-400 whitespace-nowrap">+1.29%</span>
-                </div>
-                <div className="p-3 sm:p-4">
-                  <HeroChart />
-                </div>
-              </div>
+            <div className="relative">
+              <PlatformPreview />
             </div>
 
-            {/* Floating chips */}
-            <div className="lp-float absolute -bottom-5 left-2 sm:-left-4 flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-[#0d131f]/95 border border-emerald-400/30 shadow-[0_10px_40px_rgba(0,0,0,0.6)] backdrop-blur">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4 text-slate-950" />
-              </div>
-              <div>
-                <div className="text-[10px] font-mono uppercase text-gray-400 leading-none">Equity</div>
-                <div className="text-sm font-black font-mono text-white">$109,860</div>
-              </div>
-            </div>
-            <div className="lp-float lp-float-delay absolute -top-4 right-2 sm:-right-4 flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0d131f]/95 border border-sky-400/30 shadow-[0_10px_40px_rgba(0,0,0,0.6)] backdrop-blur">
-              <ShieldCheck className="w-4 h-4 text-sky-400" />
-              <span className="text-xs font-bold text-white whitespace-nowrap">Phase 1 Passed</span>
-            </div>
           </div>
         </section>
 
+        <div className="-mx-4 sm:-mx-6">
+          <ForexTicker />
+        </div>
+
+
         {/* FEATURES */}
-        <section id="features" className="max-w-6xl mx-auto py-16 sm:py-20 scroll-mt-20">
+        <section id="features" className="max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
           <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-14">
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white">
               Everything you need to{' '}
               <span className="bg-gradient-to-r from-sky-400 to-emerald-400 bg-clip-text text-transparent">prove your edge</span>
             </h2>
             <p className="mt-4 text-base sm:text-lg text-[#9ca3af]">
-              A professional replay terminal, prop firm rules engine and analytics suite — in one place.
+              A professional replay terminal, prop firm rules engine and analytics suite â€” in one place.
             </p>
           </div>
 
@@ -407,7 +324,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
             {FEATURES.map((f) => (
               <div key={f.title} className="lp-card group">
                 <div className="lp-card-inner h-full p-6">
-                  <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${f.accent} flex items-center justify-center mb-5 shadow-lg transition-transform group-hover:scale-110`}>
+                  <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${f.accent} flex items-center justify-center mb-5 shadow-[0_8px_24px_rgba(16,185,129,0.3)] ring-1 ring-white/20 transition-transform group-hover:scale-110`}>
                     <f.icon className="w-5 h-5 text-slate-950" />
                   </div>
                   <h3 className="text-lg font-bold text-white mb-2">{f.title}</h3>
@@ -419,12 +336,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
         </section>
 
         {/* ANALYTICS PREVIEW */}
-        <section id="analytics" className="max-w-6xl mx-auto py-16 sm:py-20 scroll-mt-20 grid lg:grid-cols-2 gap-10 lg:gap-14 items-center">
+        <section id="analytics" className="max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20 grid lg:grid-cols-2 gap-10 lg:gap-14 items-center">
           <div className="order-2 lg:order-1 lp-gradient-border rounded-2xl">
             <div className="rounded-2xl bg-[#0a0e17]/95 p-5 sm:p-6">
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-gray-400">FTMO $100K · Phase 1</div>
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-gray-400">FTMO $100K Â· Phase 1</div>
                   <div className="text-2xl sm:text-3xl font-black font-mono text-white mt-1">$109,860</div>
                 </div>
                 <span className="shrink-0 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
@@ -470,15 +387,45 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
           </div>
         </section>
 
+        {/* WHY SWITCH */}
+        <section id="why-switch" className="max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
+          <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-14">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/25 text-emerald-300 text-xs font-mono font-bold mb-4">
+              <SAFlag className="w-4 h-[11px]" />
+              <span>PROUDLY SOUTH AFRICAN</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white">
+              Why traders switch from{' '}
+              <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">FX Replay</span>
+            </h2>
+            <p className="mt-4 text-base sm:text-lg text-[#9ca3af]">
+              The best alternative to FX Replay â€” everything you need to backtest and pass evaluations, without the price tag.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+            {SWITCH_POINTS.map((p) => (
+              <div key={p.title} className="lp-card group">
+                <div className="lp-card-inner h-full p-6">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center mb-5 shadow-[0_8px_24px_rgba(16,185,129,0.3)] ring-1 ring-white/20 transition-transform group-hover:scale-110">
+                    <p.icon className="w-5 h-5 text-slate-950" />
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-2">{p.title}</h3>
+                  <p className="text-sm text-[#9ca3af] leading-relaxed">{p.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* CTA */}
-        <section id="get-started" className="max-w-5xl mx-auto py-16 sm:py-24 scroll-mt-20">
+        <section id="get-started" className="max-w-[1400px] mx-auto py-16 sm:py-24 scroll-mt-20">
           <div className="lp-gradient-border rounded-3xl">
             <div className="relative overflow-hidden rounded-3xl bg-[#0a0e17] px-6 py-12 sm:px-12 sm:py-16 text-center">
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.18),transparent_60%),radial-gradient(ellipse_at_bottom,rgba(41,98,255,0.18),transparent_60%)]" aria-hidden="true" />
               <div className="relative">
                 <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 font-mono font-black text-[11px] sm:text-xs uppercase tracking-wider mb-5">
                   <Zap className="w-3.5 h-3.5" />
-                  100% Free Forever
+                  100% Free
                 </div>
                 <h2 className="text-3xl sm:text-5xl font-black tracking-tight text-white">
                   Ready to master your edge?
@@ -506,9 +453,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-white/[0.06] py-6 px-4 sm:px-6 text-sm text-[#787b86]">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center">
-          <span>© Chart Replay · Historical Trading Simulator</span>
-          <div className="flex items-center gap-2 font-semibold">
+        <div className="max-w-[1400px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center">
+          <span className="flex items-center gap-3"><ChartReplayLogo size={28} /><span className="hidden sm:inline">Â© Historical Trading Simulator</span></span>
+          <span className="inline-flex items-center gap-2 font-semibold text-gray-400"><SAFlag className="w-5 h-[14px]" />Proudly made in South Africa</span>
+          <div className="flex flex-wrap items-center justify-center gap-2 font-semibold">
+            <a href={PARTNER_MAILTO} className="px-3 min-h-[44px] inline-flex items-center hover:text-white transition">Partner with Us</a>
             <button onClick={() => openAuth('login')} className="px-3 min-h-[44px] hover:text-white transition">
               Sign In
             </button>

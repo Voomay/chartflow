@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+﻿import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { computeForecast } from '../services/forecaster';
 import {
   init,
   dispose,
@@ -35,6 +36,8 @@ import {
 import {
   Check,
   ChevronDown,
+  Activity,
+  Wand2,
   Copy,
   Edit3,
   GripVertical,
@@ -356,6 +359,33 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const [showEMA50, setShowEMA50] = useState(false);
   const [showEMA200, setShowEMA200] = useState(false);
   const [showVWAP, setShowVWAP] = useState(false);
+  const [showSMA20, setShowSMA20] = useState(false);
+  const [indicatorsMenuOpen, setIndicatorsMenuOpen] = useState(false);
+  const [showForecast, setShowForecast] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('chart_forecaster_enabled_v1') === '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('chart_forecaster_enabled_v1', showForecast ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, [showForecast]);
+  // Forecaster: uses only revealed candles (the replay-sliced candles prop), deterministic per input
+  const forecast = useMemo(
+    () =>
+      showForecast
+        ? computeForecast(candles, TIMEFRAME_CONFIG[timeframe]?.seconds || 900, {
+            lookback: 50,
+            horizon: 24,
+          })
+        : null,
+    [showForecast, candles, timeframe]
+  );
 
   // KLineChart Native Sub-Pane & Overlay Indicators
   const [showBOLL, setShowBOLL] = useState(false);
@@ -479,6 +509,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     showEMA50,
     showEMA200,
     showVWAP,
+    showSMA20,
+    forecast,
     onAddDrawing,
     onUpdateDrawing,
     onSelectReplayTimestamp,
@@ -519,6 +551,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     showEMA50,
     showEMA200,
     showVWAP,
+    showSMA20,
+    forecast,
     onAddDrawing,
     onUpdateDrawing,
     onSelectReplayTimestamp,
@@ -828,6 +862,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       showEMA50: currShowEMA50,
       showEMA200: currShowEMA200,
       showVWAP: currShowVWAP,
+      showSMA20: currShowSMA20,
+      forecast: currForecast,
     } = stateRef.current;
 
     const decimals = currInst.decimals;
@@ -923,6 +959,60 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           true
         );
       }
+      if (currShowSMA20) {
+        const sma: { time: number; value: number }[] = [];
+        let sum = 0;
+        for (let i = 0; i < currCandles.length; i++) {
+          sum += currCandles[i].close;
+          if (i >= 20) sum -= currCandles[i - 20].close;
+          if (i >= 19) sma.push({ time: currCandles[i].time, value: sum / 20 });
+        }
+        renderIndicatorSeries(sma, '#ec4899', 1.3);
+      }
+    }
+
+    // 0b. Forecaster skeleton scenarios (semi-transparent dashed swing paths)
+    if (currForecast && currCandles.length > 0) {
+      const colors = ['16, 185, 129', '139, 92, 246']; // emerald, violet
+      currForecast.scenarios.forEach((sc, si) => {
+        const rgb = colors[si];
+        const pts = sc.points
+          .map((p) => ({
+            x: resolveTimeToX(p.time, currCandles, chart),
+            y: priceToY(p.price, chart),
+          }))
+          .filter((p): p is { x: number; y: number } => p.x !== null && p.y !== null);
+        if (pts.length < 2) return;
+        ctx.save();
+        ctx.strokeStyle = `rgba(${rgb}, 0.4)`;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = `rgba(${rgb}, 0.55)`;
+        pts.slice(1).forEach((p) => {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        const end = pts[pts.length - 1];
+        const label = `Scenario ${sc.id}: ${sc.name} ${sc.probability}%`;
+        ctx.font = 'bold 10px ui-sans-serif, system-ui, sans-serif';
+        const tw = ctx.measureText(label).width;
+        const lx = Math.min(end.x + 6, chartPlotWidth - tw - 10);
+        const ly = end.y + (si === 0 ? -8 : 8);
+        ctx.fillStyle = currTheme === 'light' ? 'rgba(255,255,255,0.85)' : 'rgba(19,23,34,0.85)';
+        ctx.fillRect(lx - 4, ly - 8, tw + 8, 15);
+        ctx.strokeStyle = `rgba(${rgb}, 0.6)`;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(lx - 4, ly - 8, tw + 8, 15);
+        ctx.fillStyle = `rgba(${rgb}, 1)`;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, lx, ly);
+        ctx.restore();
+      });
     }
 
     // 1. Trading Session Boxes
@@ -1142,10 +1232,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       // Middle Status + Risk/Reward Pill
       const pnlLine1 =
         boxMode === 'PENDING'
-          ? `PENDING ${side} @ ${entryPrice.toFixed(decimals)} · Lot: ${lotSize.toFixed(2)}`
+          ? `PENDING ${side} @ ${entryPrice.toFixed(decimals)} Ã‚Â· Lot: ${lotSize.toFixed(2)}`
           : boxMode === 'DRAWING'
-          ? `${side} TOOL @ ${entryPrice.toFixed(decimals)} · Lot: ${lotSize.toFixed(2)}`
-          : `Open PnL: ${livePnl >= 0 ? '+' : ''}$${livePnl.toFixed(2)} · Lot: ${lotSize.toFixed(2)}`;
+          ? `${side} TOOL @ ${entryPrice.toFixed(decimals)} Ã‚Â· Lot: ${lotSize.toFixed(2)}`
+          : `Open PnL: ${livePnl >= 0 ? '+' : ''}$${livePnl.toFixed(2)} Ã‚Â· Lot: ${lotSize.toFixed(2)}`;
       const pnlLine2 =
         boxMode === 'DRAWING'
           ? `R/R Ratio: ${rrRatio} (Click Execute below to trade)`
@@ -1243,7 +1333,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           .toISOString()
           .replace('T', ' ')
           .slice(5, 16);
-        const vLabel = `${d.label && d.label !== 'TIME' ? d.label + ' · ' : ''}${dateStr}`;
+        const vLabel = `${d.label && d.label !== 'TIME' ? d.label + ' Ã‚Â· ' : ''}${dateStr}`;
         const tw = ctx.measureText(vLabel).width + 10;
         const pillX = Math.max(4, Math.min(chartPlotWidth - tw - 4, x1 - tw / 2));
         ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
@@ -3339,6 +3429,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     showEMA50,
     showEMA200,
     showVWAP,
+    showSMA20,
+    forecast,
     drawOverlay,
   ]);
 
@@ -3423,7 +3515,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       {/* Top-Left TradingView Header + Floating SELL / BUY Buttons */}
       {activeCandle && (
         <div className="absolute top-2 left-2.5 z-20 flex flex-col gap-1.5 pointer-events-none max-w-[calc(100%-95px)]">
-          {/* Row 1: Instrument Name · Timeframe · Exchange + OHLC */}
+          {/* Row 1: Instrument Name Ã‚Â· Timeframe Ã‚Â· Exchange + OHLC */}
           <div
             className={`inline-flex flex-wrap items-center gap-2 px-2.5 py-1 rounded-lg border backdrop-blur-md shadow-sm pointer-events-auto w-fit ${
               isLight
@@ -3442,7 +3534,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 {instConfig.icon}
               </div>
               <span className="font-bold text-xs sm:text-[13px] tracking-tight whitespace-nowrap">
-                {instConfig.name} · {timeframe} · {instConfig.exchange}
+                {instConfig.name} Ã‚Â· {timeframe} Ã‚Â· {instConfig.exchange}
               </span>
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
             </div>
@@ -3537,110 +3629,102 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               </span>
             </button>
 
-            {/* Compact Indicator & KLineChart Sub-Pane Pills */}
+            {/* Indicators dropdown + Forecaster */}
+            <div className="relative flex items-center gap-1 ml-1">
+              <button
+                type="button"
+                onClick={() => setIndicatorsMenuOpen((v) => !v)}
+                className={`px-2 py-0.5 rounded text-[10px] font-semibold border shadow-sm transition flex items-center gap-1 ${
+                  isLight
+                    ? 'bg-white/90 border-[#cbd5e1] text-[#334155] hover:text-[#0f172a]'
+                    : 'bg-[#131722]/85 border-[#2a2e39] text-gray-300 hover:text-white'
+                }`}
+                title="Indicators"
+                aria-expanded={indicatorsMenuOpen}
+              >
+                <Activity className="w-3 h-3" />
+                Indicators
+                <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowForecast((v) => !v)}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold border shadow-sm transition flex items-center gap-1 ${
+                  showForecast
+                    ? 'bg-gradient-to-r from-emerald-600 to-violet-600 border-violet-400 text-white keep-white'
+                    : isLight
+                    ? 'bg-violet-50 border-violet-300 text-violet-700 hover:bg-violet-100'
+                    : 'bg-violet-500/10 border-violet-500/50 text-violet-300 hover:bg-violet-500/20'
+                }`}
+                title="Forecaster: project two momentum-based scenario paths from the last 50 revealed candles"
+                aria-pressed={showForecast}
+              >
+                <Wand2 className="w-3 h-3" />
+                Forecaster
+              </button>
+              {indicatorsMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIndicatorsMenuOpen(false)} />
+                  <div
+                    className={`absolute top-full left-0 mt-1 z-50 w-60 rounded-lg border shadow-xl p-1.5 ${
+                      isLight ? 'bg-white border-[#e0e3eb] text-[#131722]' : 'bg-[#1a1e26] border-[#2a2e39] text-[#d1d4dc]'
+                    }`}
+                  >
+                    <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider opacity-60">Overlays</div>
+                    {(
+                      [
+                        ['EMA 20', showEMA20, setShowEMA20, '#06b6d4'],
+                        ['EMA 50', showEMA50, setShowEMA50, '#f59e0b'],
+                        ['EMA 200', showEMA200, setShowEMA200, '#a855f7'],
+                        ['SMA 20', showSMA20, setShowSMA20, '#ec4899'],
+                        ['VWAP', showVWAP, setShowVWAP, '#3b82f6'],
+                        ['Bollinger Bands', showBOLL, setShowBOLL, '#9333ea'],
+                        ['__sub__', false, null, ''],
+                        ['Volume', showVOL, setShowVOL, '#6366f1'],
+                        ['MACD', showMACD, setShowMACD, '#0ea5e9'],
+                        ['RSI', showRSI, setShowRSI, '#14b8a6'],
+                        ['__ai__', false, null, ''],
+                        ['Forecaster', showForecast, setShowForecast, '#8b5cf6'],
+                      ] as Array<[string, boolean, React.Dispatch<React.SetStateAction<boolean>> | null, string]>
+                    ).map(([label, on, setter, color]) =>
+                      label === '__sub__' || label === '__ai__' ? (
+                        <div key={label} className="px-2 pt-2 pb-1 text-[9px] font-bold uppercase tracking-wider opacity-60">
+                          {label === '__sub__' ? 'Sub-panes' : 'Analysis'}
+                        </div>
+                      ) : (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setter && setter((v) => !v)}
+                          className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded text-[11px] font-semibold transition ${
+                            isLight ? 'hover:bg-[#f0f3fa]' : 'hover:bg-[#242832]'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            {label === 'Forecaster' ? (
+                              <Wand2 className="w-3 h-3" style={{ color }} />
+                            ) : (
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+                            )}
+                            {label}
+                          </span>
+                          <span
+                            className={`relative w-7 h-4 rounded-full transition ${on ? 'bg-emerald-500' : isLight ? 'bg-gray-300' : 'bg-gray-600'}`}
+                          >
+                            <span
+                              className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${on ? 'left-3.5' : 'left-0.5'}`}
+                            />
+                          </span>
+                        </button>
+                      )
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Chart Overlay Pills */}
             <div className="hidden md:flex flex-wrap items-center gap-1 ml-1">
-              <button
-                onClick={() => setShowEMA20((v) => !v)}
-                className={`px-2 py-0.5 rounded text-[10px] font-mono border shadow-sm transition ${
-                  showEMA20
-                    ? isLight
-                      ? 'bg-cyan-50 border-cyan-400 text-[#0e7490] font-bold'
-                      : 'bg-[#131722]/95 border-cyan-500/60 text-cyan-300 font-bold'
-                    : isLight
-                    ? 'bg-white/90 border-[#cbd5e1] text-[#64748b] hover:text-[#0f172a]'
-                    : 'bg-[#131722]/85 border-[#2a2e39] text-gray-400 hover:text-white'
-                }`}
-              >
-                EMA 20
-              </button>
-              <button
-                onClick={() => setShowEMA50((v) => !v)}
-                className={`px-2 py-0.5 rounded text-[10px] font-mono border shadow-sm transition ${
-                  showEMA50
-                    ? isLight
-                      ? 'bg-amber-50 border-amber-400 text-[#b45309] font-bold'
-                      : 'bg-[#131722]/95 border-amber-500/60 text-amber-300 font-bold'
-                    : isLight
-                    ? 'bg-white/90 border-[#cbd5e1] text-[#64748b] hover:text-[#0f172a]'
-                    : 'bg-[#131722]/85 border-[#2a2e39] text-gray-400 hover:text-white'
-                }`}
-              >
-                EMA 50
-              </button>
-              <button
-                onClick={() => setShowVWAP((v) => !v)}
-                className={`px-2 py-0.5 rounded text-[10px] font-mono border shadow-sm transition ${
-                  showVWAP
-                    ? isLight
-                      ? 'bg-blue-50 border-blue-400 text-[#1d4ed8] font-bold'
-                      : 'bg-[#131722]/95 border-blue-500/60 text-blue-300 font-bold'
-                    : isLight
-                    ? 'bg-white/90 border-[#cbd5e1] text-[#64748b] hover:text-[#0f172a]'
-                    : 'bg-[#131722]/85 border-[#2a2e39] text-gray-400 hover:text-white'
-                }`}
-              >
-                VWAP
-              </button>
-              <button
-                onClick={() => setShowBOLL((v) => !v)}
-                className={`px-2 py-0.5 rounded text-[10px] font-mono border shadow-sm transition ${
-                  showBOLL
-                    ? isLight
-                      ? 'bg-purple-50 border-purple-400 text-[#7e22ce] font-bold'
-                      : 'bg-[#131722]/95 border-purple-500/60 text-purple-300 font-bold'
-                    : isLight
-                    ? 'bg-white/90 border-[#cbd5e1] text-[#64748b] hover:text-[#0f172a]'
-                    : 'bg-[#131722]/85 border-[#2a2e39] text-gray-400 hover:text-white'
-                }`}
-                title="Toggle KLineChart Bollinger Bands (BOLL) Overlay"
-              >
-                BOLL
-              </button>
-              <button
-                onClick={() => setShowVOL((v) => !v)}
-                className={`px-2 py-0.5 rounded text-[10px] font-mono border shadow-sm transition ${
-                  showVOL
-                    ? isLight
-                      ? 'bg-indigo-50 border-indigo-400 text-[#4338ca] font-bold'
-                      : 'bg-[#131722]/95 border-indigo-500/60 text-indigo-300 font-bold'
-                    : isLight
-                    ? 'bg-white/90 border-[#cbd5e1] text-[#64748b] hover:text-[#0f172a]'
-                    : 'bg-[#131722]/85 border-[#2a2e39] text-gray-400 hover:text-white'
-                }`}
-                title="Toggle KLineChart Volume Sub-Pane"
-              >
-                VOL
-              </button>
-              <button
-                onClick={() => setShowMACD((v) => !v)}
-                className={`px-2 py-0.5 rounded text-[10px] font-mono border shadow-sm transition ${
-                  showMACD
-                    ? isLight
-                      ? 'bg-sky-50 border-sky-400 text-[#0369a1] font-bold'
-                      : 'bg-[#131722]/95 border-sky-500/60 text-sky-300 font-bold'
-                    : isLight
-                    ? 'bg-white/90 border-[#cbd5e1] text-[#64748b] hover:text-[#0f172a]'
-                    : 'bg-[#131722]/85 border-[#2a2e39] text-gray-400 hover:text-white'
-                }`}
-                title="Toggle KLineChart MACD Sub-Pane"
-              >
-                MACD
-              </button>
-              <button
-                onClick={() => setShowRSI((v) => !v)}
-                className={`px-2 py-0.5 rounded text-[10px] font-mono border shadow-sm transition ${
-                  showRSI
-                    ? isLight
-                      ? 'bg-teal-50 border-teal-400 text-[#0f766e] font-bold'
-                      : 'bg-[#131722]/95 border-teal-500/60 text-teal-300 font-bold'
-                    : isLight
-                    ? 'bg-white/90 border-[#cbd5e1] text-[#64748b] hover:text-[#0f172a]'
-                    : 'bg-[#131722]/85 border-[#2a2e39] text-gray-400 hover:text-white'
-                }`}
-                title="Toggle KLineChart RSI Sub-Pane"
-              >
-                RSI
-              </button>
               <button
                 onClick={onToggleSessionBoxes}
                 className={`px-2 py-0.5 rounded text-[10px] font-semibold border shadow-sm transition ${
@@ -3841,7 +3925,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                                   : 'border-gray-400/30 hover:bg-blue-500/10'
                               }`}
                             >
-                              {st === 'solid' ? '───' : st === 'dashed' ? '- -' : '···'}
+                              {st === 'solid' ? 'Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬' : st === 'dashed' ? '- -' : 'Ã‚Â·Ã‚Â·Ã‚Â·'}
                             </button>
                           ))}
                         </div>
@@ -4071,7 +4155,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               className="px-2 py-1 rounded-lg bg-blue-500/15 text-[#2962ff] font-semibold text-[10px] whitespace-nowrap"
               title="Extend to right edge of chart"
             >
-              {selectedDrawing.extendRight ? 'Normal' : 'Extend →'}
+              {selectedDrawing.extendRight ? 'Normal' : 'Extend Ã¢â€ â€™'}
             </button>
           )}
 
@@ -4371,9 +4455,9 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   <div className="grid grid-cols-3 gap-1">
                     {(
                       [
-                        ['solid', '─── Solid'],
+                        ['solid', 'Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Solid'],
                         ['dashed', '- - Dashed'],
-                        ['dotted', '··· Dotted'],
+                        ['dotted', 'Ã‚Â·Ã‚Â·Ã‚Â· Dotted'],
                       ] as [LineStyleType, string][]
                     ).map(([st, label]) => (
                       <button
@@ -4487,8 +4571,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     className="w-full py-1 rounded border border-gray-500/30 hover:bg-blue-500/10 text-[11px] font-medium"
                   >
                     {contextDrawing.extendRight
-                      ? '✓ Extending Right to Chart Edge'
-                      : 'Extend Right to Chart Edge →'}
+                      ? 'Ã¢Å“â€œ Extending Right to Chart Edge'
+                      : 'Extend Right to Chart Edge Ã¢â€ â€™'}
                   </button>
                 )}
               </div>
@@ -4648,7 +4732,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     }}
                     className="px-2 py-1.5 rounded-lg bg-[#089981]/15 hover:bg-[#089981]/25 text-[#089981] font-bold text-[11px] flex items-center justify-center gap-1"
                   >
-                    <span>▲ Long Tool Here</span>
+                    <span>Ã¢â€“Â² Long Tool Here</span>
                   </button>
 
                   <button
@@ -4680,7 +4764,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     }}
                     className="px-2 py-1.5 rounded-lg bg-[#f23645]/15 hover:bg-[#f23645]/25 text-[#f23645] font-bold text-[11px] flex items-center justify-center gap-1"
                   >
-                    <span>▼ Short Tool Here</span>
+                    <span>Ã¢â€“Â¼ Short Tool Here</span>
                   </button>
                 </div>
 
@@ -4773,7 +4857,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 flex items-center justify-between text-left font-medium"
                 >
-                  <span>━ Add Horizontal Line here</span>
+                  <span>Ã¢â€Â Add Horizontal Line here</span>
                   <span className="font-mono text-[10px] opacity-60">
                     {contextMenu.clickedPrice.toFixed(instConfig.decimals)}
                   </span>
@@ -4797,7 +4881,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 flex items-center justify-between text-left font-medium"
                 >
-                  <span>┃ Add Vertical Line here</span>
+                  <span>Ã¢â€Æ’ Add Vertical Line here</span>
                   <span className="font-mono text-[10px] opacity-60">1-Click</span>
                 </button>
 
@@ -4808,7 +4892,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 flex items-center justify-between text-left font-medium"
                 >
-                  <span>╱ Activate Trend Line Tool</span>
+                  <span>Ã¢â€¢Â± Activate Trend Line Tool</span>
                   <span className="text-[10px] opacity-60">Drag</span>
                 </button>
 
@@ -4819,7 +4903,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 flex items-center justify-between text-left font-medium"
                 >
-                  <span>▭ Activate Rectangle / Zone Block</span>
+                  <span>Ã¢â€“Â­ Activate Rectangle / Zone Block</span>
                   <span className="text-[10px] opacity-60">Box</span>
                 </button>
               </div>

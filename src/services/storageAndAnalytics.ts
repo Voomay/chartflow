@@ -1232,3 +1232,18 @@ export function triggerCsvDownload(csvContent: string, filename: string): void {
 
 // Re-export helpers for convenience
 export { computeLiveSessionMetrics, formatMoney };
+
+/** Remove a single session (and its embedded trades/positions) from persistent storage. */
+export function deleteUserSession(userId: string, sessionId: string): TradingSession[] {
+  const remaining = loadUserSessions(userId).filter((s) => s.id !== sessionId);
+  saveUserSessions(userId, remaining);
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.includes(sessionId))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+  return remaining;
+}
+

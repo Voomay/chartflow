@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ChartReplayMark } from './ChartReplayLogo';
 import {
   BarChart3,
   BookOpen,
@@ -216,9 +217,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
             }`}
             title="Return to Landing Page"
           >
-            <div className="w-6 h-6 rounded-md bg-[#1e222a] border border-[#2e333d] flex items-center justify-center text-emerald-400 font-black text-[11px] shrink-0">
-              CR
-            </div>
+            <ChartReplayMark size={24} />
           </button>
 
           {/* Session Name & Mode Pill */}

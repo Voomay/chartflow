@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { ChartReplayLogo } from './ChartReplayLogo';
+import { PlatformPreview } from './LandingExtras';
 import {
   ArrowLeft,
   ArrowRight,
@@ -6,7 +8,6 @@ import {
   KeyRound,
   Lock,
   Mail,
-  TrendingUp,
   User,
   Zap,
 } from 'lucide-react';
@@ -34,24 +35,6 @@ interface LoginPageProps {
   onSkipToTerminal: () => void;
 }
 
-const SHOWCASE_CANDLES = [
-  { o: 32, h: 42, l: 26, c: 38, v: 28 },
-  { o: 38, h: 46, l: 34, c: 44, v: 35 },
-  { o: 44, h: 47, l: 33, c: 36, v: 24 },
-  { o: 36, h: 41, l: 28, c: 31, v: 30 },
-  { o: 31, h: 48, l: 29, c: 46, v: 52 },
-  { o: 46, h: 56, l: 43, c: 53, v: 48 },
-  { o: 53, h: 55, l: 44, c: 47, v: 29 },
-  { o: 47, h: 62, l: 45, c: 59, v: 64 },
-  { o: 59, h: 68, l: 55, c: 65, v: 58 },
-  { o: 65, h: 67, l: 56, c: 58, v: 32 },
-  { o: 58, h: 74, l: 57, c: 71, v: 70 },
-  { o: 71, h: 79, l: 67, c: 76, v: 62 },
-  { o: 76, h: 78, l: 69, c: 72, v: 38 },
-  { o: 72, h: 86, l: 70, c: 84, v: 82 },
-  { o: 84, h: 92, l: 80, c: 89, v: 76 },
-];
-
 export const LoginPage: React.FC<LoginPageProps> = ({
   initialMode = 'login',
   onSuccessAuth,
@@ -59,8 +42,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 }) => {
   const [mode, setMode] = useState<'login' | 'signup' | 'reset'>(initialMode);
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('trader@chartflow.io');
-  const [password, setPassword] = useState('demo1234');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -73,8 +56,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setEmail('');
       setPassword('');
     } else if (initialMode === 'login') {
-      setEmail((prev) => prev || 'trader@chartflow.io');
-      setPassword((prev) => prev || 'demo1234');
+      setEmail((prev) => prev);
+      setPassword((prev) => prev);
     }
   }, [initialMode]);
 
@@ -171,12 +154,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             onClick={onBackToLanding}
             className="flex items-center gap-2.5 group text-left"
           >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#2962ff] to-emerald-400 flex items-center justify-center text-white font-black text-xs shadow-[0_0_20px_rgba(41,98,255,0.45)] border border-white/15">
-              CR
-            </div>
-            <span className="font-extrabold text-base tracking-tight text-white">
-              CHART <span className="text-[#2962ff]">REPLAY</span>
-            </span>
+            <ChartReplayLogo size={36} />
           </button>
 
           <span className="text-[11px] font-mono px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-gray-300">
@@ -184,285 +162,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </span>
         </div>
 
-        {/* Center Multi-Chart Artwork Showcase */}
-        <div className="relative z-10 my-8 lg:my-auto">
-          {/* Primary Candlestick Chart Frame */}
-          <div className="rounded-2xl border border-white/[0.1] bg-[#0c111d]/95 shadow-[0_25px_80px_rgba(0,0,0,0.8)] overflow-hidden">
-            {/* Chart Top Header */}
-            <div className="px-4 py-3 bg-[#101624] border-b border-white/[0.07] flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
-                </div>
-                <span className="ml-1 text-xs font-mono font-bold text-white">
-                  XAU/USD
-                </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#2962ff]/20 text-blue-300 font-bold">
-                  15m
-                </span>
-                <span className="text-xs font-mono font-bold text-emerald-400">
-                  2,671.40 (+1.42%)
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
-                  +3.40R TARGET HIT
-                </span>
-              </div>
-            </div>
-
-            {/* SVG High-Detail Trading Chart Illustration */}
-            <div className="relative p-4 sm:p-5 bg-gradient-to-b from-[#0c111d] to-[#090d16]">
-              <svg
-                viewBox="0 0 600 280"
-                className="w-full h-56 sm:h-64 overflow-visible"
-              >
-                <defs>
-                  <linearGradient id="tpZoneGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#089981" stopOpacity="0.28" />
-                    <stop offset="100%" stopColor="#089981" stopOpacity="0.06" />
-                  </linearGradient>
-                  <linearGradient id="slZoneGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f23645" stopOpacity="0.08" />
-                    <stop offset="100%" stopColor="#f23645" stopOpacity="0.26" />
-                  </linearGradient>
-                  <linearGradient id="emaGlow" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#2962ff" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.95" />
-                  </linearGradient>
-                </defs>
-
-                {/* Horizontal Grid Lines */}
-                {[40, 90, 140, 190, 240].map((y) => (
-                  <line
-                    key={y}
-                    x1="0"
-                    y1={y}
-                    x2="545"
-                    y2={y}
-                    stroke="#1e2638"
-                    strokeDasharray="3 3"
-                    strokeWidth="1"
-                  />
-                ))}
-
-                {/* Vertical Grid Lines */}
-                {[90, 190, 290, 390, 490].map((x) => (
-                  <line
-                    key={x}
-                    x1={x}
-                    y1="10"
-                    x2={x}
-                    y2="255"
-                    stroke="#1e2638"
-                    strokeDasharray="3 3"
-                    strokeWidth="1"
-                  />
-                ))}
-
-                {/* Price Axis Labels on Right */}
-                <text x="554" y="44" fill="#64748b" fontSize="10" fontFamily="monospace">
-                  2675.0
-                </text>
-                <text x="554" y="94" fill="#64748b" fontSize="10" fontFamily="monospace">
-                  2665.0
-                </text>
-                <text x="554" y="144" fill="#64748b" fontSize="10" fontFamily="monospace">
-                  2655.0
-                </text>
-                <text x="554" y="194" fill="#64748b" fontSize="10" fontFamily="monospace">
-                  2645.0
-                </text>
-                <text x="554" y="244" fill="#64748b" fontSize="10" fontFamily="monospace">
-                  2635.0
-                </text>
-
-                {/* Long R:R Position Projection Box (From candle 7 to candle 15) */}
-                {/* Take Profit Zone */}
-                <rect
-                  x="245"
-                  y="34"
-                  width="285"
-                  height="112"
-                  rx="4"
-                  fill="url(#tpZoneGrad)"
-                  stroke="#089981"
-                  strokeOpacity="0.5"
-                  strokeWidth="1"
-                />
-                {/* Stop Loss Zone */}
-                <rect
-                  x="245"
-                  y="146"
-                  width="285"
-                  height="46"
-                  rx="4"
-                  fill="url(#slZoneGrad)"
-                  stroke="#f23645"
-                  strokeOpacity="0.5"
-                  strokeWidth="1"
-                />
-                {/* Entry Line */}
-                <line
-                  x1="245"
-                  y1="146"
-                  x2="530"
-                  y2="146"
-                  stroke="#38bdf8"
-                  strokeWidth="1.5"
-                />
-
-                {/* Smooth EMA Curve */}
-                <path
-                  d="M 25 205 Q 95 190, 160 182 T 290 142 T 420 96 T 525 52"
-                  fill="none"
-                  stroke="url(#emaGlow)"
-                  strokeWidth="2.2"
-                />
-
-                {/* Volume Histogram Bars at Bottom */}
-                {SHOWCASE_CANDLES.map((c, i) => {
-                  const x = 22 + i * 35;
-                  const isBull = c.c >= c.o;
-                  const vHeight = (c.v / 100) * 42;
-                  return (
-                    <rect
-                      key={`vol-${i}`}
-                      x={x - 6}
-                      y={268 - vHeight}
-                      width="12"
-                      height={vHeight}
-                      rx="1.5"
-                      fill={isBull ? '#089981' : '#f23645'}
-                      fillOpacity="0.22"
-                    />
-                  );
-                })}
-
-                {/* Candlesticks */}
-                {SHOWCASE_CANDLES.map((c, i) => {
-                  const x = 22 + i * 35;
-                  const isBull = c.c >= c.o;
-                  const scaleY = (val: number) => 255 - (val / 100) * 230;
-                  const highY = scaleY(c.h);
-                  const lowY = scaleY(c.l);
-                  const openY = scaleY(c.o);
-                  const closeY = scaleY(c.c);
-                  const bodyTop = Math.min(openY, closeY);
-                  const bodyHeight = Math.max(5, Math.abs(closeY - openY));
-
-                  return (
-                    <g key={`candle-${i}`}>
-                      <line
-                        x1={x}
-                        y1={highY}
-                        x2={x}
-                        y2={lowY}
-                        stroke={isBull ? '#089981' : '#f23645'}
-                        strokeWidth="1.6"
-                      />
-                      <rect
-                        x={x - 7}
-                        y={bodyTop}
-                        width="14"
-                        height={bodyHeight}
-                        rx="2"
-                        fill={isBull ? '#089981' : '#f23645'}
-                      />
-                    </g>
-                  );
-                })}
-
-                {/* Live Price Dashed Line & Tag */}
-                <line
-                  x1="0"
-                  y1="50"
-                  x2="545"
-                  y2="50"
-                  stroke="#089981"
-                  strokeDasharray="4 4"
-                  strokeWidth="1"
-                />
-                <rect x="546" y="40" width="52" height="19" rx="4" fill="#089981" />
-                <text
-                  x="552"
-                  y="53"
-                  fill="#ffffff"
-                  fontSize="10"
-                  fontWeight="bold"
-                  fontFamily="monospace"
-                >
-                  2671.4
-                </text>
-
-                {/* R:R Overlay Labels */}
-                <rect
-                  x="255"
-                  y="42"
-                  width="128"
-                  height="20"
-                  rx="4"
-                  fill="#064e3b"
-                  fillOpacity="0.9"
-                />
-                <text
-                  x="263"
-                  y="55"
-                  fill="#6ee7b7"
-                  fontSize="10"
-                  fontWeight="bold"
-                  fontFamily="monospace"
-                >
-                  TP · +3.4R (+$3,400)
-                </text>
-              </svg>
-            </div>
-          </div>
-
-          {/* Secondary Floating Equity Curve Card */}
-          <div className="mt-4 sm:mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <div className="p-4 rounded-xl border border-white/[0.08] bg-[#0e1422]/90 backdrop-blur-md flex items-center justify-between">
-              <div>
-                <div className="text-[10px] font-mono uppercase text-gray-400">
-                  SIMULATED EQUITY CURVE
-                </div>
-                <div className="text-lg font-black text-white font-mono mt-0.5">
-                  $112,480.00
-                </div>
-                <div className="text-[11px] font-mono text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
-                  <TrendingUp className="w-3.5 h-3.5" />
-                  <span>+12.48% · Prop Target Passed</span>
-                </div>
-              </div>
-              <svg viewBox="0 0 110 46" className="w-24 h-11 shrink-0">
-                <path
-                  d="M 2 40 L 20 34 L 36 37 L 54 24 L 70 26 L 88 12 L 108 4"
-                  fill="none"
-                  stroke="#10b981"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
-
-            <div className="p-4 rounded-xl border border-white/[0.08] bg-[#0e1422]/90 backdrop-blur-md flex flex-col justify-center">
-              <div className="text-[10px] font-mono uppercase text-gray-400">
-                SESSION ANALYTICS
-              </div>
-              <div className="flex items-baseline gap-3 mt-1">
-                <span className="text-lg font-black text-white font-mono">
-                  74.2% Win Rate
-                </span>
-                <span className="text-xs font-mono text-[#2962ff] font-bold">
-                  2.84 Profit Factor
-                </span>
-              </div>
-              <div className="text-[11px] text-gray-400 mt-0.5">
-                Zero-lookahead 1m–1D synchronized replay
-              </div>
-            </div>
+        {/* Center: same platform mockup as the landing hero */}
+        <div className="relative z-10 my-8 lg:my-auto w-full max-w-[720px] mx-auto min-w-0">
+          <div className="absolute -inset-6 rounded-[2rem] bg-gradient-to-tr from-[#2962ff]/20 via-transparent to-emerald-400/20 blur-2xl pointer-events-none" aria-hidden="true" />
+          <div className="relative">
+            <PlatformPreview />
           </div>
         </div>
 
@@ -497,13 +201,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             className="lg:hidden flex items-center gap-2 min-h-[44px]"
             aria-label="Chart Replay home"
           >
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#2962ff] via-sky-500 to-emerald-400 flex items-center justify-center text-white font-black text-[10px] ring-1 ring-white/20">
-              CR
-            </div>
-            <span className="font-extrabold text-sm tracking-tight text-white">
-              CHART{' '}
-              <span className="bg-gradient-to-r from-sky-400 to-emerald-400 bg-clip-text text-transparent">REPLAY</span>
-            </span>
+            <ChartReplayLogo size={32} />
           </button>
         </div>
 
@@ -698,13 +396,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             className="w-full min-h-[48px] py-3 px-4 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1] hover:border-emerald-400/40 text-gray-200 font-semibold text-sm sm:text-xs flex items-center justify-center gap-2 transition"
           >
             <Zap className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Continue with Demo Account</span>
+            <span>Sign in as Guest</span>
           </button>
-        </div>
-
-        {/* Bottom Note */}
-        <div className="relative text-center text-xs sm:text-[11px] text-[#787b86] break-words">
-          Demo credentials pre-filled: <span className="font-mono text-gray-400">trader@chartflow.io</span> / <span className="font-mono text-gray-400">demo1234</span>
         </div>
       </div>
     </div>

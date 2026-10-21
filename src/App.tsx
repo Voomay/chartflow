@@ -1319,9 +1319,9 @@ export function App() {
       )}
 
       {/* Centre Workspace */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
         {!isChartWideMode && (!isMobile || showMobileTools) && (
-          <div className={isMobile ? 'fixed left-0 top-11 bottom-28 z-40 shadow-2xl overflow-y-auto' : 'contents'}>
+          <div className={isMobile ? 'fixed left-0 top-11 z-40 shadow-2xl overflow-visible' : 'contents'}>
           <LeftToolbar
             activeTool={activeTool}
             onSelectTool={(t) => {
@@ -1559,6 +1559,33 @@ export function App() {
               hideDrawings={hideDrawings}
               magnetMode={magnetMode}
               atr14={atr14}
+              mobileAccountSummary={
+                isMobile ? (
+                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border border-[#2a2e39] bg-[#131722]/90 backdrop-blur-md text-[11px] font-mono shadow-sm">
+                    <span>
+                      <span className="opacity-60 font-sans font-bold text-[9px] mr-1">BAL</span>
+                      <span className="font-bold text-white">
+                        ${liveMetrics.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </span>
+                    <span className="w-px h-3 bg-gray-500/40" />
+                    <span>
+                      <span className="opacity-60 font-sans font-bold text-[9px] mr-1">EQ</span>
+                      <span
+                        className={`font-bold ${
+                          liveMetrics.currentEquity > liveMetrics.currentBalance + 0.01
+                            ? 'text-emerald-400'
+                            : liveMetrics.currentEquity < liveMetrics.currentBalance - 0.01
+                            ? 'text-rose-400'
+                            : 'text-white'
+                        }`}
+                      >
+                        ${liveMetrics.currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </span>
+                  </div>
+                ) : undefined
+              }
             />
           </div>
 
@@ -1700,7 +1727,7 @@ export function App() {
 
         {/* Mobile quick actions: tools, Buy/Sell (long/short tool), order ticket */}
         {isMobile && !isChartWideMode && !showRightWidget && (
-          <div className="fixed right-2 bottom-28 z-30 flex flex-col items-end gap-2">
+          <div className="absolute right-[68px] bottom-12 z-30 flex flex-col items-end gap-2">
             <button
               onClick={() => setShowMobileTools((v) => !v)}
               className={`w-12 h-12 rounded-full text-white text-[10px] font-bold shadow-xl transition ${

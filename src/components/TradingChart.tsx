@@ -112,6 +112,7 @@ interface TradingChartProps {
   hideDrawings: boolean;
   magnetMode: boolean;
   atr14: number;
+  mobileAccountSummary?: React.ReactNode;
 }
 
 type BoxHandleType =
@@ -332,6 +333,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   hideDrawings,
   magnetMode,
   atr14,
+  mobileAccountSummary,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -3794,9 +3796,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       {/* Top-Left TradingView Header + Floating SELL / BUY Buttons */}
       {activeCandle && (
         <div className="absolute top-2 left-2.5 z-20 flex flex-col gap-1.5 pointer-events-none max-w-[calc(100%-95px)]">
+          {mobileAccountSummary && (
+            <div className="sm:hidden pointer-events-auto w-fit">{mobileAccountSummary}</div>
+          )}
           {/* Row 1: Instrument Name • Timeframe • Exchange + OHLC */}
           <div
-            className={`inline-flex flex-wrap items-center gap-2 px-2.5 py-1 rounded-lg border backdrop-blur-md shadow-sm pointer-events-auto w-fit ${
+            className={`${mobileAccountSummary ? 'hidden sm:inline-flex' : 'inline-flex'} flex-wrap items-center gap-2 px-2.5 py-1 rounded-lg border backdrop-blur-md shadow-sm pointer-events-auto w-fit ${
               isLight
                 ? 'bg-white/95 border-[#cbd5e1] text-[#0f172a]'
                 : 'bg-[#131722]/90 border-[#2a2e39] text-[#e2e8f0]'

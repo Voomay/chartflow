@@ -3813,7 +3813,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 {instConfig.icon}
               </div>
               <span className="font-bold text-xs sm:text-[13px] tracking-tight whitespace-nowrap">
-                {instConfig.name} • {timeframe} • {instConfig.exchange}
+                <span className="sm:hidden">{instConfig.name} • {timeframe}</span>
+                <span className="hidden sm:inline">{instConfig.name} • {timeframe} • {instConfig.exchange}</span>
               </span>
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
             </div>
@@ -5355,7 +5356,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       )}
 
       {/* Top-Right Chart Controls: Replay Status + Wide Chart Button */}
-      <div className="absolute top-2.5 right-20 z-20 flex items-center gap-2">
+      <div className="absolute top-2.5 right-20 z-20 hidden sm:flex items-center gap-2">
         {isReplayMode && (
           <div className="flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/50 backdrop-blur-md px-3 py-1.5 rounded-md text-xs text-amber-600 dark:text-amber-200 shadow-lg font-mono">
             <Scissors className="w-3.5 h-3.5 text-amber-500" />

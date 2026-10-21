@@ -1702,45 +1702,43 @@ export function App() {
           <div className="fixed right-2 bottom-28 z-30 flex flex-col items-end gap-2">
             <button
               onClick={() => setShowMobileTools((v) => !v)}
-              className={`w-11 h-11 rounded-full text-white text-[10px] font-bold shadow-xl transition ${
+              className={`w-12 h-12 rounded-full text-white text-[10px] font-bold shadow-xl transition ${
                 showMobileTools ? 'bg-amber-500 text-slate-950 ring-2 ring-white' : 'bg-[#2962ff]'
               }`}
             >
               Tools
             </button>
-            <button
-              onClick={() => {
-                setActiveTool((t) => (t === 'long_position' ? 'cursor' : 'long_position'));
-                setShowMobileTools(false);
-                if (activeTool !== 'long_position') {
-                  showToast('Tap & drag on the chart to place your BUY setup', 'up');
-                }
-              }}
-              className={`w-11 h-11 rounded-full bg-emerald-600 text-white text-[11px] font-extrabold shadow-xl transition ${
-                activeTool === 'long_position' ? 'ring-2 ring-white scale-110' : ''
-              }`}
-            >
-              BUY
-            </button>
-            <button
-              onClick={() => {
-                setActiveTool((t) => (t === 'short_position' ? 'cursor' : 'short_position'));
-                setShowMobileTools(false);
-                if (activeTool !== 'short_position') {
-                  showToast('Tap & drag on the chart to place your SELL setup', 'down');
-                }
-              }}
-              className={`w-11 h-11 rounded-full bg-rose-600 text-white text-[11px] font-extrabold shadow-xl transition ${
-                activeTool === 'short_position' ? 'ring-2 ring-white scale-110' : ''
-              }`}
-            >
-              SELL
-            </button>
+            {(['LONG', 'SHORT'] as const).map((side) => (
+              <button
+                key={side}
+                onClick={() => {
+                  const spec = getEffectiveInstrumentSpec(symbol, activeSession);
+                  const dist = Math.max(spec.pipSize * 20, atr14 * 1.5);
+                  const entry = Number(currentMidPrice.toFixed(spec.decimals));
+                  const isLong = side === 'LONG';
+                  const sl = Number((isLong ? entry - dist : entry + dist).toFixed(spec.decimals));
+                  const tp = Number((isLong ? entry + dist * 2 : entry - dist * 2).toFixed(spec.decimals));
+                  setActiveTool('cursor');
+                  setShowMobileTools(false);
+                  handleAddOrUpdatePositionDrawingFromTicket(side, entry, sl, tp, 1.0);
+                  showToast(
+                    `${isLong ? 'BUY' : 'SELL'} position tool added — drag to adjust, then tap Place Order`,
+                    isLong ? 'up' : 'down'
+                  );
+                }}
+                className={`w-12 h-12 rounded-full text-white text-[11px] font-extrabold shadow-xl active:scale-95 transition ${
+                  side === 'LONG' ? 'bg-emerald-600' : 'bg-rose-600'
+                }`}
+              >
+                {side === 'LONG' ? 'BUY' : 'SELL'}
+              </button>
+            ))}
             <button
               onClick={() => setShowRightWidget(true)}
-              className="h-10 px-3.5 rounded-full bg-[#161920] border border-emerald-500/60 text-white text-[11px] font-extrabold shadow-xl whitespace-nowrap"
+              className="w-12 h-12 rounded-full bg-[#161920] border-2 border-emerald-500/70 text-white text-[9px] font-extrabold leading-tight shadow-xl flex flex-col items-center justify-center active:scale-95 transition"
             >
-              Place Order
+              <span>Place</span>
+              <span>Order</span>
             </button>
           </div>
         )}

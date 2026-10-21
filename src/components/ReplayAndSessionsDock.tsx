@@ -526,12 +526,12 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             {isPlaying ? (
               <>
                 <Pause className="w-3.5 h-3.5 fill-current" />
-                <span>Pause</span>
+                <span className="hidden sm:inline">Pause</span>
               </>
             ) : (
               <>
                 <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Play</span>
+                <span className="hidden sm:inline">Play</span>
               </>
             )}
           </button>
@@ -544,7 +544,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             title={`Advance 1 ${timeframe} bar (${TIMEFRAME_CONFIG[timeframe].label})`}
           >
             <SkipForward className="w-3.5 h-3.5 text-emerald-400" />
-            <span>+1 {timeframe}</span>
+            <span className="hidden sm:inline">+1 {timeframe}</span>
           </button>
 
           {/* Speed Selector */}
@@ -572,7 +572,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               title="Open Skip To session & time navigation options"
             >
               <FastForward className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Skip To</span>
+              <span className="hidden sm:inline">Skip To</span>
             </button>
           </div>
         </div>
@@ -683,7 +683,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
 
       {/* BOTTOM PANEL CONTENT */}
       {!isCollapsed && (
-        <div className="h-56 overflow-y-auto p-3 custom-scrollbar text-xs">
+        <div className="h-44 sm:h-56 overflow-y-auto p-2 sm:p-3 custom-scrollbar text-xs">
           {/* TAB 1: OPEN POSITIONS */}
           {activeTab === 'open_positions' && (
             <div className="space-y-2">

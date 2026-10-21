@@ -16,6 +16,7 @@ import {
   Radio,
   Scissors,
   Search,
+  Settings,
   Sun,
   Trophy,
   User,
@@ -87,6 +88,7 @@ interface TopNavigationProps {
   onOpenAnalyticsPage?: () => void;
   onOpenDashboard?: () => void;
   onOpenGuide?: () => void;
+  onOpenSettings?: () => void;
   onStartTour?: () => void;
 }
 
@@ -137,6 +139,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   onOpenAnalyticsPage,
   onOpenDashboard,
   onOpenGuide,
+  onOpenSettings,
   onStartTour,
 }) => {
   const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false);
@@ -205,10 +208,10 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   return (
     <>
       <header
-        className={`relative h-11 border-b px-2 flex items-center justify-between gap-1 select-none shrink-0 z-30 ${headerBg}`}
+        className={`relative h-11 max-md:h-auto max-md:min-h-11 max-md:flex-wrap max-md:py-1 border-b px-2 flex items-center justify-between gap-1 select-none shrink-0 z-30 ${headerBg}`}
       >
         {/* Left: Brand + Active Session Name + Symbol Selector + Timeframe Dropdown + Replay Clock */}
-        <div className="flex items-center gap-1 min-w-0 flex-1">
+        <div className="flex items-center gap-1 min-w-0 flex-1 max-md:flex-wrap">
           {/* Brand Logo (Returns to Landing Page) */}
           <button
             onClick={onOpenLanding || onOpenDashboard}
@@ -453,7 +456,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
         </div>
 
         {/* Center/Right: Account Balance & Equity + Data Status + Actions */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 max-md:flex-wrap max-md:shrink">
           {/* Live Balance & Equity Display */}
           <div
             className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded border text-[11px] font-mono shrink-0 ${
@@ -519,6 +522,18 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
             >
               <BookOpen className="w-3.5 h-3.5 text-sky-400 shrink-0" />
               <span className="hidden xl:inline">Guide</span>
+            </button>
+          )}
+
+          {/* Settings Button */}
+          {onOpenSettings && (
+            <button
+              onClick={onOpenSettings}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${cardBg}`}
+              title="Open Account Profile & Simulator Settings"
+            >
+              <Settings className="w-3.5 h-3.5 text-[#a0a7b8] shrink-0" />
+              <span className="hidden xl:inline">Settings</span>
             </button>
           )}
 

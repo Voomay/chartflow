@@ -21,6 +21,13 @@ import {
   Target,
   Trophy,
   Zap,
+  TrendingUp,
+  Square,
+  Crosshair,
+  SlidersHorizontal,
+  ChevronRight,
+  HelpCircle,
+  Lightbulb,
 } from 'lucide-react';
 
 interface QuickStartGuideProps {
@@ -33,7 +40,7 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
   isInsideApp = false,
 }) => {
   const [activeGuideTab, setActiveGuideTab] = useState<
-    'all' | 'what_is_where' | 'setup_session' | 'first_trade'
+    'all' | 'what_is_where' | 'setup_session' | 'first_trade' | 'pro_tips'
   >('all');
 
   const showWhatIsWhere =
@@ -42,21 +49,23 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
     activeGuideTab === 'all' || activeGuideTab === 'setup_session';
   const showFirstTrade =
     activeGuideTab === 'all' || activeGuideTab === 'first_trade';
+  const showProTips =
+    activeGuideTab === 'all' || activeGuideTab === 'pro_tips';
 
   return (
-    <div className="space-y-10 text-left">
-      {/* Guide Header & Quick Filter Pills */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#242832] pb-5">
+    <div className="space-y-8 text-left">
+      {/* Guide Header & Navigation */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-white/[0.08] pb-5">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-mono font-bold mb-2.5">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[11px] font-mono font-bold mb-2.5">
             <BookOpen className="w-3.5 h-3.5" />
-            <span>STEP-BY-STEP INTERACTIVE PLATFORM GUIDE</span>
+            <span>INTERACTIVE TRADER PLAYBOOK & GUIDE</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-            How It Works: What Is Where, Session Setup &amp; Your First Trade
+            Master the Simulator: Interface, Session Setup & Execution
           </h2>
-          <p className="text-xs sm:text-sm text-[#9ca3af] mt-1 max-w-2xl">
-            Everything you need to know to navigate the workspace, configure a historical backtest or Prop Firm evaluation, and execute your first Buy or Sell order.
+          <p className="text-xs sm:text-sm text-[#9ca3af] mt-1 max-w-2xl leading-relaxed">
+            A crisp, practical walk-through of the trading terminal, prop challenge rules, and zero-lookahead backtesting workflow.
           </p>
         </div>
 
@@ -64,10 +73,11 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
         <div className="flex flex-wrap items-center gap-1.5 bg-[#12151b] p-1.5 rounded-xl border border-[#242832] shrink-0">
           {(
             [
-              { id: 'all', label: 'All Steps (Full Guide)' },
-              { id: 'what_is_where', label: '1. What Is Where' },
-              { id: 'setup_session', label: '2. Set Up Session' },
-              { id: 'first_trade', label: '3. First Buy / Sell' },
+              { id: 'all', label: 'All Chapters' },
+              { id: 'what_is_where', label: '1. Interface Map' },
+              { id: 'setup_session', label: '2. Session Setup' },
+              { id: 'first_trade', label: '3. Execution & R:R' },
+              { id: 'pro_tips', label: '4. Pro Tips & Rules' },
             ] as const
           ).map((tab) => (
             <button
@@ -86,10 +96,10 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
       </div>
 
       {/* =====================================================================
-          PART 1: WHAT IS WHERE (WORKSPACE & INTERFACE MAP)
+          PART 1: WHAT IS WHERE (INTERFACE MAP)
       ===================================================================== */}
       {showWhatIsWhere && (
-        <div className="rounded-2xl border border-[#242832] bg-[#12151b] p-5 sm:p-7 space-y-6 shadow-2xl">
+        <section className="rounded-2xl border border-[#242832] bg-[#12151b] p-5 sm:p-7 space-y-6 shadow-xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#242832] pb-4">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-[#2962ff]/20 border border-[#2962ff]/40 text-[#2962ff] font-black text-sm flex items-center justify-center shrink-0">
@@ -97,23 +107,23 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
               </div>
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-wider text-[#2962ff] font-bold">
-                  PART 1 · WORKSPACE TOUR
+                  CHAPTER 1 · WORKSPACE TOUR
                 </span>
                 <h3 className="text-lg sm:text-xl font-extrabold text-white">
-                  What Is Where — Your Complete Interface Map
+                  Terminal Layout & Control Zones
                 </h3>
               </div>
             </div>
             <span className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-[#1a1e26] border border-[#282d38] text-emerald-400">
-              6 Key Workspace Zones
+              6 Core Workspace Panels
             </span>
           </div>
 
-          {/* Interactive Visual Blueprint of the Terminal Layout */}
+          {/* Interactive Visual Blueprint */}
           <div className="rounded-xl border border-[#282d38] bg-[#0b0e14] p-3 sm:p-4 space-y-2.5 font-mono text-xs">
             <div className="text-[10px] uppercase tracking-wider text-gray-400 font-sans font-bold mb-1 flex items-center justify-between">
-              <span>VISUAL TERMINAL LAYOUT BLUEPRINT</span>
-              <span className="text-emerald-400">Hover or read numbered zones below</span>
+              <span>VISUAL TERMINAL MAP</span>
+              <span className="text-emerald-400">Deterministic · Zero Future Lookahead</span>
             </div>
 
             {/* Zone 1: Top Navigation Bar Blueprint */}
@@ -122,9 +132,9 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                 <span className="px-2 py-0.5 rounded bg-[#2962ff] text-white font-bold text-[10px]">
                   [1] TOP BAR
                 </span>
-                <span className="text-white font-bold">Session Pill</span>
+                <span className="text-white font-bold">Session Selector</span>
                 <span className="text-gray-500">·</span>
-                <span className="text-amber-400">Instrument (XAU/USD, NAS100)</span>
+                <span className="text-amber-400">Symbol (XAU/USD, NAS100)</span>
                 <span className="text-gray-500">·</span>
                 <span className="text-sky-400">Timeframes (1m – 1D)</span>
                 <span className="text-gray-500">·</span>
@@ -132,7 +142,7 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
               </div>
               <div className="flex items-center gap-2 text-[11px]">
                 <span className="px-2 py-0.5 rounded bg-[#0d0f13] border border-[#262a34] text-gray-200">
-                  Bal / Equity
+                  Live Balance &amp; Equity
                 </span>
                 <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400">
                   Analytics
@@ -149,48 +159,47 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
             {/* Middle Row: Left Toolbar + Center Chart + Right Order Ticket */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5">
               {/* Zone 2: Left Drawing Toolbar */}
-              <div className="lg:col-span-2 p-3 rounded-lg bg-[#141821] border border-purple-500/40 flex flex-col justify-between space-y-2">
+              <div className="lg:col-span-3 p-3 rounded-lg bg-[#141821] border border-purple-500/40 flex flex-col justify-between space-y-2">
                 <div>
                   <span className="px-2 py-0.5 rounded bg-purple-600 text-white font-bold text-[10px] inline-block mb-1.5">
                     [2] LEFT TOOLBAR
                   </span>
                   <div className="text-[11px] font-sans font-bold text-white">
-                    Drawing &amp; R:R Tools
+                    Drawings &amp; Risk Ratios
                   </div>
                 </div>
-                <div className="space-y-1 text-[10px] text-gray-300 font-sans">
-                  <div>+ Crosshair / Cursor</div>
-                  <div>╱ Trend &amp; Horiz Lines</div>
-                  <div>▭ Rectangles / Zones</div>
+                <div className="space-y-1 text-[11px] text-gray-300 font-sans">
+                  <div>• Crosshair &amp; Cursor selection</div>
+                  <div>• Trendlines &amp; Horizontal Price Rays</div>
+                  <div>• Rectangles (FVG / Supply &amp; Demand)</div>
                   <div className="text-emerald-400 font-bold">
-                    ⇅ Long / Short Position R:R
+                    • Long &amp; Short Position R:R Box
                   </div>
-                  <div>📏 Ruler &amp; 🧲 Magnet</div>
+                  <div>• Price Range &amp; Measurement Ruler</div>
                 </div>
               </div>
 
               {/* Zone 3: Center Candlestick Chart */}
-              <div className="lg:col-span-6 p-4 rounded-lg bg-[#0f131c] border border-emerald-500/40 flex flex-col justify-between min-h-[160px] relative overflow-hidden">
+              <div className="lg:col-span-5 p-4 rounded-lg bg-[#0f131c] border border-emerald-500/40 flex flex-col justify-between min-h-[160px] relative overflow-hidden">
                 <div className="flex items-center justify-between z-10">
                   <span className="px-2 py-0.5 rounded bg-emerald-600 text-white font-bold text-[10px]">
-                    [3] CENTER CHART CANVAS
+                    [3] CANDLESTICK CHART
                   </span>
                   <span className="text-[10px] text-emerald-400">
-                    Zero Future Lookahead · Drag SL/TP on Chart
+                    Drag SL / TP Directly on Chart
                   </span>
                 </div>
                 <div className="my-3 p-3 rounded-lg border border-white/10 bg-[#141822]/90 z-10 space-y-1 font-sans">
                   <div className="text-xs font-bold text-white">
-                    Interactive Historical Candlesticks &amp; Visual Trade Execution
+                    Interactive Historical Candles &amp; Fill Markers
                   </div>
                   <p className="text-[11px] text-gray-400 leading-relaxed">
-                    Pan &amp; zoom freely, draw Supply/Demand zones, drop a{' '}
-                    <strong className="text-emerald-400">Long or Short Position R:R box</strong>, and drag your Entry, Stop Loss, and Take Profit handles directly on the candles.
+                    Zero future data leakage. Pan, zoom, draw zones, and adjust stop loss or take profit handles visually.
                   </p>
                 </div>
                 <div className="flex items-center justify-between text-[10px] text-gray-400 z-10">
-                  <span>Session Killzone Boxes (Asia / London / NY)</span>
-                  <span>Right Axis: Live Price Scale</span>
+                  <span>Session Killzones (London, NY Open)</span>
+                  <span>Right Axis: Real-Time Price Scale</span>
                 </div>
               </div>
 
@@ -201,55 +210,55 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                     [4] RIGHT ORDER TICKET
                   </span>
                   <div className="text-[11px] font-sans font-bold text-white">
-                    Order Execution &amp; Live Prop Rules
+                    Execution &amp; Prop Firm Guardrails
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5 text-[10px] font-bold text-center">
                   <div className="py-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-                    LONG / BUY
+                    LONG (BUY)
                   </div>
                   <div className="py-1 rounded bg-rose-500/20 text-rose-400 border border-rose-500/40">
-                    SHORT / SELL
+                    SHORT (SELL)
                   </div>
                 </div>
                 <div className="text-[10px] text-gray-300 font-sans space-y-0.5">
-                  <div>• Order Type: Market, Limit, or Stop</div>
-                  <div>• Position Size: Lots or auto Risk %</div>
-                  <div>• Stop Loss, Take Profit &amp; Live R:R</div>
+                  <div>• Market, Limit, or Stop order types</div>
+                  <div>• Sizing via Lot Size or Auto Risk % calculation</div>
+                  <div>• Live Risk-to-Reward (R:R) computation</div>
                   <div className="text-amber-300 font-semibold">
-                    • Live Prop Firm Drawdown &amp; Target Bars
+                    • Dynamic Daily &amp; Max Loss drawdown gauges
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Zone 5: Bottom Replay & Positions Dock */}
+            {/* Zone 5: Bottom Dock */}
             <div className="p-2.5 rounded-lg bg-[#141821] border border-sky-500/40 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded bg-sky-500 text-slate-950 font-bold text-[10px]">
                   [5] BOTTOM DOCK
                 </span>
                 <span className="text-white font-bold">
-                  Play / Pause · Step +1 Bar · Speed (1x–20x) · Session Jump (London / NY Open)
+                  Play / Pause · Step +1 Bar · Speed (1x–20x) · Killzone Quick Jump
                 </span>
               </div>
               <div className="text-[11px] text-sky-300 font-sans font-semibold">
-                Tabs: Open Positions (BE / 50% / Close) · Pending · Closed · Trade Journal
+                Tabs: Open Positions (Break-Even / 50% Partial / Close) · Pending Orders · Closed Audit · Trade Journal
               </div>
             </div>
           </div>
 
-          {/* 6 Detailed Zone Cards */}
+          {/* 6 Panel Summaries */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="p-4 rounded-xl bg-[#161a22] border border-[#262b36] space-y-2">
               <div className="flex items-center gap-2 text-xs font-extrabold text-white">
                 <span className="w-6 h-6 rounded-lg bg-[#2962ff]/20 text-[#2962ff] flex items-center justify-center font-mono">
                   1
                 </span>
-                <span>Top Bar (Navigation &amp; Market Sync)</span>
+                <span>Top Bar &amp; Market Selector</span>
               </div>
               <p className="text-xs text-[#9ca3af] leading-relaxed">
-                Click the <strong className="text-white">Session Pill</strong> to switch or create sessions, click the <strong className="text-amber-400">Symbol Selector</strong> (e.g. XAU/USD, NAS100, EUR/USD) to change markets, or click <strong className="text-white">1m – 1D</strong> to switch timeframes without losing your replay timestamp.
+                Switch sessions, select historical instruments (XAU/USD, NAS100, EUR/USD), change timeframes (1m to 1D), and monitor real-time replay clock time.
               </p>
             </div>
 
@@ -258,10 +267,10 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                 <span className="w-6 h-6 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center font-mono">
                   2
                 </span>
-                <span>Left Toolbar (Drawings &amp; R:R Box)</span>
+                <span>Drawing &amp; Analysis Toolbar</span>
               </div>
               <p className="text-xs text-[#9ca3af] leading-relaxed">
-                Contains your technical drawing tools: <strong className="text-white">Trendlines</strong>, <strong className="text-white">Horizontal Rays</strong>, <strong className="text-white">Rectangles</strong> (for FVG / Supply &amp; Demand), and the interactive <strong className="text-emerald-400">Long &amp; Short Position R:R Tool</strong>.
+                Draw support/resistance, market structure shifts, trendlines, and place visual Long/Short position boxes with direct chart execution handles.
               </p>
             </div>
 
@@ -270,10 +279,10 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                 <span className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-mono">
                   3
                 </span>
-                <span>Center Chart (Visual Execution)</span>
+                <span>Candlestick Replay Engine</span>
               </div>
               <p className="text-xs text-[#9ca3af] leading-relaxed">
-                Displays historical candles strictly up to the replay clock. When you place a position or R:R drawing, you can <strong className="text-white">drag Entry, SL, and TP lines directly on the chart</strong>.
+                Step bar-by-bar with zero future lookahead. Visual markers show exact trade entry, stop loss, and take profit price levels.
               </p>
             </div>
 
@@ -282,10 +291,10 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                 <span className="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-mono">
                   4
                 </span>
-                <span>Right Order Ticket &amp; Prop Rules</span>
+                <span>Order Ticket &amp; Prop Rules</span>
               </div>
               <p className="text-xs text-[#9ca3af] leading-relaxed">
-                Your execution panel for <strong className="text-emerald-400">LONG (Buy)</strong> and <strong className="text-rose-400">SHORT (Sell)</strong> orders. Toggle between <strong className="text-white">Lots</strong> and <strong className="text-white">Risk %</strong> calculator, and monitor live Prop Firm drawdown limits underneath.
+                Execute Market or Pending orders, size via account percentage risk, and track daily drawdown, max drawdown, and profit target progress in real time.
               </p>
             </div>
 
@@ -294,10 +303,10 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                 <span className="w-6 h-6 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center font-mono">
                   5
                 </span>
-                <span>Bottom Replay &amp; Positions Dock</span>
+                <span>Replay Dock &amp; Management</span>
               </div>
               <p className="text-xs text-[#9ca3af] leading-relaxed">
-                Control time with <strong className="text-white">Play/Pause</strong>, <strong className="text-white">Step +1 Bar</strong>, or jump to <strong className="text-white">London / NY Open</strong>. Below the controls, manage open trades (<strong className="text-emerald-400">Break-Even</strong>, <strong className="text-amber-400">50% Close</strong>) and log your <strong className="text-white">Trade Journal</strong>.
+                Step forward, control replay speed, jump directly to London/NY session opens, move stops to Break-Even (BE), or take 50% partial profits.
               </p>
             </div>
 
@@ -306,21 +315,21 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                 <span className="w-6 h-6 rounded-lg bg-pink-500/20 text-pink-400 flex items-center justify-center font-mono">
                   6
                 </span>
-                <span>Dashboard &amp; Analytics Hub</span>
+                <span>Dashboard &amp; Performance Hub</span>
               </div>
               <p className="text-xs text-[#9ca3af] leading-relaxed">
-                Click <strong className="text-white">Dashboard</strong> or <strong className="text-emerald-400">Analytics</strong> in the top-right bar to manage all your sessions, view your <strong className="text-white">Balance &amp; Equity Curve</strong>, <strong className="text-white">Daily P&amp;L Calendar</strong>, and 13 performance KPIs.
+                Full analytics hub: Equity &amp; Balance curves, Drawdown progression, Trade audit logs, Playbooks, and User Settings with complete data control.
               </p>
             </div>
           </div>
-        </div>
+        </section>
       )}
 
       {/* =====================================================================
-          PART 2: HOW TO SET UP YOUR FIRST SESSION
+          PART 2: HOW TO SET UP A SESSION
       ===================================================================== */}
       {showSetupSession && (
-        <div className="rounded-2xl border border-[#242832] bg-[#12151b] p-5 sm:p-7 space-y-6 shadow-2xl">
+        <section className="rounded-2xl border border-[#242832] bg-[#12151b] p-5 sm:p-7 space-y-6 shadow-xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#242832] pb-4">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 font-black text-sm flex items-center justify-center shrink-0">
@@ -328,10 +337,10 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
               </div>
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold">
-                  PART 2 · SESSION CONFIGURATION
+                  CHAPTER 2 · SESSION WORKFLOW
                 </span>
                 <h3 className="text-lg sm:text-xl font-extrabold text-white">
-                  How to Set Up Your First Backtest or Prop Firm Session
+                  Creating a Backtest or Prop Challenge Session
                 </h3>
               </div>
             </div>
@@ -344,9 +353,7 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>
-                  {isInsideApp
-                    ? 'Open Create Session Modal'
-                    : 'Create Your First Session Free'}
+                  {isInsideApp ? 'Open Session Modal' : 'Create First Session'}
                 </span>
               </button>
             )}
@@ -358,39 +365,25 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="px-2.5 py-1 rounded-md bg-emerald-500/15 text-emerald-400 font-mono font-bold text-xs">
-                    STEP 1 OF 3
+                    STEP 1
                   </span>
                   <FolderPlus className="w-5 h-5 text-emerald-400" />
                 </div>
                 <h4 className="text-base font-extrabold text-white">
-                  Click &ldquo;Create New Session&rdquo; &amp; Pick Your Mode
+                  Choose Backtest Mode
                 </h4>
                 <p className="text-xs text-[#9ca3af] leading-relaxed">
-                  From the <strong className="text-white">Dashboard left sidebar</strong>, click the green <strong className="text-emerald-400">+ Create New Session</strong> button (or click the active session pill in the top-left of the chart).
+                  Select <strong className="text-white">Normal Backtesting</strong> for open practice with bar rewind, or <strong className="text-amber-400">Prop Firm Challenge</strong> to enforce strict daily loss, max drawdown, and profit target conditions.
                 </p>
               </div>
 
-              {/* Visual Mini UI Mock */}
               <div className="p-3 rounded-xl bg-[#0d0f13] border border-[#242832] space-y-2 text-[11px]">
-                <div className="text-[10px] font-mono uppercase text-gray-400">
-                  Choose Session Mode:
-                </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="p-2 rounded-lg bg-emerald-500/15 border border-emerald-500/50 text-emerald-300 font-bold">
-                    <div className="flex items-center gap-1">
-                      <Zap className="w-3.5 h-3.5" /> Normal Backtest
-                    </div>
-                    <div className="text-[9px] text-gray-300 font-normal mt-0.5">
-                      Rewind &amp; practice freely
-                    </div>
+                  <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold text-xs">
+                    <Zap className="w-3.5 h-3.5 inline mr-1" /> Free Replay
                   </div>
-                  <div className="p-2 rounded-lg bg-amber-500/15 border border-amber-500/50 text-amber-300 font-bold">
-                    <div className="flex items-center gap-1">
-                      <Trophy className="w-3.5 h-3.5" /> Prop Challenge
-                    </div>
-                    <div className="text-[9px] text-gray-300 font-normal mt-0.5">
-                      FTMO, Topstep, 5%ers rules
-                    </div>
+                  <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold text-xs">
+                    <Trophy className="w-3.5 h-3.5 inline mr-1" /> Prop Challenge
                   </div>
                 </div>
               </div>
@@ -401,44 +394,26 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="px-2.5 py-1 rounded-md bg-[#2962ff]/20 text-blue-400 font-mono font-bold text-xs">
-                    STEP 2 OF 3
+                    STEP 2
                   </span>
                   <Sliders className="w-5 h-5 text-blue-400" />
                 </div>
                 <h4 className="text-base font-extrabold text-white">
-                  Set Starting Balance, Markets &amp; Strategy
+                  Balance, Instruments &amp; Strategy
                 </h4>
                 <p className="text-xs text-[#9ca3af] leading-relaxed">
-                  Select your account size (<strong className="text-white">$5K up to $200K</strong> or custom), choose the instruments you want in your watchlist (<strong className="text-white">XAUUSD, NAS100, EURUSD, GBPJPY</strong>), and tag your strategy playbook.
+                  Set starting capital ($10K, $50K, $100K or custom), pick your initial active symbol (e.g. XAU/USD, NAS100), and link a strategy playbook for tag tracking.
                 </p>
               </div>
 
-              {/* Visual Mini UI Mock */}
               <div className="p-3 rounded-xl bg-[#0d0f13] border border-[#242832] space-y-2 text-[11px] font-mono">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-400 text-[10px]">BALANCE:</span>
-                  <div className="flex gap-1">
-                    <span className="px-1.5 py-0.5 rounded bg-[#1a1e26] text-gray-400 text-[10px]">
-                      $25K
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded bg-[#1a1e26] text-gray-400 text-[10px]">
-                      $50K
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white font-bold text-[10px]">
-                      $100K
-                    </span>
-                  </div>
+                <div className="flex items-center justify-between text-gray-400">
+                  <span>CAPITAL:</span>
+                  <span className="text-white font-bold">$100,000 USD</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-400 text-[10px]">WATCHLIST:</span>
-                  <div className="flex gap-1">
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">
-                      XAUUSD ✓
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">
-                      NAS100 ✓
-                    </span>
-                  </div>
+                <div className="flex items-center justify-between text-gray-400">
+                  <span>STRATEGY:</span>
+                  <span className="text-emerald-400 font-bold">ICT Silver Bullet</span>
                 </div>
               </div>
             </div>
@@ -448,38 +423,33 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-400 font-mono font-bold text-xs">
-                    STEP 3 OF 3
+                    STEP 3
                   </span>
                   <Clock className="w-5 h-5 text-amber-400" />
                 </div>
                 <h4 className="text-base font-extrabold text-white">
-                  Pick Historical Start Date &amp; Launch Session
+                  Historical Start Date &amp; Launch
                 </h4>
                 <p className="text-xs text-[#9ca3af] leading-relaxed">
-                  Choose a historical date preset (<strong className="text-white">1 Year Ago, 6 Months, 1 Month</strong>) and session open time (<strong className="text-white">08:00 London</strong> or <strong className="text-white">13:00 NY Open</strong>), then click <strong className="text-emerald-400">Create &amp; Launch Session</strong>.
+                  Pick a historical starting point and opening session hour (London 08:00 or NY 13:30 UTC), then click Launch to enter the zero-lookahead chart.
                 </p>
               </div>
 
-              {/* Visual Mini UI Mock */}
               <div className="p-3 rounded-xl bg-[#0d0f13] border border-[#242832] space-y-2 text-[11px]">
-                <div className="flex items-center justify-between font-mono text-[10px]">
-                  <span className="text-gray-400">START CLOCK:</span>
-                  <span className="text-amber-400 font-bold">13:00 NY Open (UTC)</span>
-                </div>
-                <div className="w-full py-1.5 rounded-lg bg-emerald-600 text-white font-extrabold text-center text-xs flex items-center justify-center gap-1.5">
-                  <Play className="w-3 h-3 fill-current" /> Create &amp; Launch Session
+                <div className="w-full py-2 rounded-lg bg-emerald-600 text-white font-extrabold text-center text-xs flex items-center justify-center gap-1.5 shadow">
+                  <Play className="w-3.5 h-3.5 fill-current" /> Launch Simulator Session
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        </section>
       )}
 
       {/* =====================================================================
-          PART 3: HOW TO ADD YOUR FIRST BUY OR SELL TRADE
+          PART 3: EXECUTING TRADES & SIZING
       ===================================================================== */}
       {showFirstTrade && (
-        <div className="rounded-2xl border border-[#242832] bg-[#12151b] p-5 sm:p-7 space-y-6 shadow-2xl">
+        <section className="rounded-2xl border border-[#242832] bg-[#12151b] p-5 sm:p-7 space-y-6 shadow-xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#242832] pb-4">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 font-black text-sm flex items-center justify-center shrink-0">
@@ -487,10 +457,10 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
               </div>
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 font-bold">
-                  PART 3 · EXECUTING &amp; MANAGING TRADES
+                  CHAPTER 3 · EXECUTION MODES
                 </span>
                 <h3 className="text-lg sm:text-xl font-extrabold text-white">
-                  How to Place Your First Buy or Sell Order (2 Easy Ways)
+                  Executing Trades: Order Panel vs. On-Chart R:R Tool
                 </h3>
               </div>
             </div>
@@ -502,18 +472,13 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                 className="px-4 py-2 rounded-xl bg-[#2962ff] hover:bg-[#1e53e5] text-white text-xs font-extrabold flex items-center gap-1.5 transition shrink-0"
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
-                <span>
-                  {isInsideApp
-                    ? 'Go to Chart & Place a Trade'
-                    : 'Start Trading Free Now'}
-                </span>
+                <span>{isInsideApp ? 'Open Chart Terminal' : 'Trade Now'}</span>
               </button>
             )}
           </div>
 
-          {/* Two Execution Methods Side-by-Side */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Method A: Right Order Ticket */}
+            {/* Method A */}
             <div className="p-5 rounded-2xl bg-[#161a22] border border-[#262b36] space-y-4 flex flex-col justify-between">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -521,11 +486,11 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                     METHOD A · RIGHT ORDER TICKET
                   </span>
                   <span className="text-[11px] font-mono text-gray-400">
-                    Fastest Execution
+                    Precision Sizing
                   </span>
                 </div>
                 <h4 className="text-base font-extrabold text-white">
-                  Place a Buy (Long) or Sell (Short) from the Right Order Panel
+                  Execute Long / Short via Order Panel
                 </h4>
 
                 <ol className="space-y-2.5 text-xs text-[#cbd5e1] leading-relaxed">
@@ -534,9 +499,7 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                       1
                     </span>
                     <span>
-                      <strong>Select Direction:</strong> Click{' '}
-                      <strong className="text-emerald-400">LONG / Buy</strong> (if you expect price to rise) or{' '}
-                      <strong className="text-rose-400">SHORT / Sell</strong> (if you expect price to fall) at the top of the Right Order Ticket.
+                      <strong>Direction:</strong> Click <strong className="text-emerald-400">LONG (Buy)</strong> for upward momentum or <strong className="text-rose-400">SHORT (Sell)</strong> for short setups.
                     </span>
                   </li>
                   <li className="flex items-start gap-2.5">
@@ -544,9 +507,7 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                       2
                     </span>
                     <span>
-                      <strong>Choose Order Type:</strong> Pick{' '}
-                      <strong className="text-white">MARKET</strong> for an immediate fill at the current replay candle, or{' '}
-                      <strong className="text-white">LIMIT / STOP</strong> to set a pending entry price.
+                      <strong>Order Type:</strong> Choose <strong className="text-white">MARKET</strong> for immediate fill or <strong className="text-white">LIMIT / STOP</strong> for structural breakouts.
                     </span>
                   </li>
                   <li className="flex items-start gap-2.5">
@@ -554,11 +515,7 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                       3
                     </span>
                     <span>
-                      <strong>Size Your Risk &amp; Set SL / TP:</strong> Choose{' '}
-                      <strong className="text-white">Risk %</strong> (e.g. <code>1.0%</code> — automatically calculates exact lots based on your Stop Loss distance) or enter{' '}
-                      <strong className="text-white">Lots</strong> manually. Set your{' '}
-                      <strong className="text-rose-400">Stop Loss</strong> and{' '}
-                      <strong className="text-emerald-400">Take Profit</strong>.
+                      <strong>Risk Management:</strong> Select <strong className="text-white">% Risk (e.g. 1.0%)</strong> to automatically calculate lot size from Stop Loss distance.
                     </span>
                   </li>
                   <li className="flex items-start gap-2.5">
@@ -566,56 +523,40 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                       4
                     </span>
                     <span>
-                      <strong>Click Execute:</strong> Press the{' '}
-                      <strong className="text-emerald-400">Execute Market Buy</strong> (or Sell) button. Your trade immediately appears on the chart with draggable SL/TP lines!
+                      <strong>Execute:</strong> Click <strong className="text-emerald-400">Execute Order</strong>. The position immediately appears on the chart and in the Bottom Dock.
                     </span>
                   </li>
                 </ol>
               </div>
 
-              {/* Mini Visual Order Ticket Preview */}
               <div className="p-3.5 rounded-xl bg-[#0d0f13] border border-[#242832] font-mono text-xs space-y-2.5">
                 <div className="grid grid-cols-2 gap-2">
                   <div className="py-1.5 px-2 rounded-lg bg-emerald-600 text-white font-bold text-center flex items-center justify-center gap-1">
-                    <ArrowUpRight className="w-3.5 h-3.5" /> LONG / Buy
+                    <ArrowUpRight className="w-3.5 h-3.5" /> BUY / LONG
                   </div>
                   <div className="py-1.5 px-2 rounded-lg bg-[#1a1e26] text-rose-400 border border-rose-500/30 font-bold text-center flex items-center justify-center gap-1">
-                    <ArrowDownRight className="w-3.5 h-3.5" /> SHORT / Sell
+                    <ArrowDownRight className="w-3.5 h-3.5" /> SELL / SHORT
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-                  <div className="p-1.5 rounded bg-[#161a22] border border-[#262b36]">
-                    <div className="text-gray-400">RISK (1.0%)</div>
-                    <div className="text-white font-bold">1.85 Lots</div>
-                  </div>
-                  <div className="p-1.5 rounded bg-[#161a22] border border-rose-500/30">
-                    <div className="text-rose-400">STOP LOSS</div>
-                    <div className="text-white font-bold">2,645.80</div>
-                  </div>
-                  <div className="p-1.5 rounded bg-[#161a22] border border-emerald-500/30">
-                    <div className="text-emerald-400">TAKE PROFIT</div>
-                    <div className="text-white font-bold">2,668.40</div>
-                  </div>
-                </div>
-                <div className="py-2 rounded-lg bg-emerald-600 text-white font-sans font-extrabold text-center text-xs shadow-lg">
-                  Execute Market Buy · 1.85 Lots (R:R 1 : 3.20)
+                <div className="py-2 rounded-lg bg-emerald-600 text-white font-sans font-extrabold text-center text-xs shadow">
+                  Execute Market Buy · 1.50 Lots (1.0% Risk)
                 </div>
               </div>
             </div>
 
-            {/* Method B: On-Chart Visual Position Tool + Replay Stepping */}
+            {/* Method B */}
             <div className="p-5 rounded-2xl bg-[#161a22] border border-[#262b36] space-y-4 flex flex-col justify-between">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="px-2.5 py-1 rounded-md bg-[#2962ff]/20 border border-[#2962ff]/40 text-blue-400 font-mono font-bold text-xs">
-                    METHOD B · ON-CHART R:R POSITION TOOL
+                    METHOD B · VISUAL ON-CHART R:R BOX
                   </span>
                   <span className="text-[11px] font-mono text-gray-400">
-                    TradingView-Style Visual Box
+                    Visual Trading
                   </span>
                 </div>
                 <h4 className="text-base font-extrabold text-white">
-                  Draw Your Setup on the Candles &amp; Click Execute on Chart
+                  Place Setup on Chart &amp; Click Execute
                 </h4>
 
                 <ol className="space-y-2.5 text-xs text-[#cbd5e1] leading-relaxed">
@@ -624,10 +565,7 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                       1
                     </span>
                     <span>
-                      <strong>Select Long or Short Tool:</strong> On the{' '}
-                      <strong className="text-white">Left Toolbar</strong> (5th icon down), select{' '}
-                      <strong className="text-emerald-400">Long Position (Buy R:R)</strong> or{' '}
-                      <strong className="text-rose-400">Short Position (Sell R:R)</strong>.
+                      <strong>Select Tool:</strong> From the left toolbar, click the <strong className="text-emerald-400">Long Position</strong> or <strong className="text-rose-400">Short Position</strong> tool.
                     </span>
                   </li>
                   <li className="flex items-start gap-2.5">
@@ -635,9 +573,7 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                       2
                     </span>
                     <span>
-                      <strong>Click on the Chart &amp; Drag Handles:</strong> Click on your entry candle. Drag the{' '}
-                      <strong className="text-emerald-400">Green Take Profit box</strong> and{' '}
-                      <strong className="text-rose-400">Red Stop Loss box</strong> to your key structure levels — the Right Order Ticket syncs automatically!
+                      <strong>Drop on Candle:</strong> Click the chart to anchor your entry. Drag the green Take Profit handle and red Stop Loss boundary.
                     </span>
                   </li>
                   <li className="flex items-start gap-2.5">
@@ -645,9 +581,7 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                       3
                     </span>
                     <span>
-                      <strong>One-Click Chart Execution:</strong> Click{' '}
-                      <strong className="text-emerald-400">&ldquo;Execute Market&rdquo;</strong> or{' '}
-                      <strong className="text-blue-400">&ldquo;Place Limit&rdquo;</strong> right on the floating pill attached to your R:R drawing.
+                      <strong>One-Click Fill:</strong> Click <strong className="text-emerald-400">&ldquo;Execute Market&rdquo;</strong> right from the floating tool bubble.
                     </span>
                   </li>
                   <li className="flex items-start gap-2.5">
@@ -655,46 +589,88 @@ export const QuickStartGuide: React.FC<QuickStartGuideProps> = ({
                       4
                     </span>
                     <span>
-                      <strong>Step Forward &amp; Manage:</strong> Press{' '}
-                      <strong className="text-white">Play</strong> or <strong className="text-white">Step +1 Bar</strong> in the Bottom Dock. Use <strong className="text-blue-400">BE</strong> to move Stop Loss to Break-Even or <strong className="text-amber-400">50%</strong> to take partial profits!
+                      <strong>Step Time:</strong> Press <strong className="text-white">Step +1 Bar</strong> in the Bottom Dock to advance the simulation candle-by-candle.
                     </span>
                   </li>
                 </ol>
               </div>
 
-              {/* Mini Visual On-Chart R:R Box Preview */}
               <div className="p-3.5 rounded-xl bg-[#0d0f13] border border-[#242832] font-mono text-xs space-y-2">
                 <div className="rounded-lg overflow-hidden border border-white/10">
                   <div className="bg-[#089981]/25 border-b border-[#089981]/50 px-3 py-1.5 flex items-center justify-between text-[11px]">
-                    <span className="text-emerald-300 font-bold">
-                      TAKE PROFIT · 2,668.40
-                    </span>
-                    <span className="text-white font-bold">+3.20R (+$3,200)</span>
+                    <span className="text-emerald-300 font-bold">TAKE PROFIT (TP)</span>
+                    <span className="text-white font-bold">+3.0R Target</span>
                   </div>
                   <div className="bg-[#141822] px-3 py-2 flex items-center justify-between text-[11px] border-b border-white/10">
-                    <span className="text-white font-bold">
-                      ENTRY · LONG XAU/USD @ 2,651.20
+                    <span className="text-white font-bold">ENTRY LINE</span>
+                    <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold">
+                      Execute Market
                     </span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold">
-                        Execute Market
-                      </span>
-                      <span className="px-2 py-0.5 rounded bg-[#2962ff] text-white text-[10px] font-bold">
-                        Place Limit
-                      </span>
-                    </div>
                   </div>
                   <div className="bg-[#f23645]/20 px-3 py-1.5 flex items-center justify-between text-[11px]">
-                    <span className="text-rose-300 font-bold">
-                      STOP LOSS · 2,645.80
-                    </span>
-                    <span className="text-rose-300 font-bold">-1.00R (-$1,000)</span>
+                    <span className="text-rose-300 font-bold">STOP LOSS (SL)</span>
+                    <span className="text-rose-300 font-bold">-1.0R Risk</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        </section>
+      )}
+
+      {/* =====================================================================
+          PART 4: PRO TIPS & DRAWDOWN RULES
+      ===================================================================== */}
+      {showProTips && (
+        <section className="rounded-2xl border border-[#242832] bg-[#12151b] p-5 sm:p-7 space-y-6 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#242832] pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-400 font-black text-sm flex items-center justify-center shrink-0">
+                04
+              </div>
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-purple-400 font-bold">
+                  CHAPTER 4 · PRO RULES & BEST PRACTICES
+                </span>
+                <h3 className="text-lg sm:text-xl font-extrabold text-white">
+                  Risk Management &amp; Evaluation Guardrails
+                </h3>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 rounded-xl bg-[#161a22] border border-[#262b36] space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                <ShieldCheck className="w-4 h-4" />
+                <span>Daily Loss Calculation</span>
+              </div>
+              <p className="text-xs text-[#9ca3af] leading-relaxed">
+                Daily drawdown is measured from either starting balance or midnight high-water equity. Keep each trade risk at 0.5%–1.0% to avoid tripping breach triggers.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#161a22] border border-[#262b36] space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
+                <Target className="w-4 h-4" />
+                <span>Partial Profits &amp; Break-Even</span>
+              </div>
+              <p className="text-xs text-[#9ca3af] leading-relaxed">
+                Use the <strong className="text-white">BE</strong> button in the bottom dock once price clears 1.5R, or click <strong className="text-amber-400">50%</strong> to bank partial profits and remove psychological friction.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#161a22] border border-[#262b36] space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-sky-400">
+                <Lightbulb className="w-4 h-4" />
+                <span>Session Journal &amp; Tags</span>
+              </div>
+              <p className="text-xs text-[#9ca3af] leading-relaxed">
+                After closing a trade, add notes and setup tags. All session statistics roll automatically into the Analytics Dashboard and exportable CSV audit report.
+              </p>
+            </div>
+          </div>
+        </section>
       )}
     </div>
   );

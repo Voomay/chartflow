@@ -394,6 +394,90 @@ export function saveUserSessions(userId: string, sessions: TradingSession[]): vo
   }
 }
 
+export const DEFAULT_USER_STRATEGIES: Array<Omit<StrategyRecord, 'id' | 'userId' | 'createdAt'>> = [
+  {
+    name: 'ICT Silver Bullet (NY Open)',
+    description:
+      'Sweep of Asian or London session liquidity followed by energetic displacement and 15m/5m Fair Value Gap (FVG) entry during the 10:00–11:00 AM NY time-price killzone.',
+    defaultChecklist: [
+      'Higher-Timeframe (1H/4H) directional order-flow bias established',
+      'Key session liquidity high or low swept prior to entry window',
+      'Clear Market Structure Shift (MSS) with displacement candle',
+      'Entry on first test of 5m/15m Fair Value Gap (FVG)',
+      'Stop loss fixed above/below swing displacement extreme (risk <= 1%)',
+      'Target opposing external liquidity pool (minimum 1:2 R:R)',
+    ],
+    setupTags: ['NY Silver Bullet', 'Liquidity Sweep', 'FVG Entry', 'A+ Setup'],
+  },
+  {
+    name: 'SMC Orderblock + FVG Mitigation',
+    description:
+      'Institutional orderblock mitigation inside discount (long) or premium (short) dealing range, confirmed by break of market structure (BOS).',
+    defaultChecklist: [
+      'Market in HTF premium (>50% range) for shorts or discount (<50%) for longs',
+      'Unmitigated orderblock with adjoining Fair Value Gap imbalance',
+      'Lower-timeframe (1m/5m) confirmation shift before entering limit or market',
+      'No high-impact red-folder CPI / FOMC releases within 15 minutes',
+      'Defined take profit at opposing swing structure with minimum 1:2.5 R:R',
+    ],
+    setupTags: ['SMC Orderblock', 'BOS', 'Premium/Discount', 'Institutional Entry'],
+  },
+  {
+    name: 'London Breakout & Judas Swing',
+    description:
+      'Fade the classic false morning expansion (Judas Swing) at the Frankfurt/London open and ride the true institutional trend into the European session.',
+    defaultChecklist: [
+      'Mark the Asian session high and low range boundaries (00:00–07:00 UTC)',
+      'Wait for aggressive spike (Judas swing) through Asian high or low',
+      '15m candle closes back inside the consolidation range (failed breakout)',
+      'Enter market on close or retest of range boundary',
+      'Stop loss 5–8 pips beyond fakeout high/low wick',
+      'Target opposing Asian boundary and London ATR expansion levels',
+    ],
+    setupTags: ['London Breakout', 'Asian Sweep', 'Judas Swing', 'Session Trap'],
+  },
+  {
+    name: 'Asia Session Range Mean-Reversion',
+    description:
+      'Exploits low-volatility Asian liquidity consolidation on major FX pairs (EUR/USD, GBP/USD) through mean-reversion at extreme boundaries.',
+    defaultChecklist: [
+      'Confirm market is in neutral, non-trending condition after NY close',
+      'Identify Asian session high, low, and equilibrium (50%) mid-point',
+      'RSI/momentum divergence at outer 20% range boundaries',
+      'Strict fixed stop loss just outside range extreme to prevent trend breakout loss',
+      'Take-profit target strictly at range equilibrium mid-line (50%)',
+    ],
+    setupTags: ['Asia Range', 'Mean Reversion', 'Range Bound', 'Low Volatility'],
+  },
+  {
+    name: 'High-Impact News Retracement & Wick Fill',
+    description:
+      'Systematic fade and imbalance re-fill of erratic initial impulses 5–15 minutes following high-impact data releases (NFP, CPI, Rate Decisions).',
+    defaultChecklist: [
+      'Wait 5 to 10 minutes post-news release for initial algorithmic whip to conclude',
+      'Identify massive volume spike with extreme wick extension or unfulfilled candle void',
+      'Ensure HTF major support/resistance rejected the initial news knee-jerk move',
+      'Enter retracement towards 50% candle void or pre-news opening price',
+      'Hard stop loss beyond peak volatility wick extreme (max 0.75% account risk)',
+      'Take partial profits at first major 5m consolidation zone',
+    ],
+    setupTags: ['News Trading', 'Wick Fill', 'Imbalance Retest', 'Volatility Play'],
+  },
+  {
+    name: 'Trend Continuity & Moving Average Pullback',
+    description:
+      'High-probability pullback entries into established multi-timeframe trends using EMA ribbon support, structural pullbacks, and trailing stop progression.',
+    defaultChecklist: [
+      'Daily and 4H charts both aligned above (uptrend) or below (downtrend) 50 & 200 EMA',
+      '1H pull back to key value zone (20/50 EMA confluence or broken swing level)',
+      'Bullish/bearish reversal candle pattern confirms rejection of value zone',
+      'Stop loss positioned beneath pullback swing pivot',
+      'Scale out 50% at 1:2 R:R, move stop loss to break-even, and trail remaining volume',
+    ],
+    setupTags: ['Trend Following', 'EMA Pullback', 'Structure Retest', 'Swing Continuation'],
+  },
+];
+
 export function loadUserStrategies(userId: string): StrategyRecord[] {
   const key = `${getUserScopePrefix(userId)}_strategies_v2`;
   try {
@@ -405,50 +489,15 @@ export function loadUserStrategies(userId: string): StrategyRecord[] {
   } catch {
     // ignore
   }
-  const defaults: StrategyRecord[] = [
-    {
-      id: 'strat-1',
-      userId,
-      name: 'ICT Silver Bullet (NY Open)',
-      description: 'Sweep of London high/low followed by displacement and 15m/5m FVG entry during 10:00–11:00 AM EST.',
-      defaultChecklist: [
-        'HTF (1H/4H) directional bias aligned',
-        'Session liquidity high/low swept',
-        'Clear Market Structure Shift (MSS) with displacement',
-        'Stop Loss placed beyond swing extreme & risk <= 1%',
-      ],
-      setupTags: ['NY Silver Bullet', 'Liquidity Sweep', 'FVG Entry', 'A+ Setup'],
-      createdAt: '2026-10-01',
-    },
-    {
-      id: 'strat-2',
-      userId,
-      name: 'SMC Orderblock + FVG',
-      description: 'Institutional orderblock mitigation inside discount/premium dealing range with structural confirmation.',
-      defaultChecklist: [
-        'Price in 50%fib Discount (Long) or Premium (Short)',
-        'Unmitigated Orderblock + FVG confluence',
-        'No high-impact red-folder news within 15 minutes',
-        'Minimum 1:2 Risk-to-Reward to opposing liquidity pool',
-      ],
-      setupTags: ['SMC Orderblock', 'BOS', 'Premium/Discount'],
-      createdAt: '2026-10-01',
-    },
-    {
-      id: 'strat-3',
-      userId,
-      name: 'London Breakout & Judas Swing',
-      description: 'Fade the false Asian range breakout at Frankfurt/London open and ride the true European expansion.',
-      defaultChecklist: [
-        'Tight Asian session consolidation range defined',
-        'Judas swing sweep of Asian High or Low',
-        '15m candle closure back inside range',
-        'Target opposing Asian boundary + London extension',
-      ],
-      setupTags: ['London Breakout', 'Asian Sweep', 'Judas Swing'],
-      createdAt: '2026-10-01',
-    },
-  ];
+  const defaults: StrategyRecord[] = DEFAULT_USER_STRATEGIES.map((s, idx) => ({
+    id: `strat-${idx + 1}`,
+    userId,
+    name: s.name,
+    description: s.description,
+    defaultChecklist: s.defaultChecklist,
+    setupTags: s.setupTags,
+    createdAt: '2026-10-01',
+  }));
   saveUserStrategies(userId, defaults);
   return defaults;
 }
@@ -1247,3 +1296,46 @@ export function deleteUserSession(userId: string, sessionId: string): TradingSes
   return remaining;
 }
 
+/**
+ * Permanently delete a registered user account and purge all their isolated local data.
+ */
+export function deleteUserAccount(userEmail: string): boolean {
+  if (!userEmail) return false;
+  const cleanEmail = userEmail.trim().toLowerCase();
+
+  // 1. Remove from registered users registry
+  try {
+    const users = getRegisteredUsers();
+    const remainingUsers = users.filter((u) => u.email.toLowerCase() !== cleanEmail);
+    localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(remainingUsers));
+  } catch {
+    // ignore
+  }
+
+  // 2. Clear active user session if it was this user
+  try {
+    const active = getActiveLoggedInUser();
+    if (active && active.email.toLowerCase() === cleanEmail) {
+      localStorage.removeItem(CURRENT_USER_KEY);
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Purge all scoped storage keys for this user
+  try {
+    const prefix = getUserScopePrefix(userEmail);
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith(prefix) || key.includes(cleanEmail.replace(/[^a-z0-9]/g, '_')))) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+
+  return true;
+}

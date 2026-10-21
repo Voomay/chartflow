@@ -39,7 +39,7 @@ const FEATURES = [
   {
     icon: CandlestickChart,
     title: 'Bar-by-Bar Replay',
-    desc: 'Step through deterministic 1-minute history with zero lookahead across synced 1mâ€“1D timeframes.',
+    desc: 'Step through deterministic 1-minute history with zero lookahead across synced 1m-1D timeframes.',
     accent: 'from-emerald-400 to-teal-500',
   },
   {
@@ -72,7 +72,7 @@ const ANALYTICS_KPIS = [
 /* ---------- Small presentational helpers ---------- */
 
 const PARTNER_EMAIL = 'info@voomay.co.za';
-const PARTNER_SUBJECT = 'Partnership Enquiry â€“ Chart Replay';
+const PARTNER_SUBJECT = 'Partnership Enquiry — Chart Replay';
 const PARTNER_BODY =
   "Hi Chart Replay team,\n\nI'm interested in partnering with Chart Replay.\n\nName:\nCompany / Brand:\nWebsite / Socials:\nPartnership idea (affiliate, prop firm, education, sponsorship, other):\n\nLooking forward to hearing from you.\n\nKind regards,";
 export const PARTNER_MAILTO = `mailto:${PARTNER_EMAIL}?subject=${encodeURIComponent(PARTNER_SUBJECT)}&body=${encodeURIComponent(PARTNER_BODY)}`;
@@ -261,7 +261,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
             <div className="lp-fade-up flex justify-center lg:justify-start mb-5">
               <span className="inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-400/25 text-[11px] sm:text-xs font-semibold text-emerald-200 max-w-full">
                 <span className="inline-flex items-center gap-1.5"><SAFlag className="w-4 h-[11px]" />Proudly South African</span>
-                <span className="text-emerald-400/60" aria-hidden="true">Â·</span>
+                <span className="text-emerald-400/60" aria-hidden="true">·</span>
                 <span>The #1 FX Replay alternative</span>
               </span>
             </div>
@@ -274,8 +274,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
             </h1>
 
             <p className="lp-fade-up lp-d2 text-base sm:text-lg text-[#9ca3af] max-w-xl mx-auto lg:mx-0 leading-relaxed mb-8">
-              Backtest candle-by-candle on real historical data, simulate prop firm drawdown rules and audit every trade â€”{' '}
-              <strong className="text-emerald-400 font-bold">100% free.</strong>{' '}The best alternative to FX Replay â€” proudly made in South Africa.
+              Backtest candle-by-candle on real historical data, simulate prop firm drawdown rules and audit every trade —{' '}
+              <strong className="text-emerald-400 font-bold">100% free.</strong>{' '}The best alternative to FX Replay — proudly made in South Africa.
             </p>
 
             <div className="lp-fade-up lp-d3 flex flex-col sm:flex-row items-stretch sm:items-center justify-center lg:justify-start gap-3 mb-8">
@@ -316,7 +316,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
               <span className="bg-gradient-to-r from-sky-400 to-emerald-400 bg-clip-text text-transparent">prove your edge</span>
             </h2>
             <p className="mt-4 text-base sm:text-lg text-[#9ca3af]">
-              A professional replay terminal, prop firm rules engine and analytics suite â€” in one place.
+              A professional replay terminal, prop firm rules engine and analytics suite — in one place.
             </p>
           </div>
 
@@ -341,7 +341,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
             <div className="rounded-2xl bg-[#0a0e17]/95 p-5 sm:p-6">
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-gray-400">FTMO $100K Â· Phase 1</div>
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-gray-400">FTMO $100K · Phase 1</div>
                   <div className="text-2xl sm:text-3xl font-black font-mono text-white mt-1">$109,860</div>
                 </div>
                 <span className="shrink-0 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
@@ -399,7 +399,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
               <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">FX Replay</span>
             </h2>
             <p className="mt-4 text-base sm:text-lg text-[#9ca3af]">
-              The best alternative to FX Replay â€” everything you need to backtest and pass evaluations, without the price tag.
+              The best alternative to FX Replay — everything you need to backtest and pass evaluations, without the price tag.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
@@ -454,7 +454,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
       {/* Footer */}
       <footer className="relative z-10 border-t border-white/[0.06] py-6 px-4 sm:px-6 text-sm text-[#787b86]">
         <div className="max-w-[1400px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center">
-          <span className="flex items-center gap-3"><ChartReplayLogo size={28} /><span className="hidden sm:inline">Â© Historical Trading Simulator</span></span>
+          <span className="flex items-center gap-3"><ChartReplayLogo size={28} /><span className="hidden sm:inline">© Historical Trading Simulator</span></span>
           <span className="inline-flex items-center gap-2 font-semibold text-gray-400"><SAFlag className="w-5 h-[14px]" />Proudly made in South Africa</span>
           <div className="flex flex-wrap items-center justify-center gap-2 font-semibold">
             <a href={PARTNER_MAILTO} className="px-3 min-h-[44px] inline-flex items-center hover:text-white transition">Partner with Us</a>

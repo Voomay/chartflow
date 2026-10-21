@@ -51,6 +51,8 @@ import {
   X,
   Zap,
   Trash2,
+  Menu,
+  CheckCircle2,
 } from 'lucide-react';
 
 export type HubSidebarSection =
@@ -85,6 +87,7 @@ interface AnalyticsDashboardPageProps {
   onSaveStrategies?: (strategies: StrategyRecord[]) => void;
   customRuleProfiles?: CustomRuleProfile[];
   currentUser?: ChartFlowUser | null;
+  onDeleteUser?: (email: string) => void;
   onLogout?: () => void;
   theme?: ThemeMode;
   onToggleTheme?: () => void;
@@ -105,6 +108,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   strategies = [],
   onSaveStrategies,
   currentUser,
+  onDeleteUser,
   onLogout,
   theme = 'dark',
   onToggleTheme,
@@ -114,6 +118,12 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 }) => {
   const isLight = theme === 'light';
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deleteAccountInput, setDeleteAccountInput] = useState('');
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
+  const [deleteStrategyId, setDeleteStrategyId] = useState<string | null>(null);
+  const [strategySearch, setStrategySearch] = useState('');
   const [sidebarSection, setSidebarSection] =
     useState<HubSidebarSection>(initialSection);
 
@@ -320,189 +330,236 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
     return sessions;
   }, [dashboardModeTab, normalSessions, propSessions, sessions]);
 
+  const renderSidebarContent = () => (
+    <div className="h-full flex flex-col justify-between">
+      <div className="p-4 space-y-5">
+        {/* Brand Header */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={onOpenLanding}
+            className="flex items-center gap-2.5 text-left hover:opacity-85 transition"
+            title="Return to Chart Replay Landing Page"
+          >
+            <div className="w-8 h-8 rounded-lg bg-[#1e222a] border border-[#2e333d] flex items-center justify-center text-emerald-400 font-black text-sm">
+              CR
+            </div>
+            <div>
+              <div
+                className={`font-extrabold text-sm tracking-tight ${
+                  isLight ? 'text-black' : 'text-white'
+                }`}
+              >
+                CHART REPLAY
+              </div>
+              <div className="text-[10px] opacity-60 font-mono">
+                Chart Flow · Prop Sim
+              </div>
+            </div>
+          </button>
+          {/* Mobile close button */}
+          <button
+            onClick={() => setMobileMenuOpen(false)}
+            className="md:hidden p-1.5 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Primary Action: Create Session */}
+        <button
+          onClick={() => {
+            setMobileMenuOpen(false);
+            onOpenCreateSessionModal();
+          }}
+          className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg transition"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Create New Session</span>
+        </button>
+
+        {/* Resume Active Chart Button */}
+        {activeSession && (
+          <button
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onReturnToChart();
+            }}
+            className="w-full py-2 px-3 rounded-xl bg-[#1a1e26] hover:bg-[#222731] border border-[#2c313d] text-white font-bold text-xs flex items-center justify-between transition"
+          >
+            <span className="flex items-center gap-2 truncate">
+              <Play className="w-3.5 h-3.5 fill-current text-emerald-400 shrink-0" />
+              <span className="truncate">Resume: {activeSession.name}</span>
+            </span>
+            <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+          </button>
+        )}
+
+        {/* Sidebar Navigation Links */}
+        <nav className="space-y-1">
+          {(
+            [
+              { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+              {
+                id: 'sessions',
+                label: 'Sessions',
+                icon: FolderKanban,
+                badge: sessions.length,
+              },
+              { id: 'analytics', label: 'Analytics', icon: BarChart2 },
+              {
+                id: 'strategies',
+                label: 'Strategies',
+                icon: Compass,
+                badge: allStrategyOptions.length,
+              },
+              { id: 'guide', label: 'How-To Guide', icon: BookOpen },
+              { id: 'settings', label: 'Settings', icon: Settings },
+            ] as const
+          ).map((item) => {
+            const Icon = item.icon;
+            const active = sidebarSection === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setSidebarSection(item.id);
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition ${
+                  active
+                    ? 'bg-[#222731] text-white border border-[#343a47]'
+                    : 'opacity-75 hover:opacity-100 hover:bg-white/5 border border-transparent'
+                }`}
+              >
+                <span className="flex items-center gap-2.5">
+                  <Icon className={`w-4 h-4 ${active ? 'text-emerald-400' : ''}`} />
+                  <span>{item.label}</span>
+                </span>
+                {'badge' in item && item.badge !== undefined && (
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-500/20">
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* User Account Footer */}
+      <div className="p-4 border-t border-gray-500/20 space-y-2.5">
+        {currentUser && (
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-xs shrink-0">
+                {currentUser.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <div className="font-bold truncate">{currentUser.name}</div>
+                <div className="text-[10px] opacity-60 truncate">
+                  {currentUser.email}
+                </div>
+              </div>
+            </div>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="p-1.5 rounded-lg hover:bg-rose-500/15 text-rose-400 transition"
+                title="Sign Out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className={`h-screen w-screen flex overflow-hidden select-none ${bgMain}`}>
-      {/* LEFT SIDEBAR: Dashboard, Sessions, Analytics, Strategies, Settings */}
-      <aside className={`w-64 border-r flex flex-col justify-between shrink-0 ${sidebarBg}`}>
-        <div className="p-4 space-y-5">
-          {/* Brand Header */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={onOpenLanding}
-              className="flex items-center gap-2.5 text-left hover:opacity-85 transition"
-              title="Return to Chart Replay Landing Page"
-            >
-              <div className="w-8 h-8 rounded-lg bg-[#1e222a] border border-[#2e333d] flex items-center justify-center text-emerald-400 font-black text-sm">
-                CR
-              </div>
-              <div>
-                <div
-                  className={`font-extrabold text-sm tracking-tight ${
-                    isLight ? 'text-black' : 'text-white'
-                  }`}
-                >
-                  CHART REPLAY
-                </div>
-                <div className="text-[10px] opacity-60 font-mono">
-                  Chart Flow · Prop Sim
-                </div>
-              </div>
-            </button>
-          </div>
-
-          {/* Primary Action: Create Session */}
-          <button
-            onClick={() => onOpenCreateSessionModal()}
-            className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create New Session</span>
-          </button>
-
-          {/* Resume Active Chart Button */}
-          {activeSession && (
-            <button
-              onClick={onReturnToChart}
-              className="w-full py-2 px-3 rounded-xl bg-[#1a1e26] hover:bg-[#222731] border border-[#2c313d] text-white font-bold text-xs flex items-center justify-between transition"
-            >
-              <span className="flex items-center gap-2 truncate">
-                <Play className="w-3.5 h-3.5 fill-current text-emerald-400 shrink-0" />
-                <span className="truncate">Resume: {activeSession.name}</span>
-              </span>
-              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-            </button>
-          )}
-
-          {/* Sidebar Navigation Links */}
-          <nav className="space-y-1">
-            {(
-              [
-                { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-                {
-                  id: 'sessions',
-                  label: 'Sessions',
-                  icon: FolderKanban,
-                  badge: sessions.length,
-                },
-                { id: 'analytics', label: 'Analytics', icon: BarChart2 },
-                {
-                  id: 'strategies',
-                  label: 'Strategies',
-                  icon: Compass,
-                  badge: allStrategyOptions.length,
-                },
-                { id: 'guide', label: 'How-To Guide', icon: BookOpen },
-                { id: 'settings', label: 'Settings', icon: Settings },
-              ] as const
-            ).map((item) => {
-              const Icon = item.icon;
-              const active = sidebarSection === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setSidebarSection(item.id)}
-                  className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition ${
-                    active
-                      ? 'bg-[#222731] text-white border border-[#343a47]'
-                      : 'opacity-75 hover:opacity-100 hover:bg-white/5 border border-transparent'
-                  }`}
-                >
-                  <span className="flex items-center gap-2.5">
-                    <Icon className={`w-4 h-4 ${active ? 'text-emerald-400' : ''}`} />
-                    <span>{item.label}</span>
-                  </span>
-                  {'badge' in item && item.badge !== undefined && (
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-500/20">
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* User Account Footer */}
-        <div className="p-4 border-t border-gray-500/20 space-y-2.5">
-          {currentUser && (
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-xs shrink-0">
-                  {currentUser.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <div className="font-bold truncate">{currentUser.name}</div>
-                  <div className="text-[10px] opacity-60 truncate">
-                    {currentUser.email}
-                  </div>
-                </div>
-              </div>
-              {onLogout && (
-                <button
-                  onClick={onLogout}
-                  className="p-1.5 rounded-lg hover:bg-rose-500/15 text-rose-400 transition"
-                  title="Sign Out"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+      {/* DESKTOP SIDEBAR */}
+      <aside className={`hidden md:flex w-64 border-r flex-col justify-between shrink-0 ${sidebarBg}`}>
+        {renderSidebarContent()}
       </aside>
+
+      {/* MOBILE DRAWER OVERLAY */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex">
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <div className={`relative w-72 max-w-[85vw] h-full shadow-2xl z-10 ${sidebarBg} border-r`}>
+            {renderSidebarContent()}
+          </div>
+        </div>
+      )}
 
       {/* MAIN WORKSPACE CONTENT */}
       <main className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
         {/* Top Bar inside Hub */}
         <header
-          className={`h-14 px-6 border-b flex items-center justify-between shrink-0 ${sidebarBg}`}
+          className={`min-h-14 py-2 px-3 sm:px-6 border-b flex items-center justify-between gap-2 shrink-0 ${sidebarBg}`}
         >
-          <div>
-            <h1 className="text-base font-extrabold tracking-tight capitalize">
+          <div className="flex items-center gap-2 min-w-0">
+            {/* Mobile Hamburger Button */}
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="md:hidden p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white shrink-0"
+              aria-label="Open navigation menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <h1 className="text-xs sm:text-base font-extrabold tracking-tight capitalize truncate">
               {sidebarSection === 'dashboard'
                 ? 'Account Dashboard & Recent Sessions'
                 : sidebarSection === 'sessions'
                 ? 'All Backtesting & Prop Firm Challenge Sessions'
                 : sidebarSection === 'analytics'
-                ? 'Performance Analytics, Equity Curves & Trade Audit'
+                ? 'Performance Analytics & Audit'
                 : sidebarSection === 'strategies'
                 ? 'Strategy Playbooks & Prop Rule Profiles'
                 : sidebarSection === 'guide'
-                ? 'Step-by-Step Guide: What Is Where, Session Setup & First Trade'
+                ? 'Step-by-Step Guide'
                 : 'Account & Simulator Preferences'}
             </h1>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             {onToggleTheme && (
               <button
                 onClick={onToggleTheme}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 ${subCardBg}`}
+                className={`p-2 sm:px-3 sm:py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 ${subCardBg}`}
+                title="Toggle Theme"
               >
                 {isLight ? (
                   <>
-                    <Moon className="w-3.5 h-3.5 text-indigo-600" /> Dark Mode
+                    <Moon className="w-3.5 h-3.5 text-indigo-600" />
+                    <span className="hidden sm:inline">Dark Mode</span>
                   </>
                 ) : (
                   <>
-                    <Sun className="w-3.5 h-3.5 text-amber-400" /> Light Mode
+                    <Sun className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden sm:inline">Light Mode</span>
                   </>
                 )}
               </button>
             )}
             <button
               onClick={onReturnToChart}
-              className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow transition"
+              className="px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow transition shrink-0"
             >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Open Chart Workspace</span>
+              <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+              <span className="hidden xs:inline sm:inline">Chart Workspace</span>
+              <span className="xs:hidden sm:hidden">Chart</span>
             </button>
           </div>
         </header>
 
         {/* SECTION 1 & 2: DASHBOARD & SESSIONS VIEW */}
         {(sidebarSection === 'dashboard' || sidebarSection === 'sessions') && (
-          <div className="p-6 space-y-6 max-w-7xl w-full mx-auto">
+          <div className="px-3 sm:px-6 py-6 space-y-6 max-w-7xl w-full mx-auto">
             {sidebarSection === 'dashboard' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div
@@ -895,7 +952,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* SECTION 9: ANALYTICS VIEW */}
         {sidebarSection === 'analytics' && (
-          <div className="p-6 space-y-6 max-w-7xl w-full mx-auto">
+          <div className="px-3 sm:px-6 py-6 space-y-6 max-w-7xl w-full mx-auto">
             {/* Filters Bar */}
             <div className={`p-4 rounded-2xl border space-y-3 ${cardBg}`}>
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1826,80 +1883,201 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* STRATEGIES SECTION */}
         {sidebarSection === 'strategies' && (
-          <div className="p-6 space-y-6 max-w-5xl w-full mx-auto">
-            <div className={`p-5 rounded-2xl border space-y-4 ${cardBg}`}>
-              <h3 className="text-sm font-extrabold">
-                Create New Trading Strategy Playbook
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                <input
-                  type="text"
-                  value={newStrategyName}
-                  onChange={(e) => setNewStrategyName(e.target.value)}
-                  placeholder="Strategy Name (e.g. ICT Silver Bullet)"
-                  className={`px-3 py-2 rounded-xl border outline-none ${subCardBg}`}
-                />
-                <input
-                  type="text"
-                  value={newStrategyDesc}
-                  onChange={(e) => setNewStrategyDesc(e.target.value)}
-                  placeholder="Description & session focus..."
-                  className={`px-3 py-2 rounded-xl border outline-none ${subCardBg}`}
-                />
-                <input
-                  type="text"
-                  value={newStrategyChecklist}
-                  onChange={(e) => setNewStrategyChecklist(e.target.value)}
-                  placeholder="Checklist items (comma separated)"
-                  className={`px-3 py-2 rounded-xl border outline-none ${subCardBg}`}
-                />
+          <div className="px-3 sm:px-6 py-6 space-y-6 max-w-7xl w-full mx-auto">
+            {/* Header & Description */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-500/20 pb-4">
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#2962ff]/10 border border-[#2962ff]/30 text-[#2962ff] text-[11px] font-mono font-bold mb-2">
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>STRATEGY PLAYBOOKS &amp; EXECUTION CHECKLISTS</span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+                  Trading Strategies &amp; Setups
+                </h2>
+                <p className="text-xs opacity-75 mt-1 max-w-2xl leading-relaxed">
+                  Active strategy rules and playbooks used across backtesting sessions and prop challenges. Select, create, or delete strategies to keep your playbooks organized.
+                </p>
               </div>
-              <button
-                onClick={() => {
-                  if (!newStrategyName.trim() || !onSaveStrategies) return;
-                  const next: StrategyRecord = {
-                    id: `strat-${Date.now()}`,
-                    name: newStrategyName.trim(),
-                    description: newStrategyDesc.trim() || 'Custom strategy playbook',
-                    defaultChecklist: newStrategyChecklist
-                      .split(',')
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                    setupTags: ['Custom Playbook'],
-                    createdAt: new Date().toISOString().slice(0, 10),
-                  };
-                  onSaveStrategies([...strategies, next]);
-                  setNewStrategyName('');
-                  setNewStrategyDesc('');
-                }}
-                className="px-4 py-2 rounded-xl bg-[#2962ff] text-white text-xs font-extrabold"
-              >
-                Save Strategy Playbook
-              </button>
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1.5 rounded-xl border text-xs font-mono font-bold">
+                  {strategies.length} Strategies Available
+                </span>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {strategies.map((st) => (
-                <div
-                  key={st.id}
-                  className={`p-4 rounded-2xl border space-y-2 ${cardBg}`}
-                >
-                  <div className="font-extrabold text-sm">{st.name}</div>
-                  <p className="text-xs opacity-75">{st.description}</p>
-                  <div className="text-[11px] font-mono opacity-80 space-y-1 pt-1">
-                    {st.defaultChecklist.map((item, i) => (
-                      <div key={i}>✓ {item}</div>
-                    ))}
-                  </div>
+            {/* Create New Strategy Form */}
+            <div className={`p-5 rounded-2xl border space-y-4 ${cardBg}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-extrabold flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-emerald-400" />
+                    <span>Create Custom Trading Strategy</span>
+                  </h3>
+                  <p className="text-[11px] opacity-70 mt-0.5">
+                    Define strategy name, core rationale, and step-by-step checklist points required before entering a trade.
+                  </p>
                 </div>
-              ))}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase opacity-70">
+                    Strategy Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={newStrategyName}
+                    onChange={(e) => setNewStrategyName(e.target.value)}
+                    placeholder="e.g. ICT Silver Bullet (NY Open)"
+                    className={`w-full px-3 py-2 rounded-xl border outline-none font-medium ${subCardBg}`}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase opacity-70">
+                    Pointed Description *
+                  </label>
+                  <input
+                    type="text"
+                    value={newStrategyDesc}
+                    onChange={(e) => setNewStrategyDesc(e.target.value)}
+                    placeholder="Clear setup rationale and time-price window..."
+                    className={`w-full px-3 py-2 rounded-xl border outline-none font-medium ${subCardBg}`}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase opacity-70">
+                    How to Use / Rules Checklist (comma separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={newStrategyChecklist}
+                    onChange={(e) => setNewStrategyChecklist(e.target.value)}
+                    placeholder="HTF bias, Session liquidity sweep, FVG test, SL at swing"
+                    className={`w-full px-3 py-2 rounded-xl border outline-none font-medium ${subCardBg}`}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    if (!newStrategyName.trim() || !onSaveStrategies) return;
+                    const next: StrategyRecord = {
+                      id: `strat-${Date.now()}`,
+                      name: newStrategyName.trim(),
+                      description:
+                        newStrategyDesc.trim() ||
+                        'Systematic price action strategy playbook with defined checklist execution.',
+                      defaultChecklist: newStrategyChecklist
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                      setupTags: [newStrategyName.trim().slice(0, 18), 'Custom Setup'],
+                      createdAt: new Date().toISOString().slice(0, 10),
+                    };
+                    onSaveStrategies([...strategies, next]);
+                    setNewStrategyName('');
+                    setNewStrategyDesc('');
+                    setNewStrategyChecklist('HTF bias aligned, Key liquidity sweep, >= 2R target');
+                  }}
+                  disabled={!newStrategyName.trim()}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-extrabold flex items-center gap-1.5 transition shadow"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Save Strategy Playbook</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Strategies Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {strategies.map((st) => {
+                const isConfirmingDelete = deleteStrategyId === st.id;
+                return (
+                  <div
+                    key={st.id}
+                    className={`p-4 rounded-2xl border flex flex-col justify-between space-y-3.5 ${cardBg} hover:border-[#2962ff]/40 transition`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-extrabold text-sm text-white leading-snug">
+                          {st.name}
+                        </div>
+                        {onSaveStrategies && (
+                          <div className="shrink-0">
+                            {isConfirmingDelete ? (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => {
+                                    const next = strategies.filter((s) => s.id !== st.id);
+                                    onSaveStrategies(next);
+                                    setDeleteStrategyId(null);
+                                  }}
+                                  className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] shadow"
+                                  title="Confirm delete"
+                                >
+                                  Delete
+                                </button>
+                                <button
+                                  onClick={() => setDeleteStrategyId(null)}
+                                  className={`px-2 py-1 rounded-lg border text-[10px] font-bold ${subCardBg}`}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setDeleteStrategyId(st.id)}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                                title="Delete strategy"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <p className="text-xs opacity-75 leading-relaxed">
+                        {st.description}
+                      </p>
+
+                      <div className="pt-2 border-t border-gray-500/15 space-y-1.5">
+                        <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>How to Use / Execution Rules</span>
+                        </div>
+                        <ul className="text-[11px] font-sans opacity-85 space-y-1 pl-1">
+                          {st.defaultChecklist && st.defaultChecklist.length > 0 ? (
+                            st.defaultChecklist.map((item, i) => (
+                              <li key={i} className="flex items-start gap-1.5">
+                                <span className="text-emerald-400 font-bold leading-tight mt-0.5">•</span>
+                                <span className="leading-tight">{item}</span>
+                              </li>
+                            ))
+                          ) : (
+                            <li className="opacity-50 text-[10px]">No checklist specified</li>
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-gray-500/15 flex items-center justify-between text-[10px] font-mono opacity-60">
+                      <span>Created {st.createdAt || 'Standard'}</span>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-bold">
+                        Ready to Tag
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
 
         {/* HOW-TO GUIDE SECTION */}
         {sidebarSection === 'guide' && (
-          <div className="p-6 max-w-7xl w-full mx-auto">
+          <div className="px-3 sm:px-6 py-6 max-w-7xl w-full mx-auto">
             <QuickStartGuide
               isInsideApp={true}
               onActionClick={(action) => {
@@ -1915,36 +2093,213 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* SETTINGS SECTION */}
         {sidebarSection === 'settings' && (
-          <div className="p-6 space-y-6 max-w-4xl w-full mx-auto">
-            <div className={`p-5 rounded-2xl border space-y-4 ${cardBg}`}>
-              <h3 className="text-sm font-extrabold">
-                Account & Data Persistence Status
+          <div className="px-3 sm:px-6 py-6 space-y-6 max-w-7xl w-full mx-auto">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-500/20 pb-4">
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#2962ff]/10 border border-[#2962ff]/30 text-[#2962ff] text-[11px] font-mono font-bold mb-2">
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>USER PROFILE &amp; PREFERENCES</span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+                  Settings &amp; Account
+                </h2>
+                <p className="text-xs opacity-75 mt-1 max-w-2xl leading-relaxed">
+                  View and manage your trader profile, interface themes, session storage, and account data deletion.
+                </p>
+              </div>
+            </div>
+
+            {/* Profile Overview Card */}
+            <div className={`p-5 sm:p-6 rounded-2xl border space-y-5 ${cardBg}`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-500/15 pb-5">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-black text-xl shadow-lg shrink-0">
+                    {(currentUser?.name || 'Alex Mercer').charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base sm:text-lg font-black text-white">
+                        {currentUser?.name || 'Alex Mercer'}
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                        {currentUser?.plan || 'FREE FOREVER'}
+                      </span>
+                    </div>
+                    <p className="text-xs opacity-75 font-mono mt-0.5">
+                      {currentUser?.email || 'trader@chartflow.io'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {onLogout && (
+                    <button
+                      onClick={onLogout}
+                      className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold flex items-center gap-2 transition"
+                    >
+                      <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Log Out</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Profile Details Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div className={`p-3.5 rounded-xl border ${subCardBg} space-y-1`}>
+                  <div className="text-[10px] font-mono uppercase opacity-60">Full Name / Alias</div>
+                  <div className="font-bold text-white truncate">{currentUser?.name || 'Alex Mercer'}</div>
+                </div>
+                <div className={`p-3.5 rounded-xl border ${subCardBg} space-y-1`}>
+                  <div className="text-[10px] font-mono uppercase opacity-60">Email Address</div>
+                  <div className="font-bold text-white truncate">{currentUser?.email || 'trader@chartflow.io'}</div>
+                </div>
+                <div className={`p-3.5 rounded-xl border ${subCardBg} space-y-1`}>
+                  <div className="text-[10px] font-mono uppercase opacity-60">Account Plan</div>
+                  <div className="font-bold text-emerald-400">100% Free Lifetime Replay</div>
+                </div>
+                <div className={`p-3.5 rounded-xl border ${subCardBg} space-y-1`}>
+                  <div className="text-[10px] font-mono uppercase opacity-60">Sessions Created</div>
+                  <div className="font-bold text-white font-mono">{sessions.length} Active Sessions</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Application Preferences Card */}
+            <div className={`p-5 sm:p-6 rounded-2xl border space-y-4 ${cardBg}`}>
+              <h3 className="text-sm font-extrabold flex items-center gap-2">
+                <Sun className="w-4 h-4 text-amber-400" />
+                <span>Display &amp; Simulator Preferences</span>
               </h3>
-              <p className="text-xs opacity-80 leading-relaxed">
-                All user accounts, sessions, frozen challenge rules, orders, fills, positions, trade events, journal entries, replay checkpoints, equity snapshots, and breach events are automatically persisted and isolated per user account.
-              </p>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <div>
+                  <div className="text-xs font-bold text-white">Color Theme</div>
+                  <p className="text-[11px] opacity-70">
+                    Switch between pro dark trading terminal and clean high-contrast light mode.
+                  </p>
+                </div>
                 {onToggleTheme && (
                   <button
                     onClick={onToggleTheme}
-                    className="px-4 py-2 rounded-xl bg-[#2962ff] text-white text-xs font-extrabold"
+                    className="px-4 py-2 rounded-xl bg-[#2962ff] hover:bg-[#1e53e5] text-white text-xs font-extrabold flex items-center gap-2 transition shrink-0"
                   >
-                    Toggle {isLight ? 'Dark' : 'Light'} Theme
+                    {isLight ? (
+                      <>
+                        <Moon className="w-3.5 h-3.5" />
+                        <span>Switch to Dark Theme</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sun className="w-3.5 h-3.5" />
+                        <span>Switch to Light Theme</span>
+                      </>
+                    )}
                   </button>
                 )}
-                {onLogout && (
-                  <button
-                    onClick={onLogout}
-                    className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-extrabold"
-                  >
-                    Log Out of Account
-                  </button>
-                )}
+              </div>
+            </div>
+
+            {/* Danger Zone: Delete Account */}
+            <div className="p-5 sm:p-6 rounded-2xl border border-rose-500/30 bg-rose-500/[0.04] space-y-4">
+              <div className="flex items-center gap-2.5 text-rose-400 font-extrabold text-sm">
+                <Trash2 className="w-4 h-4" />
+                <span>Danger Zone · Account Deletion</span>
+              </div>
+              <p className="text-xs text-[#9ca3af] leading-relaxed">
+                Permanently delete your account profile, all backtest sessions, orders, trades, equity curves, strategies, and saved notes. This action is irreversible.
+              </p>
+
+              <div>
+                <button
+                  onClick={() => {
+                    setShowDeleteAccountModal(true);
+                    setDeleteAccountInput('');
+                    setDeleteAccountError(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-2 transition shadow-lg shadow-rose-900/20"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete My Account</span>
+                </button>
               </div>
             </div>
           </div>
         )}
       </main>
+
+      {/* MODAL: DELETE ACCOUNT CONFIRMATION */}
+      {showDeleteAccountModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className={`w-full max-w-md rounded-2xl border border-rose-500/40 p-5 sm:p-6 space-y-4 shadow-2xl ${cardBg}`}>
+            <div className="flex items-center justify-between border-b border-rose-500/20 pb-3">
+              <div className="flex items-center gap-2 text-rose-400 font-extrabold text-sm">
+                <Trash2 className="w-4 h-4" />
+                <span>Confirm Account Deletion</span>
+              </div>
+              <button
+                onClick={() => setShowDeleteAccountModal(false)}
+                className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#9ca3af] leading-relaxed">
+              Are you sure you want to permanently delete your account (<strong className="text-white">{currentUser?.email || 'this account'}</strong>)? All sessions, trades, and playbooks will be wiped immediately.
+            </p>
+
+            <div className="space-y-1.5 text-xs">
+              <label className="text-[10px] font-mono uppercase text-gray-400 font-bold">
+                Type &ldquo;DELETE&rdquo; to confirm:
+              </label>
+              <input
+                type="text"
+                value={deleteAccountInput}
+                onChange={(e) => {
+                  setDeleteAccountInput(e.target.value);
+                  setDeleteAccountError(null);
+                }}
+                placeholder="DELETE"
+                className={`w-full px-3 py-2 rounded-xl border outline-none font-mono text-center font-bold tracking-widest ${subCardBg}`}
+              />
+              {deleteAccountError && (
+                <div className="text-[11px] text-rose-400 font-bold">
+                  {deleteAccountError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-500/15">
+              <button
+                onClick={() => setShowDeleteAccountModal(false)}
+                className={`px-3.5 py-2 rounded-xl border text-xs font-bold ${subCardBg}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (deleteAccountInput.trim().toUpperCase() !== 'DELETE') {
+                    setDeleteAccountError('Please type "DELETE" exactly to confirm.');
+                    return;
+                  }
+                  if (onDeleteUser && currentUser?.email) {
+                    onDeleteUser(currentUser.email);
+                  } else if (onLogout) {
+                    onLogout();
+                  }
+                  setShowDeleteAccountModal(false);
+                }}
+                disabled={deleteAccountInput.trim().toUpperCase() !== 'DELETE'}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-extrabold flex items-center gap-1.5 transition shadow"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Permanently Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL 1: HISTORICAL TRADE CONTEXT, EXECUTION FILLS & JOURNAL MODAL */}
       {inspectedTrade && (

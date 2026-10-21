@@ -44,6 +44,7 @@ import {
   saveUserCustomRuleProfiles,
   saveUserSessions,
   deleteUserSession,
+  deleteUserAccount,
   saveUserStrategies,
   setActiveLoggedInUser,
 } from './services/storageAndAnalytics';
@@ -395,7 +396,26 @@ export function App() {
   const [hideDrawings, setHideDrawings] = useState<boolean>(false);
   const [magnetMode, setMagnetMode] = useState<boolean>(false);
   const [isChartWideMode, setIsChartWideMode] = useState<boolean>(false);
-  const [showRightWidget, setShowRightWidget] = useState<boolean>(true);
+  const MOBILE_QUERY = '(max-width: 767px), (pointer: coarse) and (max-width: 1024px)';
+  const detectMobile = () =>
+    typeof window !== 'undefined' &&
+    (window.matchMedia(MOBILE_QUERY).matches ||
+      Math.min(window.screen.width, window.screen.height) < 600);
+  const [isMobile, setIsMobile] = useState<boolean>(detectMobile);
+  useEffect(() => {
+    const onResize = () => setIsMobile(detectMobile());
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+  useEffect(() => {
+    if (isMobile) setShowRightWidget(false);
+  }, [isMobile]);
+  const [showMobileTools, setShowMobileTools] = useState<boolean>(false);
+  const [showRightWidget, setShowRightWidget] = useState<boolean>(() => !detectMobile());
   const handleToggleRightWidget = useCallback(() => {
     if (isChartWideMode) {
       // Panel is hidden by wide mode: leave wide mode and show the panel instead of silently flipping state
@@ -411,7 +431,7 @@ export function App() {
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
 
   const handleStartTour = useCallback(() => {
-    setShowRightWidget(true);
+    if (!detectMobile()) setShowRightWidget(true);
     setIsChartWideMode(false);
     setIsTourOpen(true);
   }, []);
@@ -423,7 +443,7 @@ export function App() {
 
   const handleTourStepChange = useCallback((step: TourStep) => {
     const t = step.target || '';
-    if (t.startsWith('order-')) setShowRightWidget(true);
+    if (t.startsWith('order-') && !detectMobile()) setShowRightWidget(true);
     if (t.startsWith('order-') || t.startsWith('left-') || t.startsWith('replay-')) {
       setIsChartWideMode(false);
     }
@@ -433,7 +453,7 @@ export function App() {
   useEffect(() => {
     if (activeView !== 'terminal' || !currentUser) return;
     if (isTourOpen || isCreateSessionModalOpen || challengeAlertModal) return;
-    if (hasSeenTour()) return;
+    if (hasSeenTour() || detectMobile()) return;
     const t = setTimeout(() => handleStartTour(), 900);
     return () => clearTimeout(t);
   }, [
@@ -1115,6 +1135,13 @@ export function App() {
           }}
           customRuleProfiles={customRuleProfiles}
           currentUser={currentUser}
+          onDeleteUser={(emailToDelete) => {
+            deleteUserAccount(emailToDelete);
+            setActiveLoggedInUser(null);
+            setCurrentUser(null);
+            setActiveView('login');
+            showToast('Account and all associated session data permanently deleted.', 'info');
+          }}
           onLogout={() => {
             setActiveLoggedInUser(null);
             setCurrentUser(null);
@@ -1262,6 +1289,10 @@ export function App() {
           setHubInitialSection('guide');
           setActiveView('dashboard');
         }}
+        onOpenSettings={() => {
+          setHubInitialSection('settings');
+          setActiveView('dashboard');
+        }}
         onStartTour={handleStartTour}
       />
 
@@ -1289,7 +1320,8 @@ export function App() {
 
       {/* Centre Workspace */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {!isChartWideMode && (
+        {!isChartWideMode && (!isMobile || showMobileTools) && (
+          <div className={isMobile ? 'fixed left-0 top-11 bottom-28 z-40 shadow-2xl overflow-y-auto' : 'contents'}>
           <LeftToolbar
             activeTool={activeTool}
             onSelectTool={setActiveTool}
@@ -1330,6 +1362,7 @@ export function App() {
             onToggleMagnetMode={() => setMagnetMode((v) => !v)}
             theme={theme}
           />
+          </div>
         )}
 
         {/* Interactive Candlestick Chart Area */}
@@ -1620,6 +1653,25 @@ export function App() {
 
         {/* Right Panel */}
         {showRightWidget && !isChartWideMode && (
+          <div
+            className={
+              isMobile
+                ? 'fixed inset-0 z-50 flex flex-col justify-end bg-black/50'
+                : 'contents'
+            }
+            onClick={(e) => {
+              if (isMobile && e.target === e.currentTarget) setShowRightWidget(false);
+            }}
+          >
+          {isMobile && (
+            <button
+              onClick={() => setShowRightWidget(false)}
+              className="self-end mr-2 mb-1 px-3 py-1 rounded-full bg-[#161920] border border-[#2e333d] text-white text-xs font-bold"
+            >
+              Close ✕
+            </button>
+          )}
+          <div className={isMobile ? 'max-h-[75vh] flex flex-col [&>aside]:!w-full [&>aside]:border-l-0 [&>aside]:border-t [&>aside]:rounded-t-2xl' : 'contents'}>
           <RightOrderPanel
             session={activeSession}
             symbol={symbol}
@@ -1638,6 +1690,38 @@ export function App() {
             activePositionDrawing={activePositionDrawing}
             onAddOrUpdatePositionDrawing={handleAddOrUpdatePositionDrawingFromTicket}
           />
+          </div>
+          </div>
+        )}
+
+        {/* Mobile quick actions: tools, Buy/Sell (long/short tool), order ticket */}
+        {isMobile && !isChartWideMode && !showRightWidget && (
+          <div className="fixed right-2 bottom-32 z-30 flex flex-col items-end gap-2">
+            <button
+              onClick={() => setShowMobileTools((v) => !v)}
+              className="w-11 h-11 rounded-full bg-[#2962ff] text-white text-[10px] font-bold shadow-xl"
+            >
+              Tools
+            </button>
+            <button
+              onClick={() => { setActiveTool('long_position'); setShowMobileTools(false); }}
+              className="w-11 h-11 rounded-full bg-emerald-600 text-white text-[11px] font-extrabold shadow-xl"
+            >
+              BUY
+            </button>
+            <button
+              onClick={() => { setActiveTool('short_position'); setShowMobileTools(false); }}
+              className="w-11 h-11 rounded-full bg-rose-600 text-white text-[11px] font-extrabold shadow-xl"
+            >
+              SELL
+            </button>
+            <button
+              onClick={() => setShowRightWidget(true)}
+              className="h-11 px-3 rounded-full bg-[#161920] border border-[#2e333d] text-white text-[10px] font-bold shadow-xl whitespace-nowrap"
+            >
+              Place Order
+            </button>
+          </div>
         )}
       </div>
 

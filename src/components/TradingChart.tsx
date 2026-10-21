@@ -1205,8 +1205,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      if (!showDetails) return;
-
       const tpDist = Math.abs(takeProfit - entryPrice);
       const tpPct = entryPrice > 0 ? (tpDist / entryPrice) * 100 : 0;
       const tpPips = (tpDist / pipSize).toFixed(1);
@@ -1219,6 +1217,48 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
       const rrRatio = (tpDist / Math.max(currInst.minMove, slDist)).toFixed(2);
       const midX = left + boxW / 2;
+
+      ctx.font = 'bold 9.5px JetBrains Mono, monospace';
+
+      // Always draw on-line price tags (TP, Entry/Limit, SL) on the box
+      // 1. TP line tag
+      const tpTag = `TP ${takeProfit.toFixed(decimals)} (+${tpDist.toFixed(decimals)})`;
+      const tpTagW = ctx.measureText(tpTag).width + 8;
+      const tpTagY = side === 'LONG' ? Math.max(16, yTP - 18) : Math.min(chartPlotHeight - 20, yTP + 3);
+      ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
+      ctx.fillRect(left + 6, tpTagY, tpTagW, 15);
+      ctx.strokeStyle = '#089981';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(left + 6, tpTagY, tpTagW, 15);
+      ctx.fillStyle = '#089981';
+      ctx.fillText(tpTag, left + 10, tpTagY + 11);
+
+      // 2. SL line tag
+      const slTag = `SL ${stopLoss.toFixed(decimals)} (-${slDist.toFixed(decimals)})`;
+      const slTagW = ctx.measureText(slTag).width + 8;
+      const slTagY = side === 'LONG' ? Math.min(chartPlotHeight - 20, ySL + 3) : Math.max(16, ySL - 18);
+      ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
+      ctx.fillRect(left + 6, slTagY, slTagW, 15);
+      ctx.strokeStyle = '#f23645';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(left + 6, slTagY, slTagW, 15);
+      ctx.fillStyle = '#f23645';
+      ctx.fillText(slTag, left + 10, slTagY + 11);
+
+      // 3. Entry line tag
+      const entryLabel = boxMode === 'PENDING' ? 'LIMIT' : 'ENTRY';
+      const entryTag = `${entryLabel} ${entryPrice.toFixed(decimals)}`;
+      const entryTagW = ctx.measureText(entryTag).width + 8;
+      const entryTagY = yEntry - 7.5;
+      ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
+      ctx.fillRect(left + 6, entryTagY, entryTagW, 15);
+      ctx.strokeStyle = boxMode === 'PENDING' ? '#f59e0b' : '#2962ff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(left + 6, entryTagY, entryTagW, 15);
+      ctx.fillStyle = boxMode === 'PENDING' ? '#f59e0b' : '#2962ff';
+      ctx.fillText(entryTag, left + 10, entryTagY + 11);
+
+      if (!showDetails) return;
 
       ctx.font = '400 9.5px Inter, -apple-system, sans-serif';
 
@@ -3251,7 +3291,86 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
 
+    // Touch bridge: translate finger input into the mouse pipeline so drawing tools,
+    // the long/short position tool and handle dragging work smoothly on mobile.
+    // Panning/zooming on empty space is left to the chart's native touch handling.
+    let touchActive = false;
+    let touchId: number | null = null;
+    let rafId = 0;
+    let pendingMove: { x: number; y: number } | null = null;
+    const findTouch = (e: TouchEvent) =>
+      Array.from(e.changedTouches).find((t) => t.identifier === touchId);
+    const flushMove = () => {
+      rafId = 0;
+      if (!pendingMove) return;
+      const { x, y } = pendingMove;
+      pendingMove = null;
+      window.dispatchEvent(
+        new MouseEvent('mousemove', { clientX: x, clientY: y, buttons: 1, bubbles: true })
+      );
+    };
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) {
+        touchActive = false;
+        return;
+      }
+      const t = e.touches[0];
+      const tool = stateRef.current.activeTool as string;
+      const toolActive = tool !== 'cursor' && tool !== 'crosshair';
+      container.dispatchEvent(
+        new MouseEvent('mousedown', {
+          clientX: t.clientX,
+          clientY: t.clientY,
+          button: 0,
+          buttons: 1,
+          bubbles: false,
+          cancelable: true,
+        })
+      );
+      if (dragRef.current || toolActive) {
+        touchActive = true;
+        touchId = t.identifier;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!touchActive) return;
+      const t = findTouch(e);
+      if (!t) return;
+      e.preventDefault();
+      e.stopPropagation();
+      pendingMove = { x: t.clientX, y: t.clientY };
+      if (!rafId) rafId = requestAnimationFrame(flushMove);
+    };
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (!touchActive) return;
+      const t = findTouch(e);
+      if (!t) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (rafId) cancelAnimationFrame(rafId);
+      flushMove();
+      if (pendingMove === null && t) {
+        window.dispatchEvent(
+          new MouseEvent('mousemove', { clientX: t.clientX, clientY: t.clientY, buttons: 1, bubbles: true })
+        );
+      }
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      touchActive = false;
+      touchId = null;
+    };
+    container.addEventListener('touchstart', handleTouchStart, { capture: true, passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { capture: true, passive: false });
+    container.addEventListener('touchend', handleTouchEnd, { capture: true, passive: false });
+    container.addEventListener('touchcancel', handleTouchEnd, { capture: true, passive: false });
+
     return () => {
+      container.removeEventListener('touchstart', handleTouchStart, { capture: true });
+      container.removeEventListener('touchmove', handleTouchMove, { capture: true });
+      container.removeEventListener('touchend', handleTouchEnd, { capture: true });
+      container.removeEventListener('touchcancel', handleTouchEnd, { capture: true });
+      if (rafId) cancelAnimationFrame(rafId);
       container.removeEventListener('contextmenu', handleContextMenu);
       container.removeEventListener('mousedown', handleMouseDown, { capture: true });
       container.removeEventListener('dblclick', handleDoubleClick);
@@ -3623,6 +3742,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         data-chart-cursor={
           activeTool === 'replay_cut' ? 'cursor-col-resize' : cursorStyle
         }
+        style={{ touchAction: 'none', WebkitTapHighlightColor: 'transparent' }}
         className={`w-full h-full ${
           activeTool === 'replay_cut' ? 'cursor-col-resize' : cursorStyle
         }`}
@@ -3708,7 +3828,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
             <button
               onClick={() => onQuickBuySell('SHORT')}
-              className={`px-3 py-1 rounded border border-[#f23645] transition flex flex-col items-center min-w-[88px] shadow-sm ${
+              className={`px-3 py-1 rounded border border-[#f23645] transition hidden md:flex flex-col items-center min-w-[88px] shadow-sm ${
                 isLight
                   ? 'bg-white/95 hover:bg-rose-50 text-[#e11d48]'
                   : 'bg-[#131722]/95 hover:bg-[#f23645]/20 text-[#f23645]'
@@ -3724,7 +3844,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             </button>
 
             <span
-              className={`px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold shadow-sm ${
+              className={`hidden md:inline-block px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold shadow-sm ${
                 isLight
                   ? 'bg-white/95 border-[#cbd5e1] text-[#334155]'
                   : 'bg-[#131722]/95 border-[#2a2e39] text-gray-300'
@@ -3736,7 +3856,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
             <button
               onClick={() => onQuickBuySell('LONG')}
-              className={`px-3 py-1 rounded border border-[#2962ff] transition flex flex-col items-center min-w-[88px] shadow-sm ${
+              className={`px-3 py-1 rounded border border-[#2962ff] transition hidden md:flex flex-col items-center min-w-[88px] shadow-sm ${
                 isLight
                   ? 'bg-white/95 hover:bg-blue-50 text-[#1d4ed8]'
                   : 'bg-[#131722]/95 hover:bg-[#2962ff]/20 text-[#2962ff]'

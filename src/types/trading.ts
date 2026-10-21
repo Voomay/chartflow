@@ -31,6 +31,7 @@ export type DisplayTimezone =
   | 'America/New_York'
   | 'Europe/London'
   | 'Europe/Prague'
+  | 'Africa/Johannesburg'
   | 'Asia/Tokyo'
   | 'Australia/Sydney';
 

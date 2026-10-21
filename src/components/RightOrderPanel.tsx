@@ -46,6 +46,13 @@ interface RightOrderPanelProps {
   onOpenAnalytics: () => void;
   availableStrategies: string[];
   activePositionDrawing?: ChartDrawing | null;
+  onAddOrUpdatePositionDrawing?: (
+    side: 'LONG' | 'SHORT',
+    entry: number,
+    sl: number,
+    tp: number,
+    lot: number
+  ) => void;
 }
 
 export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
@@ -59,6 +66,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
   onOpenAnalytics,
   availableStrategies,
   activePositionDrawing,
+  onAddOrUpdatePositionDrawing,
 }) => {
   const isLight = theme === 'light';
   const spec = getEffectiveInstrumentSpec(symbol, session);
@@ -183,7 +191,6 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
   ]);
 
   const handleSelectSide = (nextSide: 'LONG' | 'SHORT') => {
-    if (nextSide === side) return;
     setSide(nextSide);
     setOrderFeedback(null);
     const fillBase = nextSide === 'LONG' ? ask : bid;
@@ -202,6 +209,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
     setStopLossInput(nextSL.toFixed(spec.decimals));
     setTakeProfitInput(nextTP.toFixed(spec.decimals));
 
+    let finalEntry = fillBase;
     if (orderCategory !== 'MARKET') {
       const pendingOffset = defaultDist * 0.5;
       const pendingPrice =
@@ -212,9 +220,14 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
           : nextSide === 'LONG'
           ? fillBase + pendingOffset
           : fillBase - pendingOffset;
-      setEntryPriceInput(
-        Number(pendingPrice.toFixed(spec.decimals)).toFixed(spec.decimals)
-      );
+      finalEntry = Number(pendingPrice.toFixed(spec.decimals));
+      setEntryPriceInput(finalEntry.toFixed(spec.decimals));
+    }
+
+    // Spawn or update Long / Short position tool on the chart
+    if (onAddOrUpdatePositionDrawing) {
+      const lot = parseFloat(lotSizeInput) || 1.0;
+      onAddOrUpdatePositionDrawing(nextSide, finalEntry, nextSL, nextTP, lot);
     }
   };
 

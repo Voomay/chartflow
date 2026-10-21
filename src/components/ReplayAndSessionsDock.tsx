@@ -45,6 +45,7 @@ import {
   SkipForward,
   Star,
   Trophy,
+  X,
 } from 'lucide-react';
 
 interface ReplayAndSessionsDockProps {
@@ -80,7 +81,7 @@ interface ReplayAndSessionsDockProps {
   onClosePosition: (id: string, fraction?: number) => void;
   onMoveToBreakEven: (id: string) => void;
   onGoToSessionOpen?: (
-    target: 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'NEXT_DAY' | 'TRADE_EXIT'
+    target: 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'SYDNEY' | 'NEXT_DAY' | 'TRADE_EXIT'
   ) => void;
   onSaveJournalEntry: (tradeId: string, entry: TradeJournalEntry) => void;
   onOpenAnalyticsPage?: () => void;
@@ -190,8 +191,19 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
     'open_positions' | 'pending_orders' | 'closed_trades' | 'journal' | 'challenge_objectives'
   >('open_positions');
 
+  const [isSkipModalOpen, setIsSkipModalOpen] = useState(false);
   const [skipDateTimeInput, setSkipDateTimeInput] = useState<string>('');
   const [replayFeedback, setReplayFeedback] = useState<string | null>(null);
+  const [customSkipTime, setCustomSkipTime] = useState<string>(
+    () => localStorage.getItem('fx_customSkipTime') || '10:00'
+  );
+  const [customSkipTz, setCustomSkipTz] = useState<string>(
+    () => localStorage.getItem('fx_customSkipTz') || 'Africa/Johannesburg'
+  );
+  useEffect(() => {
+    localStorage.setItem('fx_customSkipTime', customSkipTime);
+    localStorage.setItem('fx_customSkipTz', customSkipTz);
+  }, [customSkipTime, customSkipTz]);
 
   // Inline editing states for Open Positions & Pending Orders
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
@@ -294,6 +306,42 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
       setTimeout(() => setReplayFeedback(null), 4000);
     } else {
       setEditingRowId(null);
+    }
+  };
+
+  const handleSkipToCustomTime = () => {
+    const [hh, mm] = customSkipTime.split(':').map(Number);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return;
+    const offsetMs = (ts: number) => {
+      const p = new Intl.DateTimeFormat('en-US', {
+        timeZone: customSkipTz,
+        hourCycle: 'h23',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+      }).formatToParts(new Date(ts * 1000));
+      const g = (t: string) => Number(p.find((x) => x.type === t)?.value);
+      return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'), g('second')) - ts * 1000;
+    };
+    // Local date in target tz, then try today..+2 days
+    const localNow = new Date(replayTs * 1000 + offsetMs(replayTs));
+    for (let i = 0; i <= 2; i++) {
+      const guess =
+        Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate() + i, hh, mm) / 1000;
+      const target = guess - offsetMs(guess) / 1000;
+      if (target > replayTs) {
+        const res = onSkipToTimestamp(target);
+        if (!res.ok && res.error) {
+          setReplayFeedback(res.error);
+          setTimeout(() => setReplayFeedback(null), 4000);
+        } else {
+          setReplayFeedback(null);
+        }
+        return;
+      }
     }
   };
 
@@ -512,71 +560,21 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             <option value={850}>1x Normal</option>
           </select>
 
-          {/* Skip Forward to Selected Date/Time */}
-          <div className="hidden lg:flex items-center gap-1 pl-1 border-l border-gray-500/20">
-            <input
-              type="datetime-local"
-              value={skipDateTimeInput}
-              onChange={(e) => setSkipDateTimeInput(e.target.value)}
-              className={`px-2 py-0.5 rounded border text-[10px] font-mono outline-none ${cardBg}`}
-              title="Select target historical date/time to skip forward"
-            />
+          {/* Skip To Button with Popup Modal */}
+          <div className="flex shrink-0 items-center gap-1 pl-1 border-l border-gray-500/20">
             <button
-              onClick={handleSkipToDateTime}
-              className={`px-2 py-1 rounded border text-[10px] font-bold flex items-center gap-1 transition ${
+              onClick={() => setIsSkipModalOpen(true)}
+              className={`px-2.5 py-1 rounded border text-[11px] font-bold flex items-center gap-1.5 transition ${
                 isLight
                   ? 'bg-white hover:bg-[#f0f3fa] border-[#d8dce6] text-[#131722]'
                   : 'bg-[#22262f] hover:bg-[#2c313d] border-[#323744] text-white'
               }`}
-              title="Advance replay engine sequentially to selected time (evaluates every 1m bar along the way)"
+              title="Open Skip To session & time navigation options"
             >
-              <FastForward className="w-3 h-3 text-emerald-500" />
+              <FastForward className="w-3.5 h-3.5 text-emerald-500" />
               <span>Skip To</span>
             </button>
           </div>
-
-          {/* Quick Session Jumps */}
-          {onGoToSessionOpen && (
-            <div className="hidden 2xl:flex items-center gap-1 pl-1 border-l border-gray-500/20 text-[10px] font-bold">
-              <button
-                onClick={() => onGoToSessionOpen('LONDON')}
-                className={`px-1.5 py-1 rounded border ${cardBg} hover:border-emerald-400`}
-                title="Skip forward to next London Session Open (08:00 UTC)"
-              >
-                🇬🇧 LDN
-              </button>
-              <button
-                onClick={() => onGoToSessionOpen('NEW_YORK')}
-                className={`px-1.5 py-1 rounded border ${cardBg} hover:border-emerald-400`}
-                title="Skip forward to next New York Session Open (13:00 UTC)"
-              >
-                🇺🇸 NY
-              </button>
-              <button
-                onClick={() => onGoToSessionOpen('TRADE_EXIT')}
-                className="px-1.5 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"
-                title="Advance until an open position hits SL or TP"
-              >
-                ⚡ Hit SL/TP
-              </button>
-            </div>
-          )}
-
-          {/* Practice Branch Button (Normal Mode) */}
-          {!isPropChallenge && onBranchSession && (
-            <button
-              onClick={onBranchSession}
-              className={`hidden xl:flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-bold transition ${
-                isLight
-                  ? 'bg-white hover:bg-[#f0f3fa] border-[#d8dce6] text-[#131722]'
-                  : 'border-[#323744] bg-[#1e222a] text-[#cbd5e1] hover:text-white'
-              }`}
-              title="Create an isolated Practice Branch cloned from the current replay timestamp"
-            >
-              <GitBranch className="w-3 h-3 text-emerald-500" />
-              <span>Branch</span>
-            </button>
-          )}
         </div>
 
         {/* Right: Bottom Workspace Tabs */}
@@ -1505,6 +1503,184 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Skip To Modal Popup */}
+      {isSkipModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+          onClick={() => setIsSkipModalOpen(false)}
+        >
+          <div
+            className={`w-full max-w-lg rounded-xl border shadow-2xl p-5 ${
+              isLight ? 'bg-white border-[#d8dce6] text-[#131722]' : 'bg-[#181b22] border-[#2e3340] text-white'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-gray-500/20 mb-4">
+              <div className="flex items-center gap-2">
+                <FastForward className="w-5 h-5 text-emerald-500" />
+                <h3 className="font-bold text-sm">Skip Replay To</h3>
+              </div>
+              <button
+                onClick={() => setIsSkipModalOpen(false)}
+                className="p-1 rounded-md hover:bg-gray-500/20 text-gray-400 hover:text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Current Replay Time */}
+            <div className="mb-4 p-2.5 rounded-lg border border-blue-500/30 bg-blue-500/10 text-xs flex items-center justify-between">
+              <span className="text-gray-400">Current Replay Clock:</span>
+              <span className="font-mono font-bold text-blue-400">
+                {formatTimestampInTimezone(replayTs, 'UTC')} UTC · {formatTimestampInTimezone(replayTs, 'Africa/Johannesburg').slice(11)} SAST
+              </span>
+            </div>
+
+            {/* Section 1: Major Trading Sessions */}
+            <div className="mb-5">
+              <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                Skip to Trading Sessions (Next Session Open)
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  onClick={() => {
+                    onGoToSessionOpen?.('LONDON');
+                    setIsSkipModalOpen(false);
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
+                    isLight ? 'hover:bg-emerald-50 border-gray-200' : 'hover:bg-emerald-950/30 border-[#2a2f3c]'
+                  } hover:border-emerald-500/60`}
+                >
+                  <span className="text-xs font-bold flex items-center gap-1.5">
+                    🇬🇧 London
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-mono">08:00 UTC / 10:00 SAST</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onGoToSessionOpen?.('NEW_YORK');
+                    setIsSkipModalOpen(false);
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
+                    isLight ? 'hover:bg-emerald-50 border-gray-200' : 'hover:bg-emerald-950/30 border-[#2a2f3c]'
+                  } hover:border-emerald-500/60`}
+                >
+                  <span className="text-xs font-bold flex items-center gap-1.5">
+                    🇺🇸 New York
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-mono">13:00 UTC / 15:00 SAST</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onGoToSessionOpen?.('TOKYO');
+                    setIsSkipModalOpen(false);
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
+                    isLight ? 'hover:bg-emerald-50 border-gray-200' : 'hover:bg-emerald-950/30 border-[#2a2f3c]'
+                  } hover:border-emerald-500/60`}
+                >
+                  <span className="text-xs font-bold flex items-center gap-1.5">
+                    🇯🇵 Asia (Tokyo)
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-mono">00:00 UTC / 02:00 SAST</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onGoToSessionOpen?.('SYDNEY');
+                    setIsSkipModalOpen(false);
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
+                    isLight ? 'hover:bg-emerald-50 border-gray-200' : 'hover:bg-emerald-950/30 border-[#2a2f3c]'
+                  } hover:border-emerald-500/60`}
+                >
+                  <span className="text-xs font-bold flex items-center gap-1.5">
+                    🇦🇺 Australia (Sydney)
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-mono">21:00 UTC / 23:00 SAST</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Section 2: Daily Recurring Specific Time Skip */}
+            <div className="mb-5 p-3 rounded-lg border border-gray-500/20 bg-gray-500/5">
+              <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                Custom Daily Time Skip
+              </label>
+              <p className="text-[11px] text-gray-400 mb-2.5 leading-relaxed">
+                Choose a specific hour &amp; timezone (e.g. 10:00 PM New York or SAST). Every time you click Skip Next Day, it jumps directly to that exact time/candle the next day.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-gray-400" />
+                  <input
+                    type="time"
+                    value={customSkipTime}
+                    onChange={(e) => setCustomSkipTime(e.target.value)}
+                    className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none ${cardBg}`}
+                  />
+                </div>
+
+                <select
+                  value={customSkipTz}
+                  onChange={(e) => setCustomSkipTz(e.target.value)}
+                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold outline-none ${cardBg}`}
+                >
+                  <option value="Africa/Johannesburg">🇿🇦 South Africa (SAST / UTC+2)</option>
+                  <option value="America/New_York">🇺🇸 New York (ET / UTC-4)</option>
+                  <option value="Europe/London">🇬🇧 London (BST/GMT)</option>
+                  <option value="UTC">🌐 UTC</option>
+                  <option value="Asia/Tokyo">🇯🇵 Tokyo (JST / UTC+9)</option>
+                  <option value="Australia/Sydney">🇦🇺 Sydney (AEST / UTC+10)</option>
+                </select>
+
+                <button
+                  onClick={() => {
+                    handleSkipToCustomTime();
+                    setIsSkipModalOpen(false);
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow"
+                >
+                  <FastForward className="w-3.5 h-3.5" />
+                  <span>Skip to Next Day ({customSkipTime})</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Section 3: Exact Date & Time Picker */}
+            <div>
+              <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                Exact Date &amp; Time
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="datetime-local"
+                  value={skipDateTimeInput}
+                  onChange={(e) => setSkipDateTimeInput(e.target.value)}
+                  className={`flex-1 px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${cardBg}`}
+                />
+                <button
+                  onClick={() => {
+                    handleSkipToDateTime();
+                    setIsSkipModalOpen(false);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${
+                    isLight
+                      ? 'bg-slate-900 text-white hover:bg-slate-800'
+                      : 'bg-white/10 hover:bg-white/20 text-white border-white/20'
+                  }`}
+                >
+                  Jump
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { computeForecast } from '../services/forecaster';
 import {
   init,
@@ -36,6 +36,7 @@ import {
 import {
   Check,
   ChevronDown,
+  Clock,
   Activity,
   Wand2,
   Copy,
@@ -984,18 +985,42 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           .filter((p): p is { x: number; y: number } => p.x !== null && p.y !== null);
         if (pts.length < 2) return;
         ctx.save();
-        ctx.strokeStyle = `rgba(${rgb}, 0.4)`;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 4]);
-        ctx.beginPath();
-        pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = `rgba(${rgb}, 0.55)`;
-        pts.slice(1).forEach((p) => {
+        // Ghost candlesticks (translucent white) following the scenario path
+        const gc = sc.candles
+          .map((c) => ({
+            x: resolveTimeToX(c.time, currCandles, chart),
+            o: priceToY(c.open, chart),
+            h: priceToY(c.high, chart),
+            l: priceToY(c.low, chart),
+            c: priceToY(c.close, chart),
+          }))
+          .filter(
+            (c) => c.x !== null && c.o !== null && c.h !== null && c.l !== null && c.c !== null
+          ) as { x: number; o: number; h: number; l: number; c: number }[];
+        const barW =
+          gc.length > 1 ? Math.abs(gc[1].x - gc[0].x) : 8;
+        const bodyW = Math.max(2, barW * 0.7);
+        const isLight = currTheme === 'light';
+        gc.forEach((c) => {
+          const bullish = c.c <= c.o; // lower y = higher price
+          ctx.strokeStyle = isLight
+            ? (bullish ? 'rgba(30, 41, 59, 0.55)' : 'rgba(15, 23, 42, 0.65)')
+            : 'rgba(255,255,255,0.35)';
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.moveTo(c.x, c.h);
+          ctx.lineTo(c.x, c.l);
+          ctx.stroke();
+          const top = Math.min(c.o, c.c);
+          const h = Math.max(1, Math.abs(c.c - c.o));
+          ctx.fillStyle = isLight
+            ? (bullish ? 'rgba(51, 65, 85, 0.40)' : 'rgba(15, 23, 42, 0.20)')
+            : (bullish ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.10)');
+          ctx.fillRect(c.x - bodyW / 2, top, bodyW, h);
+          ctx.strokeStyle = isLight
+            ? (bullish ? 'rgba(30, 41, 59, 0.65)' : 'rgba(15, 23, 42, 0.60)')
+            : 'rgba(255,255,255,0.45)';
+          ctx.strokeRect(c.x - bodyW / 2, top, bodyW, h);
         });
         const end = pts[pts.length - 1];
         const label = `Scenario ${sc.id}: ${sc.name} ${sc.probability}%`;
@@ -1232,10 +1257,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       // Middle Status + Risk/Reward Pill
       const pnlLine1 =
         boxMode === 'PENDING'
-          ? `PENDING ${side} @ ${entryPrice.toFixed(decimals)} Ã‚Â· Lot: ${lotSize.toFixed(2)}`
+          ? `PENDING ${side} @ ${entryPrice.toFixed(decimals)} · Lot: ${lotSize.toFixed(2)}`
           : boxMode === 'DRAWING'
-          ? `${side} TOOL @ ${entryPrice.toFixed(decimals)} Ã‚Â· Lot: ${lotSize.toFixed(2)}`
-          : `Open PnL: ${livePnl >= 0 ? '+' : ''}$${livePnl.toFixed(2)} Ã‚Â· Lot: ${lotSize.toFixed(2)}`;
+          ? `${side} TOOL @ ${entryPrice.toFixed(decimals)} · Lot: ${lotSize.toFixed(2)}`
+          : `Open PnL: ${livePnl >= 0 ? '+' : ''}$${livePnl.toFixed(2)} · Lot: ${lotSize.toFixed(2)}`;
       const pnlLine2 =
         boxMode === 'DRAWING'
           ? `R/R Ratio: ${rrRatio} (Click Execute below to trade)`
@@ -1263,6 +1288,35 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       ctx.fillStyle = '#ffffff';
       ctx.fillText(pnlLine1, centerPillX + (centerPillW - w1) / 2, centerPillY + 11.5);
       ctx.fillText(pnlLine2, centerPillX + (centerPillW - w2) / 2, centerPillY + 23);
+
+      // Extended thin reference lines to chart right edge
+      const lineRightX = chartPlotWidth;
+      ctx.lineWidth = 1;
+
+      // Take Profit thin line (Emerald #089981)
+      ctx.strokeStyle = 'rgba(8, 153, 129, 0.75)';
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(right, yTP);
+      ctx.lineTo(lineRightX, yTP);
+      ctx.stroke();
+
+      // Stop Loss thin line (Soft Red #f23645)
+      ctx.strokeStyle = 'rgba(242, 54, 69, 0.75)';
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(right, ySL);
+      ctx.lineTo(lineRightX, ySL);
+      ctx.stroke();
+
+      // Entry thin line
+      ctx.strokeStyle = boxMode === 'PENDING' ? 'rgba(245, 158, 11, 0.75)' : 'rgba(41, 98, 255, 0.75)';
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(right, yEntry);
+      ctx.lineTo(lineRightX, yEntry);
+      ctx.stroke();
+      ctx.setLineDash([]);
 
       // 6 Small Handle Dots around the Position Box
       drawSmallDot(ctx, left, yTP);
@@ -1333,7 +1387,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           .toISOString()
           .replace('T', ' ')
           .slice(5, 16);
-        const vLabel = `${d.label && d.label !== 'TIME' ? d.label + ' Ã‚Â· ' : ''}${dateStr}`;
+        const vLabel = `${d.label && d.label !== 'TIME' ? d.label + ' · ' : ''}${dateStr}`;
         const tw = ctx.measureText(vLabel).width + 10;
         const pillX = Math.max(4, Math.min(chartPlotWidth - tw - 4, x1 - tw / 2));
         ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
@@ -3515,7 +3569,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       {/* Top-Left TradingView Header + Floating SELL / BUY Buttons */}
       {activeCandle && (
         <div className="absolute top-2 left-2.5 z-20 flex flex-col gap-1.5 pointer-events-none max-w-[calc(100%-95px)]">
-          {/* Row 1: Instrument Name Ã‚Â· Timeframe Ã‚Â· Exchange + OHLC */}
+          {/* Row 1: Instrument Name • Timeframe • Exchange + OHLC */}
           <div
             className={`inline-flex flex-wrap items-center gap-2 px-2.5 py-1 rounded-lg border backdrop-blur-md shadow-sm pointer-events-auto w-fit ${
               isLight
@@ -3534,7 +3588,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 {instConfig.icon}
               </div>
               <span className="font-bold text-xs sm:text-[13px] tracking-tight whitespace-nowrap">
-                {instConfig.name} Ã‚Â· {timeframe} Ã‚Â· {instConfig.exchange}
+                {instConfig.name} • {timeframe} • {instConfig.exchange}
               </span>
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
             </div>
@@ -3925,7 +3979,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                                   : 'border-gray-400/30 hover:bg-blue-500/10'
                               }`}
                             >
-                              {st === 'solid' ? 'Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬' : st === 'dashed' ? '- -' : 'Ã‚Â·Ã‚Â·Ã‚Â·'}
+                              {st === 'solid' ? 'Solid' : st === 'dashed' ? '- -' : '...'}
                             </button>
                           ))}
                         </div>
@@ -4155,7 +4209,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               className="px-2 py-1 rounded-lg bg-blue-500/15 text-[#2962ff] font-semibold text-[10px] whitespace-nowrap"
               title="Extend to right edge of chart"
             >
-              {selectedDrawing.extendRight ? 'Normal' : 'Extend Ã¢â€ â€™'}
+              {selectedDrawing.extendRight ? 'Normal' : 'Extend →'}
             </button>
           )}
 
@@ -4455,9 +4509,9 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   <div className="grid grid-cols-3 gap-1">
                     {(
                       [
-                        ['solid', 'Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Solid'],
+                        ['solid', 'Solid'],
                         ['dashed', '- - Dashed'],
-                        ['dotted', 'Ã‚Â·Ã‚Â·Ã‚Â· Dotted'],
+                        ['dotted', '... Dotted'],
                       ] as [LineStyleType, string][]
                     ).map(([st, label]) => (
                       <button
@@ -4571,8 +4625,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     className="w-full py-1 rounded border border-gray-500/30 hover:bg-blue-500/10 text-[11px] font-medium"
                   >
                     {contextDrawing.extendRight
-                      ? 'Ã¢Å“â€œ Extending Right to Chart Edge'
-                      : 'Extend Right to Chart Edge Ã¢â€ â€™'}
+                      ? '✓ Extending Right to Chart Edge'
+                      : 'Extend Right to Chart Edge →'}
                   </button>
                 )}
               </div>
@@ -4732,7 +4786,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     }}
                     className="px-2 py-1.5 rounded-lg bg-[#089981]/15 hover:bg-[#089981]/25 text-[#089981] font-bold text-[11px] flex items-center justify-center gap-1"
                   >
-                    <span>Ã¢â€“Â² Long Tool Here</span>
+                    <span>Long Tool Here</span>
                   </button>
 
                   <button
@@ -4764,7 +4818,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     }}
                     className="px-2 py-1.5 rounded-lg bg-[#f23645]/15 hover:bg-[#f23645]/25 text-[#f23645] font-bold text-[11px] flex items-center justify-center gap-1"
                   >
-                    <span>Ã¢â€“Â¼ Short Tool Here</span>
+                    <span>Short Tool Here</span>
                   </button>
                 </div>
 
@@ -4857,7 +4911,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 flex items-center justify-between text-left font-medium"
                 >
-                  <span>Ã¢â€Â Add Horizontal Line here</span>
+                  <span>Add Horizontal Line here</span>
                   <span className="font-mono text-[10px] opacity-60">
                     {contextMenu.clickedPrice.toFixed(instConfig.decimals)}
                   </span>
@@ -4881,7 +4935,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 flex items-center justify-between text-left font-medium"
                 >
-                  <span>Ã¢â€Æ’ Add Vertical Line here</span>
+                  <span>Add Vertical Line here</span>
                   <span className="font-mono text-[10px] opacity-60">1-Click</span>
                 </button>
 
@@ -4892,7 +4946,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 flex items-center justify-between text-left font-medium"
                 >
-                  <span>Ã¢â€¢Â± Activate Trend Line Tool</span>
+                  <span>Activate Trend Line Tool</span>
                   <span className="text-[10px] opacity-60">Drag</span>
                 </button>
 
@@ -4903,7 +4957,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 flex items-center justify-between text-left font-medium"
                 >
-                  <span>Ã¢â€“Â­ Activate Rectangle / Zone Block</span>
+                  <span>Activate Rectangle / Zone Block</span>
                   <span className="text-[10px] opacity-60">Box</span>
                 </button>
               </div>
@@ -5061,6 +5115,21 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         >
           <RotateCcw className="w-3 h-3 text-[#2962ff]" />
           Auto Fit Chart
+        </button>
+        <button
+          onClick={() => {
+            chartRef.current?.scrollToRealTime(200);
+            drawOverlay();
+          }}
+          className={`flex items-center gap-1 px-2.5 py-1 rounded border text-[11px] shadow-sm transition ${
+            isLight
+              ? 'bg-white hover:bg-[#f0f3fa] border-[#e0e3eb] text-[#131722]'
+              : 'bg-[#1e222d]/90 hover:bg-[#262b38] border-[#2a2e39] text-gray-300'
+          }`}
+          title="Jump to the current replay time (chart axis is UTC)"
+        >
+          <Clock className="w-3 h-3 text-emerald-500" />
+          Present Time
         </button>
       </div>
     </div>

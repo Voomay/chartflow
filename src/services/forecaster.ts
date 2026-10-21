@@ -25,6 +25,7 @@ export interface ForecastScenario {
   probability: number; // 0..100
   direction: 'up' | 'down';
   points: ForecastPoint[]; // starts at the last candle close
+  candles: ForecastCandle[]; // synthetic per-bar candles following the path
 }
 
 export interface ForecastMetrics {
@@ -103,6 +104,39 @@ const buildPath = (
   return pts;
 };
 
+/**
+ * Expand swing pivots into one synthetic OHLC candle per bar (deterministic noise).
+ */
+const buildCandles = (
+  pts: ForecastPoint[],
+  stepSec: number,
+  atr: number,
+  seed: number
+): ForecastCandle[] => {
+  const out: ForecastCandle[] = [];
+  const rnd = (i: number) => {
+    const x = Math.sin((i + 1) * 12.9898 + seed * 78.233) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  let prevClose = pts[0].price;
+  let idx = 0;
+  for (let s = 1; s < pts.length; s++) {
+    const a = pts[s - 1];
+    const b = pts[s];
+    const bars = Math.max(1, Math.round((b.time - a.time) / stepSec));
+    for (let k = 1; k <= bars; k++) {
+      const target = a.price + ((b.price - a.price) * k) / bars;
+      const close = k === bars ? b.price : target + (rnd(idx) - 0.5) * atr * 0.5;
+      const open = prevClose;
+      const hi = Math.max(open, close) + rnd(idx + 100) * atr * 0.35;
+      const lo = Math.min(open, close) - rnd(idx + 200) * atr * 0.35;
+      out.push({ time: a.time + k * stepSec, open, high: hi, low: lo, close });
+      prevClose = close;
+      idx++;
+    }
+  }
+  return out;
+};
 export function computeForecast(
   candles: ForecastCandle[],
   stepSec: number,
@@ -183,6 +217,17 @@ export function computeForecast(
       price: round(p.price),
     }));
 
+  const mkC = (pts: ForecastPoint[], seed: number): ForecastCandle[] =>
+    buildCandles(pts, stepSec, atr, seed).map((c) => ({
+      time: c.time,
+      open: round(c.open),
+      high: round(c.high),
+      low: round(c.low),
+      close: round(c.close),
+    }));
+  const ptsA = mk(legsA);
+  const ptsB = mk(legsB);
+
   return {
     metrics: { slope, slopeAtr, roc, atr, emaSlopeAtr, rsi, strength },
     scenarios: [
@@ -191,14 +236,16 @@ export function computeForecast(
         name: 'Continuation',
         probability: probA,
         direction: d > 0 ? 'up' : 'down',
-        points: mk(legsA),
+        points: ptsA,
+        candles: mkC(ptsA, 1),
       },
       {
         id: 'B',
         name: 'Pullback',
         probability: probB,
         direction: d > 0 ? 'down' : 'up',
-        points: mk(legsB),
+        points: ptsB,
+        candles: mkC(ptsB, 2),
       },
     ],
   };

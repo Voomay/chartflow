@@ -473,6 +473,74 @@ export function App() {
     [currentSymbolDrawings]
   );
 
+  const handleAddOrUpdatePositionDrawingFromTicket = useCallback(
+    (
+      side: 'LONG' | 'SHORT',
+      entry: number,
+      sl: number,
+      tp: number,
+      lot: number
+    ) => {
+      const stepSec = TIMEFRAME_CONFIG[timeframe]?.seconds || 900;
+      const lastCandle = visibleCandles[visibleCandles.length - 1];
+      const baseTime = lastCandle?.time || Math.floor(Date.now() / 1000);
+      const isLong = side === 'LONG';
+      const toolType = isLong ? 'long_position' : 'short_position';
+
+      updateActiveSession((s) => {
+        const list = s.drawingsBySymbol?.[symbol] || [];
+        const existing = list.find(
+          (d) => d.type === 'long_position' || d.type === 'short_position'
+        );
+
+        if (existing) {
+          const updated: ChartDrawing = {
+            ...existing,
+            type: toolType,
+            price1: entry,
+            stopLoss: sl,
+            takeProfit: tp,
+            lotSize: lot,
+            label: isLong ? 'LONG SETUP' : 'SHORT SETUP',
+            color: isLong ? '#089981' : '#f23645',
+          };
+          return {
+            ...s,
+            drawingsBySymbol: {
+              ...(s.drawingsBySymbol || {}),
+              [symbol]: list.map((d) => (d.id === existing.id ? updated : d)),
+            },
+            updatedAt: new Date().toISOString(),
+          };
+        }
+
+        const newPosTool: ChartDrawing = {
+          id: `${toolType}-${Date.now()}`,
+          type: toolType,
+          time1: baseTime,
+          price1: entry,
+          time2: baseTime + stepSec * 18,
+          price2: entry,
+          stopLoss: sl,
+          takeProfit: tp,
+          lotSize: lot,
+          label: isLong ? 'LONG SETUP' : 'SHORT SETUP',
+          color: isLong ? '#089981' : '#f23645',
+        };
+
+        return {
+          ...s,
+          drawingsBySymbol: {
+            ...(s.drawingsBySymbol || {}),
+            [symbol]: [...list, newPosTool],
+          },
+          updatedAt: new Date().toISOString(),
+        };
+      });
+    },
+    [timeframe, visibleCandles, symbol, updateActiveSession]
+  );
+
   const handleAddDrawing = useCallback(
     (drawing: ChartDrawing) => {
       updateActiveSession((s) => {
@@ -613,7 +681,15 @@ export function App() {
   }, [isPlaying, playbackSpeedMs, handleStepBar]);
 
   const handleGoToSessionOpen = useCallback(
-    (target: 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'NEXT_DAY' | 'TRADE_EXIT') => {
+    (
+      target:
+        | 'LONDON'
+        | 'NEW_YORK'
+        | 'TOKYO'
+        | 'SYDNEY'
+        | 'NEXT_DAY'
+        | 'TRADE_EXIT'
+    ) => {
       const currTs = authoritativeClockTs;
       if (target === 'TRADE_EXIT') {
         const openCount = (activeSession.positions || []).filter(
@@ -655,6 +731,7 @@ export function App() {
           0
         )
       );
+      // London: 08:00 UTC, New York: 13:00 UTC, Tokyo/Asia: 00:00 UTC, Sydney/Australia: 21:00 UTC
       const targetHourUTC =
         target === 'LONDON'
           ? 8
@@ -662,6 +739,8 @@ export function App() {
           ? 13
           : target === 'TOKYO'
           ? 0
+          : target === 'SYDNEY'
+          ? 21
           : 0;
 
       if (target === 'NEXT_DAY') {
@@ -1557,6 +1636,7 @@ export function App() {
             }}
             availableStrategies={allStrategyNames}
             activePositionDrawing={activePositionDrawing}
+            onAddOrUpdatePositionDrawing={handleAddOrUpdatePositionDrawingFromTicket}
           />
         )}
       </div>

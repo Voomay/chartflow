@@ -1669,7 +1669,7 @@ export function App() {
           {isMobile && (
             <button
               onClick={() => setShowRightWidget(false)}
-              className="self-end mr-2 mb-1 px-3 py-1 rounded-full bg-[#161920] border border-[#2e333d] text-white text-xs font-bold"
+              className="self-end mr-2 mb-1 px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-500 border border-rose-400 text-white text-xs font-bold shadow-lg"
             >
               Close ✕
             </button>

@@ -439,20 +439,26 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
   // Allow dragging the Floating Element Action Bar anywhere on the screen
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
+    const updateDragPos = (clientX: number, clientY: number) => {
       const drag = floatingBarDragRef.current;
       if (!drag) return;
       const containerW = containerRef.current?.clientWidth || window.innerWidth;
       const containerH = containerRef.current?.clientHeight || window.innerHeight;
       const nextX = Math.max(
         8,
-        Math.min(containerW - 140, drag.origX + (e.clientX - drag.startMouseX))
+        Math.min(containerW - 140, drag.origX + (clientX - drag.startMouseX))
       );
       const nextY = Math.max(
         8,
-        Math.min(containerH - 54, drag.origY + (e.clientY - drag.startMouseY))
+        Math.min(containerH - 54, drag.origY + (clientY - drag.startMouseY))
       );
       setFloatingBarPos({ x: nextX, y: nextY });
+    };
+    const onMove = (e: MouseEvent) => updateDragPos(e.clientX, e.clientY);
+    const onTouchMove = (e: TouchEvent) => {
+      if (!floatingBarDragRef.current || e.touches.length !== 1) return;
+      e.preventDefault();
+      updateDragPos(e.touches[0].clientX, e.touches[0].clientY);
     };
     const onUp = () => {
       if (floatingBarDragRef.current) {
@@ -469,9 +475,15 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+    window.addEventListener('touchcancel', onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onUp);
+      window.removeEventListener('touchcancel', onUp);
     };
   }, []);
 
@@ -799,12 +811,17 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     x: number,
     y: number
   ) => {
+    const isCoarsePointer =
+      typeof window !== 'undefined' &&
+      (window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 768);
+    const dotRadius = isCoarsePointer ? 5.5 : 3.5;
+
     ctx.save();
     ctx.fillStyle = '#ffffff';
     ctx.strokeStyle = '#2962ff';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = isCoarsePointer ? 2.0 : 1.5;
     ctx.beginPath();
-    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+    ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     ctx.restore();
@@ -2020,6 +2037,11 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       const height = rect?.height || 600;
       const { chartPlotWidth } = getCandlePaneMetrics(chart, width, height);
       const stepSec = TIMEFRAME_CONFIG[currTf]?.seconds || 900;
+      const isCoarsePointer =
+        typeof window !== 'undefined' &&
+        (window.matchMedia('(pointer: coarse)').matches || width < 768);
+      const dotR = isCoarsePointer ? 22 : 10;
+      const lineR = isCoarsePointer ? 16 : 8;
 
       const rawPriceAtMouse = yToPrice(mouseY, chart);
       const startPriceAtMouse =
@@ -2053,32 +2075,32 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           origEndTime,
         };
 
-        if (Math.hypot(mouseX - xRight, mouseY - yTP) <= 9) {
+        if (Math.hypot(mouseX - xRight, mouseY - yTP) <= dotR) {
           return { ...basePosHit, handle: 'tp_right' };
         }
-        if (Math.hypot(mouseX - xLeft, mouseY - yTP) <= 9) {
+        if (Math.hypot(mouseX - xLeft, mouseY - yTP) <= dotR) {
           return { ...basePosHit, handle: 'tp_left' };
         }
-        if (Math.hypot(mouseX - xRight, mouseY - ySL) <= 9) {
+        if (Math.hypot(mouseX - xRight, mouseY - ySL) <= dotR) {
           return { ...basePosHit, handle: 'sl_right' };
         }
-        if (Math.hypot(mouseX - xLeft, mouseY - ySL) <= 9) {
+        if (Math.hypot(mouseX - xLeft, mouseY - ySL) <= dotR) {
           return { ...basePosHit, handle: 'sl_left' };
         }
-        if (Math.hypot(mouseX - xRight, mouseY - yEntry) <= 9) {
+        if (Math.hypot(mouseX - xRight, mouseY - yEntry) <= dotR) {
           return { ...basePosHit, handle: 'width' };
         }
-        if (Math.hypot(mouseX - xLeft, mouseY - yEntry) <= 9) {
+        if (Math.hypot(mouseX - xLeft, mouseY - yEntry) <= dotR) {
           return { ...basePosHit, handle: 'entry' };
         }
-        if (mouseX >= xLeft - 8 && mouseX <= xRight + 8 && Math.abs(mouseY - yTP) <= 7) {
+        if (mouseX >= xLeft - lineR && mouseX <= xRight + lineR && Math.abs(mouseY - yTP) <= lineR) {
           return { ...basePosHit, handle: 'tp' };
         }
-        if (mouseX >= xLeft - 8 && mouseX <= xRight + 8 && Math.abs(mouseY - ySL) <= 7) {
+        if (mouseX >= xLeft - lineR && mouseX <= xRight + lineR && Math.abs(mouseY - ySL) <= lineR) {
           return { ...basePosHit, handle: 'sl' };
         }
         if (
-          Math.abs(mouseX - xRight) <= 7 &&
+          Math.abs(mouseX - xRight) <= lineR &&
           mouseY >= Math.min(yTP, ySL) &&
           mouseY <= Math.max(yTP, ySL)
         ) {
@@ -2151,44 +2173,44 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             const endT = d.time2 ?? resolveXToTime(rX, currCandles, chart);
             const enrichedOrig = { ...d, time2: endT, stopLoss: sl, takeProfit: tp };
 
-            if (yTP !== null && Math.hypot(mouseX - rX, mouseY - yTP) <= 10) {
+            if (yTP !== null && Math.hypot(mouseX - rX, mouseY - yTP) <= dotR) {
               return { ...baseDrawHit, origDrawing: enrichedOrig, handle: 'tp_right' };
             }
-            if (yTP !== null && Math.hypot(mouseX - leftX, mouseY - yTP) <= 10) {
+            if (yTP !== null && Math.hypot(mouseX - leftX, mouseY - yTP) <= dotR) {
               return { ...baseDrawHit, origDrawing: enrichedOrig, handle: 'tp_left' };
             }
-            if (ySL !== null && Math.hypot(mouseX - rX, mouseY - ySL) <= 10) {
+            if (ySL !== null && Math.hypot(mouseX - rX, mouseY - ySL) <= dotR) {
               return { ...baseDrawHit, origDrawing: enrichedOrig, handle: 'sl_right' };
             }
-            if (ySL !== null && Math.hypot(mouseX - leftX, mouseY - ySL) <= 10) {
+            if (ySL !== null && Math.hypot(mouseX - leftX, mouseY - ySL) <= dotR) {
               return { ...baseDrawHit, origDrawing: enrichedOrig, handle: 'sl_left' };
             }
-            if (Math.hypot(mouseX - rX, mouseY - y1) <= 10) {
+            if (Math.hypot(mouseX - rX, mouseY - y1) <= dotR) {
               return { ...baseDrawHit, origDrawing: enrichedOrig, handle: 'width' };
             }
-            if (Math.hypot(mouseX - leftX, mouseY - y1) <= 10) {
+            if (Math.hypot(mouseX - leftX, mouseY - y1) <= dotR) {
               return { ...baseDrawHit, origDrawing: enrichedOrig, handle: 'p1' };
             }
             if (
               yTP !== null &&
-              mouseX >= leftX - 8 &&
-              mouseX <= rX + 8 &&
-              Math.abs(mouseY - yTP) <= 8
+              mouseX >= leftX - lineR &&
+              mouseX <= rX + lineR &&
+              Math.abs(mouseY - yTP) <= lineR
             ) {
               return { ...baseDrawHit, origDrawing: enrichedOrig, handle: 'tp' };
             }
             if (
               ySL !== null &&
-              mouseX >= leftX - 8 &&
-              mouseX <= rX + 8 &&
-              Math.abs(mouseY - ySL) <= 8
+              mouseX >= leftX - lineR &&
+              mouseX <= rX + lineR &&
+              Math.abs(mouseY - ySL) <= lineR
             ) {
               return { ...baseDrawHit, origDrawing: enrichedOrig, handle: 'sl' };
             }
             if (
               yTP !== null &&
               ySL !== null &&
-              Math.abs(mouseX - rX) <= 8 &&
+              Math.abs(mouseX - rX) <= lineR &&
               mouseY >= Math.min(yTP, ySL) &&
               mouseY <= Math.max(yTP, ySL)
             ) {
@@ -2197,7 +2219,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             if (
               yTP !== null &&
               ySL !== null &&
-              Math.abs(mouseX - leftX) <= 8 &&
+              Math.abs(mouseX - leftX) <= lineR &&
               mouseY >= Math.min(yTP, ySL) &&
               mouseY <= Math.max(yTP, ySL)
             ) {
@@ -2214,11 +2236,11 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               return { ...baseDrawHit, origDrawing: enrichedOrig, handle: 'body' };
             }
           } else if (d.type === 'hline' && y1 !== null) {
-            if (Math.abs(mouseY - y1) <= 8) {
+            if (Math.abs(mouseY - y1) <= lineR) {
               return { ...baseDrawHit, handle: 'p1' };
             }
           } else if (d.type === 'vline' && x1 !== null) {
-            if (Math.abs(mouseX - x1) <= 8) {
+            if (Math.abs(mouseX - x1) <= lineR) {
               return { ...baseDrawHit, handle: 'p1' };
             }
           } else if (d.type === 'text' && x1 !== null && y1 !== null) {
@@ -2227,7 +2249,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             const approxW = Math.max(70, maxChars * 7.2 + 32);
             const approxH = lines.length * 17 + 10;
             if (
-              Math.hypot(mouseX - x1, mouseY - y1) <= 9 ||
+              Math.hypot(mouseX - x1, mouseY - y1) <= dotR ||
               (mouseX >= x1 - 4 &&
                 mouseX <= x1 + approxW &&
                 mouseY >= y1 - approxH - 4 &&
@@ -2246,7 +2268,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 ay !== null &&
                 bx !== null &&
                 by !== null &&
-                distToSegment(mouseX, mouseY, ax, ay, bx, by) <= 8
+                distToSegment(mouseX, mouseY, ax, ay, bx, by) <= lineR
               ) {
                 return { ...baseDrawHit, handle: 'body' };
               }
@@ -2265,42 +2287,42 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             const midX = (left + right) / 2;
             const midY = (top + bottom) / 2;
 
-            if (Math.hypot(mouseX - left, mouseY - top) <= 9) return { ...baseDrawHit, handle: 'tl' };
-            if (Math.hypot(mouseX - right, mouseY - top) <= 9) return { ...baseDrawHit, handle: 'tr' };
-            if (Math.hypot(mouseX - left, mouseY - bottom) <= 9) return { ...baseDrawHit, handle: 'bl' };
-            if (Math.hypot(mouseX - right, mouseY - bottom) <= 9) return { ...baseDrawHit, handle: 'br' };
-            if (Math.hypot(mouseX - midX, mouseY - top) <= 9) return { ...baseDrawHit, handle: 'tc' };
-            if (Math.hypot(mouseX - midX, mouseY - bottom) <= 9) return { ...baseDrawHit, handle: 'bc' };
-            if (Math.hypot(mouseX - left, mouseY - midY) <= 9) return { ...baseDrawHit, handle: 'lc' };
-            if (Math.hypot(mouseX - right, mouseY - midY) <= 9) return { ...baseDrawHit, handle: 'rc' };
+            if (Math.hypot(mouseX - left, mouseY - top) <= dotR) return { ...baseDrawHit, handle: 'tl' };
+            if (Math.hypot(mouseX - right, mouseY - top) <= dotR) return { ...baseDrawHit, handle: 'tr' };
+            if (Math.hypot(mouseX - left, mouseY - bottom) <= dotR) return { ...baseDrawHit, handle: 'bl' };
+            if (Math.hypot(mouseX - right, mouseY - bottom) <= dotR) return { ...baseDrawHit, handle: 'br' };
+            if (Math.hypot(mouseX - midX, mouseY - top) <= dotR) return { ...baseDrawHit, handle: 'tc' };
+            if (Math.hypot(mouseX - midX, mouseY - bottom) <= dotR) return { ...baseDrawHit, handle: 'bc' };
+            if (Math.hypot(mouseX - left, mouseY - midY) <= dotR) return { ...baseDrawHit, handle: 'lc' };
+            if (Math.hypot(mouseX - right, mouseY - midY) <= dotR) return { ...baseDrawHit, handle: 'rc' };
 
-            if (mouseX >= left && mouseX <= right && Math.abs(mouseY - top) <= 6) {
+            if (mouseX >= left && mouseX <= right && Math.abs(mouseY - top) <= lineR) {
               return { ...baseDrawHit, handle: 'tc' };
             }
-            if (mouseX >= left && mouseX <= right && Math.abs(mouseY - bottom) <= 6) {
+            if (mouseX >= left && mouseX <= right && Math.abs(mouseY - bottom) <= lineR) {
               return { ...baseDrawHit, handle: 'bc' };
             }
-            if (mouseY >= top && mouseY <= bottom && Math.abs(mouseX - left) <= 6) {
+            if (mouseY >= top && mouseY <= bottom && Math.abs(mouseX - left) <= lineR) {
               return { ...baseDrawHit, handle: 'lc' };
             }
-            if (mouseY >= top && mouseY <= bottom && Math.abs(mouseX - right) <= 6) {
+            if (mouseY >= top && mouseY <= bottom && Math.abs(mouseX - right) <= lineR) {
               return { ...baseDrawHit, handle: 'rc' };
             }
             if (mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom) {
               return { ...baseDrawHit, handle: 'body' };
             }
           } else if (x1 !== null && y1 !== null) {
-            if (Math.hypot(mouseX - x1, mouseY - y1) <= 9) {
+            if (Math.hypot(mouseX - x1, mouseY - y1) <= dotR) {
               return { ...baseDrawHit, handle: 'p1' };
             }
-            if (x2 !== null && y2 !== null && Math.hypot(mouseX - x2, mouseY - y2) <= 9) {
+            if (x2 !== null && y2 !== null && Math.hypot(mouseX - x2, mouseY - y2) <= dotR) {
               return { ...baseDrawHit, handle: 'p2' };
             }
             if (
               (d.type === 'trendline' || d.type === 'arrow') &&
               x2 !== null &&
               y2 !== null &&
-              distToSegment(mouseX, mouseY, x1, y1, x2, y2) <= 8
+              distToSegment(mouseX, mouseY, x1, y1, x2, y2) <= lineR
             ) {
               return { ...baseDrawHit, handle: 'body' };
             }
@@ -2854,9 +2876,24 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         };
         currState.onAddDrawing(newD);
         setSelectedId(newD.id);
+        chart.setScrollEnabled(false);
+        dragRef.current = {
+          kind: 'drawing_handle',
+          drawingId: newD.id,
+          startMouseX: mouseX,
+          startMouseY: mouseY,
+          startPriceAtMouse: clickedPrice,
+          origDrawing: { ...newD },
+          origLeftTime: newD.time1,
+          origRightTime: newD.time2!,
+          origTopPrice: newD.price1,
+          origBottomPrice: newD.price1,
+          handle: 'body',
+        };
         if (!currState.stayInDrawingMode) {
           currState.onSelectTool('cursor');
         }
+        drawOverlay();
         return;
       }
 
@@ -3781,7 +3818,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
             </div>
 
-            <div className="flex items-center gap-2 font-mono text-[11px] sm:text-xs">
+            <div className="hidden sm:flex items-center gap-2 font-mono text-[11px] sm:text-xs">
               <span>
                 <span className={isLight ? 'text-[#64748b] font-semibold' : 'opacity-60'}>O</span>
                 <span className="font-bold ml-0.5">
@@ -3820,6 +3857,24 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 {isUp ? '+' : ''}
                 {priceChange.toFixed(instConfig.decimals)} ({isUp ? '+' : ''}
                 {priceChangePct.toFixed(2)}%)
+              </span>
+            </div>
+            <div className="flex sm:hidden items-center gap-1.5 font-mono text-[11px]">
+              <span className="font-bold">
+                {activeCandle.close.toFixed(instConfig.decimals)}
+              </span>
+              <span
+                className={`font-bold ${
+                  isUp
+                    ? isLight
+                      ? 'text-[#047857]'
+                      : 'text-[#10b981]'
+                    : isLight
+                    ? 'text-[#be123c]'
+                    : 'text-[#f43f5e]'
+                }`}
+              >
+                ({isUp ? '+' : ''}{priceChangePct.toFixed(2)}%)
               </span>
             </div>
           </div>
@@ -4003,13 +4058,17 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       {/* Draggable & Compact Selected Element Floating Bar (Can be moved anywhere on the screen!) */}
       {selectedDrawing && (
         <div
-          style={{ left: `${floatingBarPos.x}px`, top: `${floatingBarPos.y}px` }}
-          className={`absolute z-30 inline-flex items-center gap-1.5 px-2 py-1.5 rounded-xl border shadow-2xl pointer-events-auto text-[11px] backdrop-blur-md ${
+          style={{
+            left: `${Math.max(8, Math.min(containerW - 300, floatingBarPos.x))}px`,
+            top: `${Math.max(48, Math.min(containerH - 90, floatingBarPos.y))}px`,
+          }}
+          className={`absolute z-30 inline-flex flex-wrap items-center gap-1 sm:gap-1.5 max-w-[calc(100%-16px)] px-2 py-1.5 rounded-xl border shadow-2xl pointer-events-auto text-[11px] backdrop-blur-md ${
             isLight
               ? 'bg-white/98 border-[#e0e3eb] text-[#131722]'
               : 'bg-[#1e222d]/98 border-[#2a2e39] text-white'
           }`}
           onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
         >
           {/* Drag Handle + Compact Badge (Drag to move anywhere on screen) */}
           <div
@@ -4019,6 +4078,17 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               floatingBarDragRef.current = {
                 startMouseX: e.clientX,
                 startMouseY: e.clientY,
+                origX: floatingBarPos.x,
+                origY: floatingBarPos.y,
+              };
+            }}
+            onTouchStart={(e) => {
+              if (e.touches.length !== 1) return;
+              e.stopPropagation();
+              const t = e.touches[0];
+              floatingBarDragRef.current = {
+                startMouseX: t.clientX,
+                startMouseY: t.clientY,
                 origX: floatingBarPos.x,
                 origY: floatingBarPos.y,
               };

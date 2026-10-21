@@ -208,10 +208,11 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   return (
     <>
       <header
-        className={`relative h-11 max-md:h-auto max-md:min-h-11 max-md:flex-wrap max-md:py-1 border-b px-2 flex items-center justify-between gap-1 select-none shrink-0 z-30 ${headerBg}`}
+        className={`relative h-11 border-b px-1.5 sm:px-2 flex items-center justify-between gap-1 select-none shrink-0 z-30 ${headerBg}`}
       >
-        {/* Left: Brand + Active Session Name + Symbol Selector + Timeframe Dropdown + Replay Clock */}
-        <div className="flex items-center gap-1 min-w-0 flex-1 max-md:flex-wrap">
+        <div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto no-scrollbar">
+          {/* Left: Brand + Active Session Name + Symbol Selector + Timeframe Dropdown + Replay Clock */}
+          <div className="flex items-center gap-1 shrink-0">
           {/* Brand Logo (Returns to Landing Page) */}
           <button
             onClick={onOpenLanding || onOpenDashboard}
@@ -250,11 +251,11 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
               ) : (
                 <Zap className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
               )}
-              <span className="text-[11px] font-bold max-w-[140px] xl:max-w-[180px] truncate">
+              <span className="text-[11px] font-bold max-w-[90px] sm:max-w-[140px] xl:max-w-[180px] truncate">
                 {activeSession.name}
               </span>
               <span
-                className={`text-[9px] font-mono font-bold px-1 py-0.2 rounded uppercase shrink-0 ${
+                className={`hidden sm:inline text-[9px] font-mono font-bold px-1 py-0.2 rounded uppercase shrink-0 ${
                   sessionStatus === 'FAILED'
                     ? 'bg-rose-500 text-white keep-white'
                     : sessionStatus === 'PASSED'
@@ -310,55 +311,6 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
               </span>
               <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
             </button>
-
-            {isTimeframeMenuOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setIsTimeframeMenuOpen(false)}
-                />
-                <div
-                  className={`absolute left-0 top-9 w-48 rounded-xl border p-1.5 z-50 text-xs shadow-2xl space-y-0.5 ${
-                    isLight
-                      ? 'bg-white border-[#d8dce6] text-[#131722]'
-                      : 'bg-[#161920] border-[#282c35] text-[#d1d4dc]'
-                  }`}
-                >
-                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60 border-b border-gray-500/15 mb-1">
-                    Select Timeframe
-                  </div>
-                  {TIMEFRAMES.map((tf) => {
-                    const active = tf === timeframe;
-                    return (
-                      <button
-                        key={tf}
-                        type="button"
-                        onClick={() => {
-                          onSelectTimeframe(tf);
-                          setIsTimeframeMenuOpen(false);
-                        }}
-                        className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left transition ${
-                          active
-                            ? 'bg-emerald-600 text-white keep-white font-bold'
-                            : isLight
-                            ? 'hover:bg-[#f0f3fa] text-[#131722]'
-                            : 'hover:bg-white/5 text-[#d1d4dc]'
-                        }`}
-                      >
-                        <span className="font-mono font-bold text-xs">{tf}</span>
-                        <span
-                          className={`text-[10px] ${
-                            active ? 'text-white/90 keep-white' : 'opacity-65'
-                          }`}
-                        >
-                          {TIMEFRAME_CONFIG[tf].label}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
           </div>
 
           {/* Authoritative Replay Date/Time Badge */}
@@ -456,7 +408,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
         </div>
 
         {/* Center/Right: Account Balance & Equity + Data Status + Actions */}
-        <div className="flex items-center gap-1 shrink-0 max-md:flex-wrap max-md:shrink">
+        <div className="flex items-center gap-1 shrink-0">
           {/* Live Balance & Equity Display */}
           <div
             className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded border text-[11px] font-mono shrink-0 ${
@@ -641,7 +593,58 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
             </span>
           </button>
         </div>
+        </div>
       </header>
+
+      {/* Timeframe Dropdown Menu (Fixed overlay so horizontal scroll on mobile never clips it) */}
+      {isTimeframeMenuOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setIsTimeframeMenuOpen(false)}
+          />
+          <div
+            className={`fixed left-2 sm:left-32 top-12 w-48 rounded-xl border p-1.5 z-50 text-xs shadow-2xl space-y-0.5 ${
+              isLight
+                ? 'bg-white border-[#d8dce6] text-[#131722]'
+                : 'bg-[#161920] border-[#282c35] text-[#d1d4dc]'
+            }`}
+          >
+            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60 border-b border-gray-500/15 mb-1">
+              Select Timeframe
+            </div>
+            {TIMEFRAMES.map((tf) => {
+              const active = tf === timeframe;
+              return (
+                <button
+                  key={tf}
+                  type="button"
+                  onClick={() => {
+                    onSelectTimeframe(tf);
+                    setIsTimeframeMenuOpen(false);
+                  }}
+                  className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left transition ${
+                    active
+                      ? 'bg-emerald-600 text-white keep-white font-bold'
+                      : isLight
+                      ? 'hover:bg-[#f0f3fa] text-[#131722]'
+                      : 'hover:bg-white/5 text-[#d1d4dc]'
+                  }`}
+                >
+                  <span className="font-mono font-bold text-xs">{tf}</span>
+                  <span
+                    className={`text-[10px] ${
+                      active ? 'text-white/90 keep-white' : 'opacity-65'
+                    }`}
+                  >
+                    {TIMEFRAME_CONFIG[tf].label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Instrument Selector Modal */}
       {isSymbolModalOpen && (

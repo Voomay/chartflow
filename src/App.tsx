@@ -1324,7 +1324,10 @@ export function App() {
           <div className={isMobile ? 'fixed left-0 top-11 bottom-28 z-40 shadow-2xl overflow-y-auto' : 'contents'}>
           <LeftToolbar
             activeTool={activeTool}
-            onSelectTool={setActiveTool}
+            onSelectTool={(t) => {
+              setActiveTool(t);
+              if (isMobile) setShowMobileTools(false);
+            }}
             drawingColor={drawingColor}
             onSelectDrawingColor={setDrawingColor}
             drawingLineWidth={drawingLineWidth}
@@ -1696,28 +1699,46 @@ export function App() {
 
         {/* Mobile quick actions: tools, Buy/Sell (long/short tool), order ticket */}
         {isMobile && !isChartWideMode && !showRightWidget && (
-          <div className="fixed right-2 bottom-32 z-30 flex flex-col items-end gap-2">
+          <div className="fixed right-2 bottom-28 z-30 flex flex-col items-end gap-2">
             <button
               onClick={() => setShowMobileTools((v) => !v)}
-              className="w-11 h-11 rounded-full bg-[#2962ff] text-white text-[10px] font-bold shadow-xl"
+              className={`w-11 h-11 rounded-full text-white text-[10px] font-bold shadow-xl transition ${
+                showMobileTools ? 'bg-amber-500 text-slate-950 ring-2 ring-white' : 'bg-[#2962ff]'
+              }`}
             >
               Tools
             </button>
             <button
-              onClick={() => { setActiveTool('long_position'); setShowMobileTools(false); }}
-              className="w-11 h-11 rounded-full bg-emerald-600 text-white text-[11px] font-extrabold shadow-xl"
+              onClick={() => {
+                setActiveTool((t) => (t === 'long_position' ? 'cursor' : 'long_position'));
+                setShowMobileTools(false);
+                if (activeTool !== 'long_position') {
+                  showToast('Tap & drag on the chart to place your BUY setup', 'up');
+                }
+              }}
+              className={`w-11 h-11 rounded-full bg-emerald-600 text-white text-[11px] font-extrabold shadow-xl transition ${
+                activeTool === 'long_position' ? 'ring-2 ring-white scale-110' : ''
+              }`}
             >
               BUY
             </button>
             <button
-              onClick={() => { setActiveTool('short_position'); setShowMobileTools(false); }}
-              className="w-11 h-11 rounded-full bg-rose-600 text-white text-[11px] font-extrabold shadow-xl"
+              onClick={() => {
+                setActiveTool((t) => (t === 'short_position' ? 'cursor' : 'short_position'));
+                setShowMobileTools(false);
+                if (activeTool !== 'short_position') {
+                  showToast('Tap & drag on the chart to place your SELL setup', 'down');
+                }
+              }}
+              className={`w-11 h-11 rounded-full bg-rose-600 text-white text-[11px] font-extrabold shadow-xl transition ${
+                activeTool === 'short_position' ? 'ring-2 ring-white scale-110' : ''
+              }`}
             >
               SELL
             </button>
             <button
               onClick={() => setShowRightWidget(true)}
-              className="h-11 px-3 rounded-full bg-[#161920] border border-[#2e333d] text-white text-[10px] font-bold shadow-xl whitespace-nowrap"
+              className="h-10 px-3.5 rounded-full bg-[#161920] border border-emerald-500/60 text-white text-[11px] font-extrabold shadow-xl whitespace-nowrap"
             >
               Place Order
             </button>

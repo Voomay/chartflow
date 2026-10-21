@@ -1214,7 +1214,7 @@ export function App() {
 
   return (
     <div
-      className={`h-screen w-screen flex flex-col overflow-hidden select-none ${
+      className={`h-[100dvh] w-full max-w-full flex flex-col overflow-hidden select-none ${
         theme === 'light'
           ? 'bg-[#f8f9fd] text-[#131722]'
           : 'bg-[#0d0f13] text-[#d1d4dc]'
@@ -1746,8 +1746,8 @@ export function App() {
         )}
       </div>
 
-      {/* Bottom Panel */}
-      {!isChartWideMode && (
+      {/* Bottom Panel (Always visible on mobile so Play/Pause/Speed/Skip controls are never hidden) */}
+      {(!isChartWideMode || isMobile) && (
         <ReplayAndSessionsDock
           session={activeSession}
           symbol={symbol}

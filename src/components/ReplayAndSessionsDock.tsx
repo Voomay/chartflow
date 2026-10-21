@@ -462,7 +462,10 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   );
 
   return (
-    <div className={`border-t flex flex-col select-none shrink-0 z-20 ${dockBg}`}>
+    <div
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      className={`border-t flex flex-col select-none shrink-0 z-20 ${dockBg}`}
+    >
       {/* TOP BAR: Authoritative Replay Controls & Bottom Panel Tabs */}
       <div className={`h-11 border-b flex items-center gap-2 pr-3 ${subBarBg}`}>
       <div
@@ -516,7 +519,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
           <button
             disabled={isLocked}
             onClick={onTogglePlay}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold transition shadow ${
+            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1 rounded-lg text-xs font-extrabold transition shadow ${
               isPlaying
                 ? 'bg-amber-500 text-slate-950'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white'
@@ -526,12 +529,12 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             {isPlaying ? (
               <>
                 <Pause className="w-3.5 h-3.5 fill-current" />
-                <span className="hidden sm:inline">Pause</span>
+                <span>Pause</span>
               </>
             ) : (
               <>
                 <Play className="w-3.5 h-3.5 fill-current" />
-                <span className="hidden sm:inline">Play</span>
+                <span>Play</span>
               </>
             )}
           </button>

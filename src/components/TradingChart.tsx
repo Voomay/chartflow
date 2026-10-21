@@ -5396,10 +5396,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       </div>
 
       {/* Bottom-Left Reset & Auto-Fit Button */}
-      <div className="absolute bottom-8 left-3 z-20 flex items-center gap-1.5">
+      <div className="absolute bottom-8 left-2 sm:left-3 z-20 flex items-center gap-1 sm:gap-1.5">
         <button
           onClick={handleResetView}
-          className={`flex items-center gap-1 px-2.5 py-1 rounded border text-[11px] shadow-sm transition ${
+          className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded border text-[10px] sm:text-[11px] shadow-sm transition ${
             isLight
               ? 'bg-white hover:bg-[#f0f3fa] border-[#e0e3eb] text-[#131722]'
               : 'bg-[#1e222d]/90 hover:bg-[#262b38] border-[#2a2e39] text-gray-300'
@@ -5407,14 +5407,15 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           title="Auto-Fit Price & Time Scale"
         >
           <RotateCcw className="w-3 h-3 text-[#2962ff]" />
-          Auto Fit Chart
+          <span>Auto Fit</span>
+          <span className="hidden sm:inline">Chart</span>
         </button>
         <button
           onClick={() => {
             chartRef.current?.scrollToRealTime(200);
             drawOverlay();
           }}
-          className={`flex items-center gap-1 px-2.5 py-1 rounded border text-[11px] shadow-sm transition ${
+          className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded border text-[10px] sm:text-[11px] shadow-sm transition ${
             isLight
               ? 'bg-white hover:bg-[#f0f3fa] border-[#e0e3eb] text-[#131722]'
               : 'bg-[#1e222d]/90 hover:bg-[#262b38] border-[#2a2e39] text-gray-300'
@@ -5422,7 +5423,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           title="Jump to the current replay time (chart axis is UTC)"
         >
           <Clock className="w-3 h-3 text-emerald-500" />
-          Present Time
+          <span>Present</span>
+          <span className="hidden sm:inline">Time</span>
         </button>
       </div>
     </div>

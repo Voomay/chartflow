@@ -1,38 +1,47 @@
 import React, { useState } from 'react';
 import {
+  BarChart3,
+  BookOpen,
   BrainCircuit,
   CandlestickChart,
   ChevronDown,
   Clock,
   Columns,
-  Home,
+  Compass,
+  LayoutDashboard,
   Maximize2,
   Minimize2,
   Moon,
   Radio,
-  RefreshCw,
   Scissors,
   Search,
-  Sparkles,
   Sun,
+  Trophy,
   User,
+  Wallet,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   CandleColorStyle,
+  CustomCandleColors,
   InstrumentCategory,
   InstrumentSymbol,
   SessionConfig,
   SessionId,
   ThemeMode,
   Timeframe,
+  TradingSession,
 } from '../types/trading';
 import {
-  getActiveSessionsAtTime,
   getInstrumentConfig,
   INSTRUMENTS,
   TIMEFRAME_CONFIG,
 } from '../services/goldDataService';
+import {
+  formatMoney,
+  formatTimestampInTimezone,
+} from '../services/simulationEngine';
 import { ChartFlowUser } from './LoginPage';
 
 interface TopNavigationProps {
@@ -64,13 +73,36 @@ interface TopNavigationProps {
   theme: ThemeMode;
   onToggleTheme: () => void;
   candleStyle: CandleColorStyle;
-  onToggleCandleStyle: () => void;
+  onSelectCandleStyle: (style: CandleColorStyle) => void;
+  customCandleColors: CustomCandleColors;
+  onChangeCustomCandleColors: (colors: CustomCandleColors) => void;
   onOpenLanding: () => void;
   onOpenLogin: () => void;
   currentUser: ChartFlowUser | null;
+  activeSession?: TradingSession;
+  liveBalance?: number;
+  liveEquity?: number;
+  onOpenCreateSession?: () => void;
+  onOpenAnalyticsPage?: () => void;
+  onOpenDashboard?: () => void;
+  onOpenGuide?: () => void;
+  onStartTour?: () => void;
 }
 
 const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D'];
+
+export const CANDLE_PRESETS: {
+  id: Exclude<CandleColorStyle, 'custom'>;
+  name: string;
+  up: string;
+  down: string;
+}[] = [
+  { id: 'tv_blue_black', name: 'Blue / Black (TV)', up: '#2962ff', down: '#131722' },
+  { id: 'classic_green_red', name: 'Green / Red (Classic)', up: '#089981', down: '#f23645' },
+  { id: 'emerald_crimson', name: 'Emerald / Crimson', up: '#10b981', down: '#ef4444' },
+  { id: 'cyan_magenta', name: 'Cyan / Pink Neon', up: '#06b6d4', down: '#ec4899' },
+  { id: 'gold_charcoal', name: 'Gold / Slate', up: '#f59e0b', down: '#475569' },
+];
 
 export const TopNavigation: React.FC<TopNavigationProps> = ({
   symbol,
@@ -78,46 +110,50 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   timeframe,
   onSelectTimeframe,
   currentPrice,
-  dataSource,
-  isLoading,
-  onRefreshData,
-  isReplayMode,
+  dataSource: _dataSource,
   onToggleReplayCutTool,
   isReplayCutActive,
   showRightWidget,
   onToggleRightWidget,
   isChartWideMode,
   onToggleChartWideMode,
-  sessions,
-  onToggleSessionEnabled,
   currentTimestamp,
-  candleRemainingText,
   isFullscreen,
   onToggleFullscreen,
   theme,
   onToggleTheme,
   candleStyle,
-  onToggleCandleStyle,
+  onSelectCandleStyle,
+  customCandleColors,
+  onChangeCustomCandleColors,
   onOpenLanding,
   onOpenLogin,
   currentUser,
+  activeSession,
+  liveBalance,
+  liveEquity,
+  onOpenCreateSession,
+  onOpenAnalyticsPage,
+  onOpenDashboard,
+  onOpenGuide,
+  onStartTour,
 }) => {
   const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false);
+  const [isCandleMenuOpen, setIsCandleMenuOpen] = useState(false);
+  const [isTimeframeMenuOpen, setIsTimeframeMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<InstrumentCategory>('ALL');
 
   const isLight = theme === 'light';
   const currentInst = getInstrumentConfig(symbol);
-  const { active: activeSessions } = getActiveSessionsAtTime(currentTimestamp, sessions);
-  const activeIds = new Set(activeSessions.map((s) => s.id));
 
   const headerBg = isLight
     ? 'bg-white border-[#e0e3eb] text-[#131722]'
-    : 'bg-[#131722] border-[#2a2e39] text-[#d1d4dc]';
+    : 'bg-[#12151b] border-[#242832] text-[#d1d4dc]';
   const cardBg = isLight
     ? 'bg-[#f8f9fd] hover:bg-[#f0f3fa] border-[#e0e3eb] text-[#131722]'
-    : 'bg-[#1e222d] hover:bg-[#262b38] border-[#2a2e39] text-gray-200';
-  const dividerBg = isLight ? 'bg-[#e0e3eb]' : 'bg-[#2a2e39]';
+    : 'bg-[#181c24] hover:bg-[#202530] border-[#262a34] text-gray-200';
+  const dividerBg = isLight ? 'bg-[#e0e3eb]' : 'bg-[#262a34]';
 
   const filteredInstruments = INSTRUMENTS.filter((inst) => {
     const matchesCat = selectedCategory === 'ALL' || inst.category === selectedCategory;
@@ -130,216 +166,441 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
     return matchesCat && matchesSearch;
   });
 
+  const activePreset = CANDLE_PRESETS.find((p) => p.id === candleStyle);
+  const displayUpColor =
+    candleStyle === 'custom'
+      ? customCandleColors.upColor
+      : activePreset?.up ?? '#2962ff';
+  const displayDownColor =
+    candleStyle === 'custom'
+      ? customCandleColors.downColor
+      : activePreset?.down ?? '#131722';
+
+  const accountCurrency = activeSession?.accountCurrency || 'USD';
+  const computedBalance =
+    liveBalance !== undefined
+      ? liveBalance
+      : (activeSession?.startingBalance ?? 100000) + (activeSession?.realizedPnL ?? 0);
+  const computedEquity =
+    liveEquity !== undefined ? liveEquity : computedBalance;
+  const floatingDiff = computedEquity - computedBalance;
+
+  const displayTz = activeSession?.displayTimezone || 'UTC';
+  const authoritativeClockTs = activeSession?.replayTimestamp || currentTimestamp;
+  const formattedReplayClock = formatTimestampInTimezone(authoritativeClockTs, displayTz);
+  const isPropChallenge = activeSession?.mode === 'PROP_FIRM';
+  const sessionStatus = activeSession?.challengeState?.status || activeSession?.status || 'ACTIVE';
+  const activePhase =
+    activeSession?.frozenConfig?.propFirmRules?.challengePhase ||
+    activeSession?.propFirmRules?.challengePhase ||
+    'PHASE_1';
+  const phaseShortLabel =
+    activePhase === 'PHASE_2'
+      ? 'PHASE 2'
+      : activePhase === 'FUNDED'
+      ? 'FUNDED'
+      : 'PHASE 1';
+
   return (
     <>
       <header
-        className={`h-12 border-b px-3 flex items-center justify-between gap-2 select-none shrink-0 z-30 ${headerBg}`}
+        className={`relative h-11 border-b px-2 flex items-center justify-between gap-1 select-none shrink-0 z-30 ${headerBg}`}
       >
-        {/* Left: Chart Flow Brand + Instrument Selector + Timeframes */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          {/* Chart Flow Brand Logo (Clicks back to Landing Page) */}
+        {/* Left: Brand + Active Session Name + Symbol Selector + Timeframe Dropdown + Replay Clock */}
+        <div className="flex items-center gap-1 min-w-0 flex-1">
+          {/* Brand Logo (Returns to Landing Page) */}
           <button
-            onClick={onOpenLanding}
-            className={`flex items-center gap-1.5 pr-2.5 border-r transition hover:opacity-85 ${
-              isLight ? 'border-[#e0e3eb]' : 'border-[#2a2e39]'
+            onClick={onOpenLanding || onOpenDashboard}
+            className={`flex items-center pr-1.5 border-r transition hover:opacity-85 whitespace-nowrap shrink-0 ${
+              isLight ? 'border-[#d8dce6]' : 'border-[#262a34]'
             }`}
-            title="Chart Flow — View Landing Page & Free Features"
+            title="Return to Landing Page"
           >
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#2962ff] via-indigo-500 to-emerald-400 flex items-center justify-center text-white font-black text-xs shadow">
-              CF
-            </div>
-            <div className="hidden sm:flex items-center gap-1.5">
-              <span className="font-extrabold text-xs tracking-tight">
-                CHART <span className="text-[#2962ff]">FLOW</span>
-              </span>
-              <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
-                FREE
-              </span>
+            <div className="w-6 h-6 rounded-md bg-[#1e222a] border border-[#2e333d] flex items-center justify-center text-emerald-400 font-black text-[11px] shrink-0">
+              CR
             </div>
           </button>
+
+          {/* Session Name & Mode Pill */}
+          {activeSession && (
+            <button
+              data-tour="top-session"
+              onClick={onOpenCreateSession}
+              className={`flex items-center gap-1 px-1.5 py-1 rounded border transition whitespace-nowrap min-w-0 ${
+                sessionStatus === 'FAILED'
+                  ? 'bg-rose-500/15 border-rose-500/50 text-rose-400'
+                  : sessionStatus === 'PASSED'
+                  ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-400'
+                  : isPropChallenge
+                  ? isLight
+                    ? 'bg-amber-50 border-amber-300 text-amber-800'
+                    : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                  : cardBg
+              }`}
+              title={`Session: ${activeSession.name} (${
+                isPropChallenge
+                  ? `Prop Firm Challenge · ${phaseShortLabel}`
+                  : 'Normal Backtest'
+              }) — Click to Switch or Create New Session`}
+            >
+              {isPropChallenge ? (
+                <Trophy className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              ) : (
+                <Zap className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              )}
+              <span className="text-[11px] font-bold max-w-[140px] xl:max-w-[180px] truncate">
+                {activeSession.name}
+              </span>
+              <span
+                className={`text-[9px] font-mono font-bold px-1 py-0.2 rounded uppercase shrink-0 ${
+                  sessionStatus === 'FAILED'
+                    ? 'bg-rose-500 text-white keep-white'
+                    : sessionStatus === 'PASSED'
+                    ? 'bg-emerald-500 text-white keep-white'
+                    : isPropChallenge
+                    ? 'bg-amber-500/20 text-amber-400'
+                    : 'bg-[#262b36] text-[#cbd5e1] keep-white'
+                }`}
+              >
+                {sessionStatus === 'ACTIVE'
+                  ? isPropChallenge
+                    ? phaseShortLabel
+                    : 'BACKTEST'
+                  : `${isPropChallenge ? `${phaseShortLabel} · ` : ''}${sessionStatus}`}
+              </span>
+            </button>
+          )}
 
           {/* Instrument Selector Button */}
           <button
             onClick={() => setIsSymbolModalOpen(true)}
-            className={`flex items-center gap-2 px-2.5 py-1 rounded border transition ${cardBg}`}
-            title="Switch Market / Instrument (100% Free Multi-Asset Feed)"
+            className={`flex items-center gap-1 px-1.5 py-1 rounded border transition whitespace-nowrap shrink-0 ${cardBg}`}
+            title="Switch Market / Instrument (Synchronized to Session Replay Clock)"
           >
-            <span className="text-xs font-bold flex items-center gap-1.5">
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30">
+            <span className="text-[11px] font-bold flex items-center gap-1">
+              <span
+                className={`text-[9px] font-mono px-1 py-0.2 rounded border ${
+                  isLight
+                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                    : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                }`}
+              >
                 {currentInst.icon}
               </span>
               {currentInst.displaySymbol}
             </span>
-            <span className="hidden md:inline text-[10px] px-1.5 py-0.2 rounded bg-[#2962ff]/15 text-[#2962ff] font-mono font-semibold">
-              {currentInst.exchange.split('·')[0].trim()}
-            </span>
-            <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+            <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
           </button>
 
-          <div className={`h-5 w-px ${dividerBg}`} />
+          {/* Compact Timeframe Selector (TF + Active Timeframe Dropdown) */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsTimeframeMenuOpen((v) => !v)}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded border transition whitespace-nowrap ${cardBg}`}
+              title={`Active Timeframe: ${timeframe} (${TIMEFRAME_CONFIG[timeframe].description}) — Click to switch timeframe`}
+            >
+              <span className="text-[10px] font-extrabold uppercase tracking-wider opacity-65">
+                TF
+              </span>
+              <span className="px-1.5 py-0.2 rounded bg-emerald-600 text-white keep-white text-[11px] font-mono font-extrabold">
+                {timeframe}
+              </span>
+              <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
+            </button>
 
-          {/* Timeframe Buttons (1m up to 1D) */}
-          <div
-            className={`flex items-center gap-0.5 p-0.5 rounded border ${
-              isLight ? 'bg-[#f0f3fa] border-[#e0e3eb]' : 'bg-[#0b0e14] border-[#2a2e39]'
-            }`}
-          >
-            {TIMEFRAMES.map((tf) => {
-              const active = tf === timeframe;
-              return (
-                <button
-                  key={tf}
-                  onClick={() => onSelectTimeframe(tf)}
-                  className={`px-2 py-1 rounded text-xs font-mono font-semibold transition ${
-                    active
-                      ? 'bg-[#2962ff] text-white shadow'
-                      : isLight
-                      ? 'text-[#434651] hover:text-[#131722] hover:bg-white'
-                      : 'text-[#787b86] hover:text-white hover:bg-[#1e222d]'
+            {isTimeframeMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setIsTimeframeMenuOpen(false)}
+                />
+                <div
+                  className={`absolute left-0 top-9 w-48 rounded-xl border p-1.5 z-50 text-xs shadow-2xl space-y-0.5 ${
+                    isLight
+                      ? 'bg-white border-[#d8dce6] text-[#131722]'
+                      : 'bg-[#161920] border-[#282c35] text-[#d1d4dc]'
                   }`}
-                  title={TIMEFRAME_CONFIG[tf].description}
                 >
-                  {tf}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Candle Color Style Switcher (Blue/Black vs Green/Red) */}
-          <button
-            onClick={onToggleCandleStyle}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border transition ${cardBg}`}
-            title="Switch Candle Color Palette (TradingView Blue/Black vs Classic Green/Red)"
-          >
-            <CandlestickChart className="w-3.5 h-3.5 text-[#2962ff]" />
-            <span className="hidden xl:inline text-[11px]">
-              {candleStyle === 'tv_blue_black' ? 'Blue/Black' : 'Green/Red'}
-            </span>
-          </button>
-
-          {/* Live Candle Countdown Pill */}
-          <div
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono border ${
-              isReplayMode
-                ? 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-300'
-                : 'bg-emerald-500/15 border-emerald-500/35 text-emerald-700 dark:text-emerald-300'
-            }`}
-            title={
-              isReplayMode
-                ? 'Currently in Historical Bar Replay Mode'
-                : `Live ${timeframe} Candle — Time remaining until next candle closes`
-            }
-          >
-            {isReplayMode ? (
-              <>
-                <Clock className="w-3.5 h-3.5 text-amber-500" />
-                <span className="font-bold">REPLAY</span>
-              </>
-            ) : (
-              <>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                <span className="text-[10px] uppercase font-sans font-bold">
-                  LIVE
-                </span>
-                <span className="font-bold">{candleRemainingText}</span>
+                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60 border-b border-gray-500/15 mb-1">
+                    Select Timeframe
+                  </div>
+                  {TIMEFRAMES.map((tf) => {
+                    const active = tf === timeframe;
+                    return (
+                      <button
+                        key={tf}
+                        type="button"
+                        onClick={() => {
+                          onSelectTimeframe(tf);
+                          setIsTimeframeMenuOpen(false);
+                        }}
+                        className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left transition ${
+                          active
+                            ? 'bg-emerald-600 text-white keep-white font-bold'
+                            : isLight
+                            ? 'hover:bg-[#f0f3fa] text-[#131722]'
+                            : 'hover:bg-white/5 text-[#d1d4dc]'
+                        }`}
+                      >
+                        <span className="font-mono font-bold text-xs">{tf}</span>
+                        <span
+                          className={`text-[10px] ${
+                            active ? 'text-white/90 keep-white' : 'opacity-65'
+                          }`}
+                        >
+                          {TIMEFRAME_CONFIG[tf].label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </>
             )}
           </div>
 
-          <div className={`hidden 2xl:block h-5 w-px ${dividerBg}`} />
+          {/* Authoritative Replay Date/Time Badge */}
+          <div
+            className={`hidden md:flex items-center gap-1 px-1.5 py-1 rounded text-[10px] font-mono border whitespace-nowrap shrink-0 ${
+              isLight
+                ? 'bg-amber-50 border-amber-300 text-amber-900'
+                : 'bg-[#181c24] border-[#2a2f3b] text-[#e2e8f0]'
+            }`}
+            title={`Authoritative Session Replay Clock (${displayTz}) — Future candles strictly hidden`}
+          >
+            <Clock className="w-3 h-3 text-emerald-400 shrink-0" />
+            <span className="font-bold">
+              {formattedReplayClock} {displayTz}
+            </span>
+          </div>
 
-          {/* Quick Session Toggle Pills (Australia, Asia, London, New York) */}
-          <div className="hidden 2xl:flex items-center gap-1">
-            {sessions.map((s) => {
-              const isOpen = activeIds.has(s.id);
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => onToggleSessionEnabled(s.id)}
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition ${
-                    s.enabled ? cardBg : 'border-transparent opacity-50'
-                  }`}
-                  title={`${s.name} (${String(s.startHourUTC).padStart(2, '0')}:00–${String(
-                    s.endHourUTC
-                  ).padStart(2, '0')}:00 UTC)`}
-                >
-                  <span className="text-[10px] font-mono opacity-60">{s.flag}</span>
-                  <span>{s.city}</span>
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      isOpen ? 'bg-emerald-500 shadow-[0_0_6px_#10b981]' : 'bg-gray-400'
-                    }`}
-                  />
-                </button>
-              );
-            })}
+          {/* Candle Color Picker */}
+          <div className="relative hidden xl:block shrink-0">
+            <button
+              onClick={() => setIsCandleMenuOpen((v) => !v)}
+              className={`flex items-center gap-1 px-1.5 py-1 rounded text-[11px] font-medium border transition whitespace-nowrap ${cardBg}`}
+              title="Customize Candle Colors"
+            >
+              <CandlestickChart className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="flex items-center gap-0.5">
+                <span
+                  className="w-2.5 h-2.5 rounded-full border border-black/20"
+                  style={{ backgroundColor: displayUpColor }}
+                />
+                <span
+                  className="w-2.5 h-2.5 rounded-full border border-black/20"
+                  style={{ backgroundColor: displayDownColor }}
+                />
+              </span>
+            </button>
+
+            {isCandleMenuOpen && (
+              <div
+                className={`absolute left-0 top-9 w-64 rounded-xl border p-3 z-50 text-xs shadow-2xl space-y-2.5 ${
+                  isLight
+                    ? 'bg-white border-[#d8dce6] text-[#131722]'
+                    : 'bg-[#161920] border-[#282c35] text-[#d1d4dc]'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
+                    Candle Color Themes
+                  </span>
+                  <button
+                    onClick={() => setIsCandleMenuOpen(false)}
+                    className="p-0.5 rounded hover:bg-gray-500/20"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  {CANDLE_PRESETS.map((preset) => {
+                    const active = candleStyle === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        onClick={() => {
+                          onSelectCandleStyle(preset.id);
+                          onChangeCustomCandleColors({
+                            upColor: preset.up,
+                            downColor: preset.down,
+                          });
+                        }}
+                        className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left transition ${
+                          active
+                            ? 'bg-emerald-500/15 text-emerald-400 font-semibold border border-emerald-500/40'
+                            : 'hover:bg-white/5 border border-transparent'
+                        }`}
+                      >
+                        <span>{preset.name}</span>
+                        <span className="flex items-center gap-1">
+                          <span
+                            className="w-3.5 h-3.5 rounded-sm border border-black/20"
+                            style={{ backgroundColor: preset.up }}
+                          />
+                          <span
+                            className="w-3.5 h-3.5 rounded-sm border border-black/20"
+                            style={{ backgroundColor: preset.down }}
+                          />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Right: Replay + Theme + Wide Chart + Fullscreen + AI + Landing/Login */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* Bar Replay Cut Button */}
+        {/* Center/Right: Account Balance & Equity + Data Status + Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Live Balance & Equity Display */}
+          <div
+            className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded border text-[11px] font-mono shrink-0 ${
+              isLight
+                ? 'bg-[#f8f9fd] border-[#d8dce6] text-[#131722]'
+                : 'bg-[#0d0f13] border-[#262a34] text-slate-200'
+            }`}
+            title="Live Session Balance & Equity (Updated on every 1m execution step)"
+          >
+            <div className="flex items-center gap-1">
+              <Wallet className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span className="text-[9px] uppercase font-sans font-bold opacity-60">Bal:</span>
+              <span className="font-bold">{formatMoney(computedBalance, accountCurrency)}</span>
+            </div>
+            <div className={`h-3 w-px ${dividerBg}`} />
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] uppercase font-sans font-bold opacity-60">Eq:</span>
+              <span
+                className={`font-bold ${
+                  floatingDiff > 0.01
+                    ? 'text-emerald-400'
+                    : floatingDiff < -0.01
+                    ? 'text-rose-400'
+                    : ''
+                }`}
+              >
+                {formatMoney(computedEquity, accountCurrency)}
+              </span>
+            </div>
+          </div>
+
+          {/* View Analytics Action */}
+          {onOpenAnalyticsPage && (
+            <button
+              data-tour="top-analytics"
+              onClick={onOpenAnalyticsPage}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${cardBg}`}
+              title="View Session & Account Analytics"
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="hidden md:inline">Analytics</span>
+            </button>
+          )}
+
+          {/* Dashboard Route Button */}
+          {onOpenDashboard && (
+            <button
+              onClick={onOpenDashboard}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${cardBg}`}
+              title="Open Sessions & Account Dashboard"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5 text-[#a0a7b8] shrink-0" />
+              <span className="hidden lg:inline">Dashboard</span>
+            </button>
+          )}
+
+          {/* Quick-Start Guide Button */}
+          {onOpenGuide && (
+            <button
+              onClick={onOpenGuide}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${cardBg}`}
+              title="Open Step-by-Step Guide (What Is Where · Session Setup · First Buy/Sell)"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <span className="hidden xl:inline">Guide</span>
+            </button>
+          )}
+
+          {/* Take the Tour (interactive spotlight walkthrough) */}
+          {onStartTour && (
+            <button
+              data-tour="top-tour-button"
+              onClick={onStartTour}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20"
+              title="Take the tour — step-by-step walkthrough of placing your first trade"
+            >
+              <Compass className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden md:inline">Tour</span>
+            </button>
+          )}
+
+          {/* Bar Replay Cut Button (Disabled in Prop Firm mode) */}
+          {!isPropChallenge && (
+            <button
+              onClick={onToggleReplayCutTool}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${
+                isReplayCutActive
+                  ? 'bg-amber-500 text-[#0d0f13] border-amber-500'
+                  : cardBg
+              }`}
+              title="Bar Replay Cut Tool — Click a bar on chart to jump/rewind (Normal Mode only)"
+            >
+              <Scissors className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span className="hidden xl:inline">Cut</span>
+            </button>
+          )}
+
+          {/* Toggle Right Order Ticket & Challenge Panel */}
           <button
-            onClick={onToggleReplayCutTool}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-bold border transition ${
-              isReplayCutActive || isReplayMode
-                ? 'bg-amber-500 text-[#0b0e14] border-amber-500'
+            onClick={onToggleRightWidget}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${
+              showRightWidget && !isChartWideMode
+                ? 'bg-[#252a34] text-white keep-white border-[#3a404f]'
                 : cardBg
             }`}
-            title="Free Bar Replay & Rewind Mode"
+            title="Toggle Right Order Ticket & Live Challenge Tracker Panel"
           >
-            <Scissors className="w-3.5 h-3.5 text-amber-500" />
-            <span className="hidden sm:inline">Replay</span>
+            <BrainCircuit className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden xl:inline">Order Ticket</span>
           </button>
 
-          {/* White Mode / Black Mode Toggle */}
+          {/* Theme Toggle */}
           <button
             onClick={onToggleTheme}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-bold border transition ${cardBg}`}
-            title={
-              isLight
-                ? 'Switch to Black Mode (Dark Theme)'
-                : 'Switch to White Mode (Light Theme)'
-            }
+            className={`p-1.5 rounded border transition shrink-0 ${cardBg}`}
+            title={isLight ? 'Switch to Dark Theme' : 'Switch to Light Theme'}
           >
             {isLight ? (
-              <>
-                <Moon className="w-3.5 h-3.5 text-indigo-600" />
-                <span className="hidden lg:inline">Dark</span>
-              </>
+              <Moon className="w-3.5 h-3.5 text-slate-600" />
             ) : (
-              <>
-                <Sun className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden lg:inline">Light</span>
-              </>
+              <Sun className="w-3.5 h-3.5 text-amber-400" />
             )}
           </button>
 
-          {/* Wide Chart Only Mode */}
+          {/* Wide Chart Mode */}
           <button
             onClick={onToggleChartWideMode}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-bold border transition ${
+            className={`p-1.5 rounded border transition shrink-0 ${
               isChartWideMode
-                ? 'bg-[#2962ff] text-white border-[#2962ff]'
+                ? 'bg-[#252a34] text-white keep-white border-[#3a404f]'
                 : cardBg
             }`}
-            title="Wide Chart Mode — Make the chart section wide/full window"
+            title="Wide Chart Mode"
           >
             <Columns className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">
-              {isChartWideMode ? 'Restore Panels' : 'Wide Chart'}
-            </span>
           </button>
 
-          {/* Browser Full Screen Button */}
+          {/* Browser Full Screen */}
           <button
             onClick={onToggleFullscreen}
-            className={`p-1.5 rounded border transition ${
+            className={`p-1.5 rounded border transition shrink-0 ${
               isFullscreen
-                ? 'bg-[#2962ff] text-white border-[#2962ff]'
+                ? 'bg-[#252a34] text-white keep-white border-[#3a404f]'
                 : cardBg
             }`}
-            title={isFullscreen ? 'Exit Full Screen (Esc)' : 'Enter Full Screen Mode'}
+            title={isFullscreen ? 'Exit Full Screen' : 'Enter Full Screen'}
           >
             {isFullscreen ? (
               <Minimize2 className="w-3.5 h-3.5" />
@@ -348,79 +609,45 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
             )}
           </button>
 
-          {/* Refresh Data */}
-          <button
-            onClick={onRefreshData}
-            className={`p-1.5 rounded border transition ${cardBg}`}
-            title={`Data Feed: ${dataSource} — Click to resync candles`}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-amber-500' : ''}`} />
-          </button>
-
-          {/* Toggle Market AI Intelligence Side Widget */}
-          <button
-            onClick={onToggleRightWidget}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-bold border transition ${
-              showRightWidget && !isChartWideMode
-                ? 'bg-gradient-to-r from-[#2962ff] to-indigo-600 text-white border-blue-400 shadow'
-                : cardBg
-            }`}
-            title="Toggle Free AI Momentum, News & Sentiment Widget"
-          >
-            <BrainCircuit className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Flow AI</span>
-          </button>
-
-          {/* Landing Page Button */}
-          <button
-            onClick={onOpenLanding}
-            className={`p-1.5 rounded border transition ${cardBg}`}
-            title="Open Chart Flow Landing Page"
-          >
-            <Home className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Login / User Account Button */}
+          {/* User Account Button */}
           <button
             onClick={onOpenLogin}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-bold border transition ${
+            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${
               currentUser
-                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-300'
+                ? isLight
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                  : 'bg-[#181c24] border-[#2e3440] text-emerald-400'
                 : cardBg
             }`}
-            title={
-              currentUser
-                ? `Logged in as ${currentUser.name} (100% Free Forever)`
-                : 'Log In or Create Free Chart Flow Account'
-            }
+            title={currentUser ? `Account: ${currentUser.name}` : 'Account Login'}
           >
-            <User className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">
-              {currentUser ? currentUser.name.split(' ')[0] : 'Log In'}
+            <User className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden 2xl:inline">
+              {currentUser ? currentUser.name.split(' ')[0] : 'Account'}
             </span>
           </button>
         </div>
       </header>
 
-      {/* Instrument Selector Modal (All 12 Instruments 100% Free & Unlocked) */}
+      {/* Instrument Selector Modal */}
       {isSymbolModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-xl border rounded-xl shadow-2xl overflow-hidden ${
               isLight
                 ? 'bg-white border-[#e0e3eb] text-[#131722]'
-                : 'bg-[#131722] border-[#2a2e39] text-white'
+                : 'bg-[#12151b] border-[#262a34] text-white'
             }`}
           >
             <div
               className={`px-4 py-3 border-b flex items-center justify-between ${
-                isLight ? 'border-[#e0e3eb]' : 'border-[#2a2e39]'
+                isLight ? 'border-[#e0e3eb]' : 'border-[#262a34]'
               }`}
             >
               <div className="flex items-center gap-2">
-                <Search className="w-4 h-4 text-[#2962ff]" />
+                <Search className="w-4 h-4 text-emerald-400" />
                 <h3 className="text-sm font-bold">
-                  Chart Flow Market Selector — All Markets 100% Free
+                  Select Instrument — Synchronized to Replay Clock ({formattedReplayClock})
                 </h3>
               </div>
               <button
@@ -444,7 +671,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                     className={`w-full pl-8 pr-3 py-1.5 rounded-lg border text-xs outline-none ${
                       isLight
                         ? 'bg-[#f8f9fd] border-[#e0e3eb] text-[#131722]'
-                        : 'bg-[#0b0e14] border-[#2a2e39] text-white'
+                        : 'bg-[#0d0f13] border-[#262a34] text-white'
                     }`}
                   />
                 </div>
@@ -454,7 +681,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                       ['ALL', 'All'],
                       ['METALS', 'Metals'],
                       ['INDICES', 'Indices'],
-                      ['FOREX_MAJORS', 'Forex'],
+                      ['FOREX', 'Forex'],
                     ] as [InstrumentCategory, string][]
                   ).map(([cat, label]) => (
                     <button
@@ -462,10 +689,10 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                       onClick={() => setSelectedCategory(cat)}
                       className={`px-2.5 py-1.5 rounded-lg border transition ${
                         selectedCategory === cat
-                          ? 'bg-[#2962ff] text-white border-[#2962ff]'
+                          ? 'bg-[#252a34] text-white border-[#3a404f]'
                           : isLight
                           ? 'bg-[#f8f9fd] border-[#e0e3eb] text-[#434651]'
-                          : 'bg-[#1e222d] border-[#2a2e39] text-gray-300'
+                          : 'bg-[#181c24] border-[#262a34] text-gray-300'
                       }`}
                     >
                       {label}
@@ -474,17 +701,34 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                 </div>
               </div>
 
-              <div className="text-xs bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2.5 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>
-                  <strong>Everything is Free on Chart Flow:</strong> Switch between Gold, Indices,
-                  and Forex pairs with full Bar Replay, Strategy Testing, and Analytics.
-                </span>
-              </div>
+              {activeSession && activeSession.assets.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                  <span className="font-bold opacity-70">Session Watchlist:</span>
+                  {activeSession.assets.map((sym: InstrumentSymbol) => (
+                    <button
+                      key={sym}
+                      onClick={() => {
+                        onSelectSymbol(sym);
+                        setIsSymbolModalOpen(false);
+                      }}
+                      className={`px-2 py-0.5 rounded font-mono font-bold border transition ${
+                        sym === symbol
+                          ? 'bg-emerald-600 text-white border-emerald-500'
+                          : 'bg-[#181c24] text-[#cbd5e1] border-[#2a2f3b] hover:bg-[#222732]'
+                      }`}
+                    >
+                      {sym}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <div className="max-h-80 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
                 {filteredInstruments.map((inst) => {
                   const isActive = inst.symbol === symbol;
+                  const inSession = activeSession?.assets.includes(inst.symbol);
+                  const customSpec = activeSession?.instrumentSpecs?.[inst.symbol];
+                  const contractSize = customSpec?.contractSize ?? inst.contractSize;
                   return (
                     <div
                       key={inst.symbol}
@@ -494,31 +738,37 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                       }}
                       className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition ${
                         isActive
-                          ? 'bg-[#2962ff]/15 border-[#2962ff]'
+                          ? 'bg-emerald-500/10 border-emerald-500/60'
                           : isLight
                           ? 'bg-[#f8f9fd] hover:bg-[#f0f3fa] border-[#e0e3eb]'
-                          : 'bg-[#1e222d]/70 hover:bg-[#262b38] border-[#2a2e39]'
+                          : 'bg-[#161920] hover:bg-[#1d212a] border-[#242832]'
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <span className="w-9 h-7 rounded bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-[10px] font-mono font-bold text-[#2962ff]">
+                        <span className="w-9 h-7 rounded bg-[#1e222a] border border-[#2e333d] flex items-center justify-center text-[10px] font-mono font-bold text-emerald-400">
                           {inst.icon}
                         </span>
                         <div>
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-xs">{inst.displaySymbol}</span>
-                            {isActive ? (
+                            {isActive && (
                               <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono font-bold">
                                 ACTIVE
                               </span>
-                            ) : (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-mono">
-                                FREE REPLAY
+                            )}
+                            {inSession && !isActive && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#252a34] text-[#cbd5e1] font-mono font-bold">
+                                IN SESSION
                               </span>
                             )}
                           </div>
                           <span className="text-[11px] opacity-75">
-                            {inst.name} · {inst.exchange}
+                            {inst.name} · Contract: {contractSize.toLocaleString()}{' '}
+                            {inst.category === 'METALS'
+                              ? 'oz'
+                              : inst.category === 'INDICES'
+                              ? 'contracts'
+                              : 'units'}
                           </span>
                         </div>
                       </div>
@@ -529,7 +779,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                             : inst.basePrice.toFixed(inst.decimals)}
                         </div>
                         <div className="text-[10px] text-emerald-400 flex items-center gap-1 justify-end">
-                          <Radio className="w-2.5 h-2.5" /> 1m – 1D Free
+                          <Radio className="w-2.5 h-2.5" /> 1m – 1D Synced
                         </div>
                       </div>
                     </div>

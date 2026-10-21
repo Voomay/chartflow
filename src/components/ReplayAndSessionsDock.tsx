@@ -1,36 +1,55 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   BacktestPosition,
   Candle,
   DrawingTool,
+  EmotionalStateTag,
+  InstrumentSymbol,
   SessionBox,
   SessionConfig,
   SessionId,
+  ThemeMode,
   Timeframe,
+  TradeJournalEntry,
+  TradingSession,
 } from '../types/trading';
-import { getActiveSessionsAtTime } from '../services/goldDataService';
+import { getInstrumentConfig, TIMEFRAME_CONFIG } from '../services/goldDataService';
 import {
+  calculatePositionPnl,
+  computeLiveSessionMetrics,
+  formatMoney,
+  formatTimestampInTimezone,
+  getBidAskFromMid,
+  getEffectiveInstrumentSpec,
+} from '../services/simulationEngine';
+import {
+  AlertTriangle,
   BarChart3,
+  BookOpen,
+  Camera,
   ChevronDown,
   ChevronUp,
   Clock,
+  Edit3,
   FastForward,
-  Globe,
-  History,
+  GitBranch,
+  Layers,
+  ListChecks,
+  Lock,
   Pause,
   Play,
-  Radio,
-  Rewind,
+  Plus,
+  RotateCcw,
   Scissors,
   SkipBack,
   SkipForward,
-  Sparkles,
-  TrendingDown,
-  TrendingUp,
-  XCircle,
+  Star,
+  Trophy,
 } from 'lucide-react';
 
 interface ReplayAndSessionsDockProps {
+  session: TradingSession;
+  symbol: InstrumentSymbol;
   candles: Candle[];
   allCandlesCount: number;
   replayIndex: number;
@@ -40,8 +59,8 @@ interface ReplayAndSessionsDockProps {
   onSetPlaybackSpeedMs: (ms: number) => void;
   onTogglePlay: () => void;
   onStepBar: (delta: number) => void;
-  onScrubToIndex: (index: number) => void;
-  onJumpToLive: () => void;
+  onSkipToTimestamp: (targetTimestampSec: number) => { ok: boolean; error?: string };
+  onBranchSession?: () => void;
   activeTool: DrawingTool;
   onSetActiveTool: (tool: DrawingTool) => void;
   sessions: SessionConfig[];
@@ -49,260 +68,395 @@ interface ReplayAndSessionsDockProps {
   sessionBoxes: SessionBox[];
   onFocusSessionTime: (timestamp: number) => void;
   positions: BacktestPosition[];
-  onOpenMarketOrder: (
-    side: 'LONG' | 'SHORT',
-    lotSize: number,
-    stopLossPrice: number,
-    takeProfitPrice: number
+  onModifyPositionOrOrder: (
+    positionId: string,
+    updates: {
+      stopLoss?: number;
+      takeProfit?: number;
+      entryPrice?: number;
+      lotSize?: number;
+    }
+  ) => { ok: boolean; error?: string };
+  onClosePosition: (id: string, fraction?: number) => void;
+  onMoveToBreakEven: (id: string) => void;
+  onGoToSessionOpen?: (
+    target: 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'NEXT_DAY' | 'TRADE_EXIT'
   ) => void;
-  onClosePosition: (id: string) => void;
-  onResetBacktestAccount: () => void;
-  realizedPnL: number;
-  atr14: number;
+  onSaveJournalEntry: (tradeId: string, entry: TradeJournalEntry) => void;
+  onOpenAnalyticsPage?: () => void;
+  onStartNewChallengeAttempt?: (targetPhase?: 'PHASE_1' | 'PHASE_2') => void;
   timeframe: Timeframe;
-  requestedTab?: 'backtest' | 'analytics' | 'sessions' | null;
+  theme?: ThemeMode;
+  requestedTab?:
+    | 'open_positions'
+    | 'pending_orders'
+    | 'closed_trades'
+    | 'journal'
+    | 'challenge_objectives'
+    | null;
+  requestedJournalTradeId?: string | null;
 }
 
+const EMOTIONAL_STATES: { id: EmotionalStateTag; label: string; color: string }[] = [
+  {
+    id: 'Calm & Focused',
+    label: 'Calm & Focused',
+    color: 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10',
+  },
+  {
+    id: 'Confident',
+    label: 'Confident',
+    color: 'text-blue-400 border-blue-500/40 bg-blue-500/10',
+  },
+  {
+    id: 'Hesitant',
+    label: 'Hesitant',
+    color: 'text-amber-400 border-amber-500/40 bg-amber-500/10',
+  },
+  {
+    id: 'Anxious',
+    label: 'Anxious',
+    color: 'text-orange-400 border-orange-500/40 bg-orange-500/10',
+  },
+  {
+    id: 'FOMO / Chasing',
+    label: 'FOMO / Chasing',
+    color: 'text-rose-400 border-rose-500/40 bg-rose-500/10',
+  },
+  {
+    id: 'Revenge Trading',
+    label: 'Revenge Trading',
+    color: 'text-red-500 border-red-500/40 bg-red-500/15',
+  },
+  {
+    id: 'Overconfident',
+    label: 'Overconfident',
+    color: 'text-purple-400 border-purple-500/40 bg-purple-500/10',
+  },
+];
+
+const DEFAULT_CHECKLIST = [
+  { id: 'chk-htf', label: 'Higher-timeframe bias & structure aligned', checked: false },
+  { id: 'chk-liq', label: 'Key session liquidity / level swept or respected', checked: false },
+  { id: 'chk-rr', label: 'Stop Loss placed at invalidation with >= 1.5R target', checked: false },
+  { id: 'chk-risk', label: 'Position size within daily & overall risk rules', checked: false },
+];
+
 export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
+  session,
+  symbol,
   candles,
-  allCandlesCount,
-  replayIndex,
-  isReplayMode,
   isPlaying,
   playbackSpeedMs,
   onSetPlaybackSpeedMs,
   onTogglePlay,
   onStepBar,
-  onScrubToIndex,
-  onJumpToLive,
+  onSkipToTimestamp,
+  onBranchSession,
   activeTool,
   onSetActiveTool,
-  sessions,
-  onToggleSessionEnabled,
-  sessionBoxes,
-  onFocusSessionTime,
   positions,
-  onOpenMarketOrder,
+  onModifyPositionOrOrder,
   onClosePosition,
-  onResetBacktestAccount,
-  realizedPnL,
+  onMoveToBreakEven,
+  onGoToSessionOpen,
+  onSaveJournalEntry,
+  onOpenAnalyticsPage,
+  onStartNewChallengeAttempt,
   timeframe,
+  theme = 'dark',
   requestedTab,
+  requestedJournalTradeId,
 }) => {
-  const [dockTab, setDockTab] = useState<'backtest' | 'analytics' | 'sessions'>('backtest');
+  const isLight = theme === 'light';
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState<
+    'open_positions' | 'pending_orders' | 'closed_trades' | 'journal' | 'challenge_objectives'
+  >('open_positions');
+
+  const [skipDateTimeInput, setSkipDateTimeInput] = useState<string>('');
+  const [replayFeedback, setReplayFeedback] = useState<string | null>(null);
+
+  // Inline editing states for Open Positions & Pending Orders
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [editEntryInput, setEditEntryInput] = useState<string>('');
+  const [editSLInput, setEditSLInput] = useState<string>('');
+  const [editTPInput, setEditTPInput] = useState<string>('');
+  const [editLotsInput, setEditLotsInput] = useState<string>('');
+
+  // Trade Journal state
+  const [selectedJournalTradeId, setSelectedJournalTradeId] = useState<string>('');
+  const [journalSaveStatus, setJournalSaveStatus] = useState<string>('Saved automatically ✓');
+  const [newChecklistText, setNewChecklistText] = useState<string>('');
+
+  const replayTs =
+    session.replayTimestamp || session.startTimestamp || Math.floor(Date.now() / 1000);
+  const startTs = session.startTimestamp || replayTs - 86400;
+  const endTs = session.endTimestamp || replayTs + 86400;
+  const rules = session.frozenConfig?.propFirmRules || session.propFirmRules;
+  const currency =
+    session.frozenConfig?.accountCurrency || session.accountCurrency || 'USD';
+  const isLocked =
+    session.status === 'FAILED' ||
+    session.status === 'PASSED' ||
+    session.challengeState?.status === 'FAILED' ||
+    session.challengeState?.status === 'PASSED';
 
   useEffect(() => {
     if (requestedTab) {
-      setDockTab(requestedTab);
+      setActiveTab(requestedTab);
       setIsCollapsed(false);
     }
   }, [requestedTab]);
 
-  // Order Ticket State: Lot Size (1.00 Lot = 100 oz), SL ($ distance), TP ($ distance), or Exact Prices
-  const [lotSize, setLotSize] = useState<number>(1.0);
-  const [slDistance, setSlDistance] = useState<number>(6.0);
-  const [tpDistance, setTpDistance] = useState<number>(15.0);
-  const [useExactPrices, setUseExactPrices] = useState<boolean>(false);
-  const [customSlPrice, setCustomSlPrice] = useState<string>('');
-  const [customTpPrice, setCustomTpPrice] = useState<string>('');
-
-  const lastCandle = candles[candles.length - 1];
-  const currentPrice = lastCandle?.close ?? 4140;
-  const currentTimestamp = lastCandle?.time ?? Math.floor(Date.now() / 1000);
-
-  // Sync default exact prices when switching to exact mode
   useEffect(() => {
-    if (useExactPrices && !customSlPrice && !customTpPrice) {
-      setCustomSlPrice((currentPrice - slDistance).toFixed(2));
-      setCustomTpPrice((currentPrice + tpDistance).toFixed(2));
+    if (requestedJournalTradeId) {
+      setSelectedJournalTradeId(requestedJournalTradeId);
+      setActiveTab('journal');
+      setIsCollapsed(false);
     }
-  }, [useExactPrices, currentPrice, slDistance, tpDistance, customSlPrice, customTpPrice]);
+  }, [requestedJournalTradeId]);
 
-  const { active: activeSessions, isLondonNYOverlap } = getActiveSessionsAtTime(
-    currentTimestamp,
-    sessions
+  useEffect(() => {
+    const d = new Date(replayTs * 1000);
+    const isoLocal = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setSkipDateTimeInput(isoLocal);
+  }, [replayTs]);
+
+  const openPositions = useMemo(
+    () => positions.filter((p) => p.status === 'OPEN'),
+    [positions]
   );
-  const activeSessionIds = new Set(activeSessions.map((s) => s.id));
-
-  const openPositions = positions.filter((p) => p.status === 'OPEN');
-  const pendingPositions = positions.filter((p) => p.status === 'PENDING');
-  const closedPositions = positions.filter(
-    (p) => p.status !== 'OPEN' && p.status !== 'PENDING'
+  const pendingOrders = useMemo(
+    () => positions.filter((p) => p.status === 'PENDING'),
+    [positions]
   );
-  const unrealizedPnL = openPositions.reduce((sum, p) => sum + p.pnl, 0);
-  const totalEquity = 100000 + realizedPnL + unrealizedPnL;
+  const closedTrades = useMemo(
+    () =>
+      positions
+        .filter((p) => p.status.startsWith('CLOSED_'))
+        .slice()
+        .sort((a, b) => (b.exitTime || b.entryTime) - (a.exitTime || a.entryTime)),
+    [positions]
+  );
 
-  const winningTrades = closedPositions.filter((p) => p.pnl > 0);
-  const losingTrades = closedPositions.filter((p) => p.pnl <= 0);
-  const winRate =
-    closedPositions.length > 0
-      ? Math.round((winningTrades.length / closedPositions.length) * 100)
-      : 0;
-
-  const grossProfit = winningTrades.reduce((s, p) => s + p.pnl, 0);
-  const grossLoss = Math.abs(losingTrades.reduce((s, p) => s + p.pnl, 0));
-  const profitFactor =
-    grossLoss > 0
-      ? Number((grossProfit / grossLoss).toFixed(2))
-      : grossProfit > 0
-      ? 99.9
-      : 0;
-
-  const avgRMultiple =
-    closedPositions.length > 0
-      ? Number(
-          (
-            closedPositions.reduce((s, p) => s + p.rMultiple, 0) /
-            closedPositions.length
-          ).toFixed(2)
-        )
-      : 0;
-
-  const avgTradeExpectancy =
-    closedPositions.length > 0
-      ? Number((realizedPnL / closedPositions.length).toFixed(2))
-      : 0;
-
-  const bestTradePnl =
-    closedPositions.length > 0
-      ? Math.max(...closedPositions.map((p) => p.pnl))
-      : 0;
-  const worstTradePnl =
-    closedPositions.length > 0
-      ? Math.min(...closedPositions.map((p) => p.pnl))
-      : 0;
-
-  const longClosed = closedPositions.filter((p) => p.side === 'LONG');
-  const longWinRate =
-    longClosed.length > 0
-      ? Math.round(
-          (longClosed.filter((p) => p.pnl > 0).length / longClosed.length) * 100
-        )
-      : 0;
-
-  const shortClosed = closedPositions.filter((p) => p.side === 'SHORT');
-  const shortWinRate =
-    shortClosed.length > 0
-      ? Math.round(
-          (shortClosed.filter((p) => p.pnl > 0).length / shortClosed.length) * 100
-        )
-      : 0;
-
-  // Calculate projected Risk & Profit in USD (1.00 Lot = 100 oz)
-  const sizeOz = Math.max(1, lotSize * 100);
-  const effectiveSlDist = useExactPrices
-    ? Math.max(
-        0.5,
-        Math.abs(currentPrice - (parseFloat(customSlPrice) || currentPrice - slDistance))
-      )
-    : Math.max(0.5, slDistance);
-  const effectiveTpDist = useExactPrices
-    ? Math.max(
-        0.5,
-        Math.abs((parseFloat(customTpPrice) || currentPrice + tpDistance) - currentPrice)
-      )
-    : Math.max(0.5, tpDistance);
-
-  const projectedRiskUsd = Number((effectiveSlDist * sizeOz).toFixed(2));
-  const projectedProfitUsd = Number((effectiveTpDist * sizeOz).toFixed(2));
-  const projectedRR = Number((effectiveTpDist / Math.max(0.1, effectiveSlDist)).toFixed(2));
-
-  const handleExecuteOrder = (side: 'LONG' | 'SHORT') => {
-    let slPrice: number;
-    let tpPrice: number;
-
-    if (useExactPrices) {
-      const parsedSl = parseFloat(customSlPrice);
-      const parsedTp = parseFloat(customTpPrice);
-      if (side === 'LONG') {
-        slPrice =
-          !isNaN(parsedSl) && parsedSl < currentPrice
-            ? parsedSl
-            : Number((currentPrice - slDistance).toFixed(2));
-        tpPrice =
-          !isNaN(parsedTp) && parsedTp > currentPrice
-            ? parsedTp
-            : Number((currentPrice + tpDistance).toFixed(2));
-      } else {
-        slPrice =
-          !isNaN(parsedSl) && parsedSl > currentPrice
-            ? parsedSl
-            : Number((currentPrice + slDistance).toFixed(2));
-        tpPrice =
-          !isNaN(parsedTp) && parsedTp < currentPrice
-            ? parsedTp
-            : Number((currentPrice - tpDistance).toFixed(2));
-      }
-    } else {
-      slPrice =
-        side === 'LONG'
-          ? Number((currentPrice - slDistance).toFixed(2))
-          : Number((currentPrice + slDistance).toFixed(2));
-      tpPrice =
-        side === 'LONG'
-          ? Number((currentPrice + tpDistance).toFixed(2))
-          : Number((currentPrice - tpDistance).toFixed(2));
+  useEffect(() => {
+    if (
+      positions.length > 0 &&
+      (!selectedJournalTradeId || !positions.some((p) => p.id === selectedJournalTradeId))
+    ) {
+      setSelectedJournalTradeId(positions[positions.length - 1].id);
     }
+  }, [positions, selectedJournalTradeId]);
 
-    onOpenMarketOrder(side, lotSize, slPrice, tpPrice);
-    setDockTab('backtest');
+  const liveMetrics = useMemo(() => computeLiveSessionMetrics(session), [session]);
+  const isPropChallenge = session.mode === 'PROP_FIRM';
+  const currentCandle = candles[candles.length - 1];
+  const currentMidPrice = currentCandle?.close || getInstrumentConfig(symbol).basePrice;
+
+  const startEditingRow = (pos: BacktestPosition) => {
+    const posSym = pos.symbol || session.activeAsset || 'XAUUSD';
+    const posSpec = getEffectiveInstrumentSpec(posSym, session);
+    setEditingRowId(pos.id);
+    setEditEntryInput(pos.entryPrice.toFixed(posSpec.decimals));
+    setEditSLInput(pos.stopLoss > 0 ? pos.stopLoss.toFixed(posSpec.decimals) : '0');
+    setEditTPInput(pos.takeProfit > 0 ? pos.takeProfit.toFixed(posSpec.decimals) : '0');
+    setEditLotsInput(pos.lotSize.toFixed(2));
   };
 
-  const formattedBarTime = new Date(currentTimestamp * 1000)
-    .toISOString()
-    .replace('T', ' ')
-    .slice(0, 16);
+  const commitRowEdit = (pos: BacktestPosition) => {
+    const res = onModifyPositionOrOrder(pos.id, {
+      entryPrice: pos.status === 'PENDING' ? Number(editEntryInput) : undefined,
+      stopLoss: Number(editSLInput) || 0,
+      takeProfit: Number(editTPInput) || 0,
+      lotSize: pos.status === 'PENDING' ? Number(editLotsInput) : undefined,
+    });
+    if (!res.ok && res.error) {
+      setReplayFeedback(res.error);
+      setTimeout(() => setReplayFeedback(null), 4000);
+    } else {
+      setEditingRowId(null);
+    }
+  };
+
+  const handleSkipToDateTime = () => {
+    if (!skipDateTimeInput) return;
+    const targetSec = Math.floor(new Date(skipDateTimeInput).getTime() / 1000);
+    if (!Number.isFinite(targetSec)) return;
+    const res = onSkipToTimestamp(targetSec);
+    if (!res.ok && res.error) {
+      setReplayFeedback(res.error);
+      setTimeout(() => setReplayFeedback(null), 4000);
+    } else {
+      setReplayFeedback(null);
+    }
+  };
+
+  // Current trade selected in Journal
+  const activeJournalTrade = useMemo(
+    () => positions.find((p) => p.id === selectedJournalTradeId) || null,
+    [positions, selectedJournalTradeId]
+  );
+
+  const currentJournalEntry: TradeJournalEntry = useMemo(() => {
+    if (!activeJournalTrade) {
+      return {
+        positionId: '',
+        sessionId: session.id,
+        strategyTag: session.strategyName || 'Price Action',
+        setupTags: ['London Breakout'],
+        entryReasoning: '',
+        exitReasoning: '',
+        notes: '',
+        screenshots: [],
+        emotionalState: 'Calm & Focused',
+        checklist: DEFAULT_CHECKLIST,
+        lessonsLearned: '',
+        rating: 5,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    const existing = session.journals?.[activeJournalTrade.id];
+    if (existing) return existing;
+    return {
+      positionId: activeJournalTrade.id,
+      sessionId: session.id,
+      strategyTag: session.strategyName || 'Price Action',
+      setupTags: activeJournalTrade.journalTags || ['Breakout'],
+      entryReasoning: activeJournalTrade.journalEntryReasoning || '',
+      exitReasoning: activeJournalTrade.journalExitReasoning || '',
+      notes: activeJournalTrade.journalNotes || '',
+      screenshots: activeJournalTrade.journalScreenshots || [],
+      emotionalState: activeJournalTrade.journalEmotionalState || 'Calm & Focused',
+      checklist:
+        activeJournalTrade.journalChecklist ||
+        DEFAULT_CHECKLIST.map((item) => ({ ...item })),
+      lessonsLearned: activeJournalTrade.journalLessonsLearned || '',
+      rating: activeJournalTrade.journalRating || 4,
+      updatedAt: new Date().toISOString(),
+    };
+  }, [activeJournalTrade, session.journals, session.id, session.strategyName]);
+
+  const updateActiveJournal = (patch: Partial<TradeJournalEntry>) => {
+    if (!activeJournalTrade) return;
+    setJournalSaveStatus('Saving...');
+    const updated: TradeJournalEntry = {
+      ...currentJournalEntry,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    };
+    onSaveJournalEntry(activeJournalTrade.id, updated);
+    const nowStr = new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    setTimeout(() => {
+      setJournalSaveStatus(`Saved automatically ✓ (${nowStr})`);
+    }, 180);
+  };
+
+  const handleCaptureChartSnapshot = () => {
+    if (!activeJournalTrade) return;
+    const canvases = document.querySelectorAll('canvas');
+    let snapshotDataUrl = '';
+    for (let i = 0; i < canvases.length; i++) {
+      const c = canvases[i];
+      if (c.width > 300 && c.height > 200) {
+        try {
+          snapshotDataUrl = c.toDataURL('image/png');
+          break;
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (!snapshotDataUrl) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="320" viewBox="0 0 600 320"><rect width="600" height="320" fill="#0b0e14"/><text x="30" y="60" fill="#2962ff" font-family="monospace" font-size="20" font-weight="bold">AURUM REPLAY CHART SNAPSHOT</text><text x="30" y="110" fill="#e2e8f0" font-family="monospace" font-size="16">${activeJournalTrade.symbol} ${activeJournalTrade.side} @ ${activeJournalTrade.entryPrice}</text><text x="30" y="150" fill="#94a3b8" font-family="monospace" font-size="14">Replay Clock: ${formatTimestampInTimezone(replayTs, session.displayTimezone)}</text></svg>`;
+      snapshotDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    }
+    updateActiveJournal({
+      screenshots: [...currentJournalEntry.screenshots, snapshotDataUrl],
+    });
+  };
+
+  const dockBg = isLight
+    ? 'bg-white border-[#e0e3eb] text-[#131722]'
+    : 'bg-[#12151b] border-[#242832] text-[#d1d4dc]';
+  const subBarBg = isLight
+    ? 'bg-[#f8f9fd] border-[#e0e3eb]'
+    : 'bg-[#0d0f13] border-[#242832]';
+  const cardBg = isLight
+    ? 'bg-[#f8f9fd] border-[#e0e3eb]'
+    : 'bg-[#161920] border-[#262a34]';
+
+  const progressRatio = Math.max(
+    0,
+    Math.min(100, ((replayTs - startTs) / Math.max(1, endTs - startTs)) * 100)
+  );
 
   return (
-    <div className="w-full bg-[#131722] border-t border-[#2a2e39] flex flex-col select-none shrink-0 z-20">
-      {/* Row 1: Bar Replay Transport & Interactive Lot / SL / TP Order Execution Bar */}
-      <div className="px-3 py-2 bg-[#171b26] border-b border-[#2a2e39] flex flex-wrap items-center justify-between gap-2">
-        {/* Left: Rewind / Bar Replay Controls */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* Cut / Select Bar Tool */}
-          <button
-            onClick={() =>
-              onSetActiveTool(activeTool === 'replay_cut' ? 'cursor' : 'replay_cut')
-            }
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-bold border transition ${
-              activeTool === 'replay_cut'
-                ? 'bg-amber-500 text-[#0b0e14] border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)]'
-                : 'bg-[#1e222d] hover:bg-[#262b38] text-amber-400 border-amber-500/40'
-            }`}
-            title="Click any bar on the chart to rewind time to that candle (100% Free)"
-          >
-            <Scissors className="w-3.5 h-3.5" />
-            <span>Rewind to Bar</span>
-          </button>
+    <div className={`border-t flex flex-col select-none shrink-0 z-20 ${dockBg}`}>
+      {/* TOP BAR: Authoritative Replay Controls & Bottom Panel Tabs */}
+      <div
+        className={`h-11 px-3 border-b flex items-center justify-between gap-2 overflow-x-auto no-scrollbar ${subBarBg}`}
+      >
+        {/* Left: Replay Transport Controls */}
+        <div className="flex items-center gap-1.5 shrink-0" data-tour="replay-controls">
+          {!isPropChallenge ? (
+            <button
+              onClick={() =>
+                onSetActiveTool(activeTool === 'replay_cut' ? 'cursor' : 'replay_cut')
+              }
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition ${
+                activeTool === 'replay_cut'
+                  ? 'bg-amber-500 text-slate-950 border-amber-400'
+                  : cardBg
+              }`}
+              title="Click any bar on chart to jump/rewind (Normal Mode)"
+            >
+              <Scissors className="w-3.5 h-3.5 text-amber-500" />
+              <span className="hidden xl:inline">Cut</span>
+            </button>
+          ) : (
+            <span
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono font-bold bg-amber-500/10 border border-amber-500/30 text-amber-400"
+              title="Rewind and backward date changes are strictly disabled in Prop Firm Challenge mode"
+            >
+              <Lock className="w-3 h-3" /> NO REWIND
+            </span>
+          )}
 
-          {/* Step Back 25 */}
+          {/* Rewind -1 Bar (Disabled in Prop Firm mode) */}
           <button
-            onClick={() => onStepBar(-25)}
-            className="p-1.5 rounded bg-[#1e222d] hover:bg-[#262b38] border border-[#2a2e39] text-gray-300 hover:text-white transition"
-            title="Rewind 25 Candles"
-          >
-            <Rewind className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Step Back 1 */}
-          <button
+            disabled={isPropChallenge}
             onClick={() => onStepBar(-1)}
-            className="p-1.5 rounded bg-[#1e222d] hover:bg-[#262b38] border border-[#2a2e39] text-gray-300 hover:text-white transition"
-            title="Rewind 1 Candle"
+            className={`p-1.5 rounded border transition ${
+              isPropChallenge
+                ? 'opacity-30 cursor-not-allowed border-transparent'
+                : `${cardBg} hover:border-emerald-500/60`
+            }`}
+            title={
+              isPropChallenge
+                ? 'Rewind disabled in Prop Firm Challenge'
+                : `Rewind 1 ${timeframe} bar (Restores checkpoint state)`
+            }
           >
             <SkipBack className="w-3.5 h-3.5" />
           </button>
 
-          {/* Play / Pause Replay */}
+          {/* Play / Pause Button */}
           <button
+            disabled={isLocked}
             onClick={onTogglePlay}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded text-xs font-bold border transition ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold transition shadow ${
               isPlaying
-                ? 'bg-amber-500 text-[#0b0e14] border-amber-400'
-                : 'bg-[#2962ff] hover:bg-[#1e53e5] text-white border-blue-500'
+                ? 'bg-amber-500 text-slate-950'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
             }`}
-            title={isPlaying ? 'Pause Replay' : 'Play Bar-by-Bar Replay'}
+            title={isPlaying ? 'Pause Historical Replay' : 'Play Historical Replay'}
           >
             {isPlaying ? (
               <>
@@ -312,479 +466,370 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             ) : (
               <>
                 <Play className="w-3.5 h-3.5 fill-current" />
-                <span>{isReplayMode ? 'Play' : 'Rewind & Play'}</span>
+                <span>Play</span>
               </>
             )}
           </button>
 
-          {/* Step Forward 1 */}
+          {/* Step Forward +1 Bar */}
           <button
+            disabled={isLocked}
             onClick={() => onStepBar(1)}
-            disabled={!isReplayMode}
-            className={`flex items-center gap-1 px-2 py-1.5 rounded text-xs font-semibold border transition ${
-              isReplayMode
-                ? 'bg-[#1e222d] hover:bg-[#262b38] border-[#2a2e39] text-white'
-                : 'bg-[#131722] border-[#2a2e39]/50 text-[#787b86] cursor-not-allowed'
-            }`}
-            title="Step Forward 1 Candle"
+            className={`flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-mono font-bold transition ${cardBg} hover:border-emerald-500/60`}
+            title={`Advance 1 ${timeframe} bar (${TIMEFRAME_CONFIG[timeframe].label})`}
           >
-            <SkipForward className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">+1</span>
-          </button>
-
-          {/* Step Forward 10 */}
-          <button
-            onClick={() => onStepBar(10)}
-            disabled={!isReplayMode}
-            className={`p-1.5 rounded border transition ${
-              isReplayMode
-                ? 'bg-[#1e222d] hover:bg-[#262b38] border-[#2a2e39] text-gray-300'
-                : 'bg-[#131722] border-[#2a2e39]/50 text-[#787b86] cursor-not-allowed'
-            }`}
-            title="Fast Forward 10 Candles"
-          >
-            <FastForward className="w-3.5 h-3.5" />
+            <SkipForward className="w-3.5 h-3.5 text-emerald-400" />
+            <span>+1 {timeframe}</span>
           </button>
 
           {/* Speed Selector */}
           <select
             value={playbackSpeedMs}
             onChange={(e) => onSetPlaybackSpeedMs(Number(e.target.value))}
-            className="bg-[#1e222d] border border-[#2a2e39] rounded px-2 py-1 text-xs font-mono text-gray-200 outline-none"
+            className={`px-2 py-1 rounded border text-[11px] font-mono font-bold outline-none ${cardBg}`}
             title="Replay Speed"
           >
-            <option value={1200}>0.5x</option>
-            <option value={650}>1x</option>
-            <option value={320}>2x</option>
-            <option value={140}>5x</option>
-            <option value={60}>10x</option>
+            <option value={80}>10x Fast</option>
+            <option value={180}>5x Speed</option>
+            <option value={400}>2x Speed</option>
+            <option value={850}>1x Normal</option>
           </select>
 
-          {/* Timeline Scrubber */}
-          <div className="hidden 2xl:flex items-center gap-2 pl-2 border-l border-[#2a2e39]">
+          {/* Skip Forward to Selected Date/Time */}
+          <div className="hidden lg:flex items-center gap-1 pl-1 border-l border-gray-500/20">
             <input
-              type="range"
-              min={50}
-              max={Math.max(50, allCandlesCount - 1)}
-              value={replayIndex}
-              onChange={(e) => onScrubToIndex(Number(e.target.value))}
-              className="w-28 accent-amber-400 cursor-pointer h-1.5 bg-[#2a2e39] rounded-lg"
+              type="datetime-local"
+              value={skipDateTimeInput}
+              onChange={(e) => setSkipDateTimeInput(e.target.value)}
+              className={`px-2 py-0.5 rounded border text-[10px] font-mono outline-none ${cardBg}`}
+              title="Select target historical date/time to skip forward"
             />
-            <span className="text-[11px] font-mono text-amber-300">
-              {formattedBarTime}
-            </span>
+            <button
+              onClick={handleSkipToDateTime}
+              className={`px-2 py-1 rounded border text-[10px] font-bold flex items-center gap-1 transition ${
+                isLight
+                  ? 'bg-white hover:bg-[#f0f3fa] border-[#d8dce6] text-[#131722]'
+                  : 'bg-[#22262f] hover:bg-[#2c313d] border-[#323744] text-white'
+              }`}
+              title="Advance replay engine sequentially to selected time (evaluates every 1m bar along the way)"
+            >
+              <FastForward className="w-3 h-3 text-emerald-500" />
+              <span>Skip To</span>
+            </button>
           </div>
 
-          {isReplayMode && (
+          {/* Quick Session Jumps */}
+          {onGoToSessionOpen && (
+            <div className="hidden 2xl:flex items-center gap-1 pl-1 border-l border-gray-500/20 text-[10px] font-bold">
+              <button
+                onClick={() => onGoToSessionOpen('LONDON')}
+                className={`px-1.5 py-1 rounded border ${cardBg} hover:border-emerald-400`}
+                title="Skip forward to next London Session Open (08:00 UTC)"
+              >
+                🇬🇧 LDN
+              </button>
+              <button
+                onClick={() => onGoToSessionOpen('NEW_YORK')}
+                className={`px-1.5 py-1 rounded border ${cardBg} hover:border-emerald-400`}
+                title="Skip forward to next New York Session Open (13:00 UTC)"
+              >
+                🇺🇸 NY
+              </button>
+              <button
+                onClick={() => onGoToSessionOpen('TRADE_EXIT')}
+                className="px-1.5 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"
+                title="Advance until an open position hits SL or TP"
+              >
+                ⚡ Hit SL/TP
+              </button>
+            </div>
+          )}
+
+          {/* Practice Branch Button (Normal Mode) */}
+          {!isPropChallenge && onBranchSession && (
             <button
-              onClick={onJumpToLive}
-              className="flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition"
-              title="Exit Replay and Return to Live Real-Time Candle"
+              onClick={onBranchSession}
+              className={`hidden xl:flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-bold transition ${
+                isLight
+                  ? 'bg-white hover:bg-[#f0f3fa] border-[#d8dce6] text-[#131722]'
+                  : 'border-[#323744] bg-[#1e222a] text-[#cbd5e1] hover:text-white'
+              }`}
+              title="Create an isolated Practice Branch cloned from the current replay timestamp"
             >
-              <Radio className="w-3 h-3 animate-pulse" />
-              Live
+              <GitBranch className="w-3 h-3 text-emerald-500" />
+              <span>Branch</span>
             </button>
           )}
         </div>
 
-        {/* Right: Complete Lot Size + SL + TP Order Ticket */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* Lot Size Input */}
-          <div className="flex items-center gap-1 bg-[#131722] px-2 py-1 rounded border border-[#2a2e39] font-mono text-xs">
-            <span className="text-[10px] text-[#787b86]">LOT:</span>
-            <input
-              type="number"
-              step="0.05"
-              min="0.01"
-              max="100"
-              value={lotSize}
-              onChange={(e) => setLotSize(Math.max(0.01, parseFloat(e.target.value) || 0.01))}
-              className="w-14 bg-[#1e222d] text-amber-300 font-bold px-1.5 py-0.5 rounded border border-[#2a2e39] focus:border-amber-400 outline-none text-center"
-              title="Standard Lot Size"
-            />
-          </div>
-
-          {/* Toggle Distance ($) vs Exact Price */}
-          <button
-            onClick={() => {
-              if (!useExactPrices) {
-                setCustomSlPrice((currentPrice - slDistance).toFixed(2));
-                setCustomTpPrice((currentPrice + tpDistance).toFixed(2));
-              }
-              setUseExactPrices((v) => !v);
-            }}
-            className="px-2 py-1 rounded bg-[#1e222d] hover:bg-[#262b38] border border-[#2a2e39] text-[10px] font-mono text-amber-300 transition"
-            title="Switch between setting SL/TP by Distance ($) or Exact Price"
-          >
-            {useExactPrices ? 'Mode: Exact $' : 'Mode: ±Offset $'}
-          </button>
-
-          {!useExactPrices ? (
-            <>
-              {/* Stop Loss Offset ($) */}
-              <div className="flex items-center gap-1 bg-[#131722] px-2 py-1 rounded border border-[#f23645]/40 font-mono text-xs">
-                <span className="text-[10px] text-[#f23645] font-bold">SL -$</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0.5"
-                  value={slDistance}
-                  onChange={(e) => setSlDistance(Math.max(0.5, parseFloat(e.target.value) || 1))}
-                  className="w-14 bg-[#1e222d] text-[#f87171] font-bold px-1.5 py-0.5 rounded border border-[#2a2e39] outline-none text-center"
-                />
-                <span className="text-[10px] text-rose-400/90 hidden sm:inline">
-                  (-${projectedRiskUsd.toFixed(0)})
-                </span>
-              </div>
-
-              {/* Take Profit Offset ($) */}
-              <div className="flex items-center gap-1 bg-[#131722] px-2 py-1 rounded border border-[#089981]/40 font-mono text-xs">
-                <span className="text-[10px] text-[#089981] font-bold">TP +$</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0.5"
-                  value={tpDistance}
-                  onChange={(e) => setTpDistance(Math.max(0.5, parseFloat(e.target.value) || 1))}
-                  className="w-14 bg-[#1e222d] text-[#34d399] font-bold px-1.5 py-0.5 rounded border border-[#2a2e39] outline-none text-center"
-                />
-                <span className="text-[10px] text-emerald-400/90 hidden sm:inline">
-                  (+${projectedProfitUsd.toFixed(0)} · {projectedRR}R)
-                </span>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Exact SL Price */}
-              <div className="flex items-center gap-1 bg-[#131722] px-2 py-1 rounded border border-[#f23645]/40 font-mono text-xs">
-                <span className="text-[10px] text-[#f23645] font-bold">SL @</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={customSlPrice}
-                  onChange={(e) => setCustomSlPrice(e.target.value)}
-                  className="w-20 bg-[#1e222d] text-[#f87171] font-bold px-1.5 py-0.5 rounded border border-[#2a2e39] outline-none text-center"
-                />
-              </div>
-
-              {/* Exact TP Price */}
-              <div className="flex items-center gap-1 bg-[#131722] px-2 py-1 rounded border border-[#089981]/40 font-mono text-xs">
-                <span className="text-[10px] text-[#089981] font-bold">TP @</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={customTpPrice}
-                  onChange={(e) => setCustomTpPrice(e.target.value)}
-                  className="w-20 bg-[#1e222d] text-[#34d399] font-bold px-1.5 py-0.5 rounded border border-[#2a2e39] outline-none text-center"
-                />
-              </div>
-            </>
+        {/* Right: Bottom Workspace Tabs */}
+        <div className="flex items-center gap-1 shrink-0">
+          {replayFeedback && (
+            <span className="text-[10px] font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 rounded mr-1">
+              {replayFeedback}
+            </span>
           )}
 
-          {/* BUY / LONG Button */}
-          <button
-            onClick={() => handleExecuteOrder('LONG')}
-            className="flex items-center gap-1 px-3 py-1.5 rounded bg-[#089981] hover:bg-[#07856f] text-white font-bold text-xs shadow-md transition"
-          >
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>Buy / Long</span>
-          </button>
-
-          {/* SELL / SHORT Button */}
-          <button
-            onClick={() => handleExecuteOrder('SHORT')}
-            className="flex items-center gap-1 px-3 py-1.5 rounded bg-[#f23645] hover:bg-[#d92b3a] text-white font-bold text-xs shadow-md transition"
-          >
-            <TrendingDown className="w-3.5 h-3.5" />
-            <span>Sell / Short</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Row 2: Dock Sub-Header Tabs (Strategy Positions · Free Analytics · Global Sessions) */}
-      <div className="px-3 py-1.5 bg-[#131722] border-b border-[#2a2e39] flex items-center justify-between text-xs overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => {
-              setDockTab('backtest');
-              setIsCollapsed(false);
-            }}
-            className={`flex items-center gap-1.5 py-1 font-semibold border-b-2 transition whitespace-nowrap ${
-              dockTab === 'backtest' && !isCollapsed
-                ? 'border-[#2962ff] text-[#2962ff]'
-                : 'border-transparent text-[#787b86] hover:text-gray-200'
-            }`}
-          >
-            <History className="w-3.5 h-3.5" />
-            <span>
-              Strategy Positions ({openPositions.length} Open · {pendingPositions.length} Pending ·{' '}
-              {closedPositions.length} Settled)
-            </span>
-            <span
-              className={`font-mono text-[11px] px-1.5 py-0.2 rounded font-bold ${
-                realizedPnL + unrealizedPnL >= 0
-                  ? 'bg-[#089981]/20 text-[#089981]'
-                  : 'bg-[#f23645]/20 text-[#f23645]'
-              }`}
-            >
-              Net P&L: {realizedPnL + unrealizedPnL >= 0 ? '+' : ''}$
-              {(realizedPnL + unrealizedPnL).toFixed(2)}
-            </span>
-          </button>
-
-          <button
-            onClick={() => {
-              setDockTab('analytics');
-              setIsCollapsed(false);
-            }}
-            className={`flex items-center gap-1.5 py-1 font-semibold border-b-2 transition whitespace-nowrap ${
-              dockTab === 'analytics' && !isCollapsed
-                ? 'border-emerald-400 text-emerald-400'
-                : 'border-transparent text-[#787b86] hover:text-gray-200'
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>Free Strategy Analytics</span>
-            <span className="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 text-[10px] font-mono font-bold">
-              FREE
-            </span>
-          </button>
+          {(
+            [
+              {
+                id: 'open_positions',
+                label: 'Positions',
+                count: openPositions.length,
+              },
+              {
+                id: 'pending_orders',
+                label: 'Pending',
+                count: pendingOrders.length,
+              },
+              {
+                id: 'closed_trades',
+                label: 'Closed Trades',
+                count: closedTrades.length,
+              },
+              {
+                id: 'journal',
+                label: 'Trade Journal',
+                count: Object.keys(session.journals || {}).length,
+              },
+              {
+                id: 'challenge_objectives',
+                label: isPropChallenge ? 'Challenge Objectives' : 'Session Rules',
+              },
+            ] as const
+          ).map((tab) => {
+            const active = activeTab === tab.id && !isCollapsed;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setIsCollapsed(false);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 border transition ${
+                  active
+                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                    : `${cardBg} opacity-80 hover:opacity-100`
+                }`}
+              >
+                <span>{tab.label}</span>
+                {'count' in tab && tab.count !== undefined && (
+                  <span
+                    className={`text-[9px] font-mono px-1 rounded ${
+                      active ? 'bg-white/25 text-white' : 'bg-gray-500/20'
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
 
           <button
-            onClick={() => {
-              setDockTab('sessions');
-              setIsCollapsed(false);
-            }}
-            className={`flex items-center gap-1.5 py-1 font-semibold border-b-2 transition whitespace-nowrap ${
-              dockTab === 'sessions' && !isCollapsed
-                ? 'border-amber-400 text-amber-400'
-                : 'border-transparent text-[#787b86] hover:text-gray-200'
-            }`}
+            onClick={() => setIsCollapsed((v) => !v)}
+            className={`p-1.5 rounded border ${cardBg}`}
+            title={
+              isCollapsed
+                ? 'Expand Bottom Workspace Panel'
+                : 'Collapse Bottom Workspace Panel'
+            }
           >
-            <Globe className="w-3.5 h-3.5" />
-            <span>Global Trading Sessions (Sydney · Tokyo · London · NY)</span>
-            {isLondonNYOverlap && (
-              <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono">
-                OVERLAP LIVE
-              </span>
+            {isCollapsed ? (
+              <ChevronUp className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
             )}
           </button>
         </div>
-
-        <button
-          onClick={() => setIsCollapsed((v) => !v)}
-          className="flex items-center gap-1 text-[11px] text-[#787b86] hover:text-white transition shrink-0 ml-2"
-        >
-          {isCollapsed ? (
-            <>
-              <span>Expand Panel</span>
-              <ChevronUp className="w-3.5 h-3.5" />
-            </>
-          ) : (
-            <>
-              <span>Minimize</span>
-              <ChevronDown className="w-3.5 h-3.5" />
-            </>
-          )}
-        </button>
       </div>
 
-      {/* Row 3: Collapsible Body */}
+      {/* Progress Bar across Session Date Range */}
+      <div className="w-full h-1 bg-gray-500/15 overflow-hidden">
+        <div
+          className="h-full bg-emerald-500 transition-all duration-200"
+          style={{ width: `${progressRatio}%` }}
+        />
+      </div>
+
+      {/* BOTTOM PANEL CONTENT */}
       {!isCollapsed && (
-        <div className="p-3 bg-[#0f131d] max-h-[205px] overflow-y-auto custom-scrollbar">
-          {dockTab === 'backtest' && (
-            <div className="space-y-2.5">
-              {/* Account Summary Metrics */}
-              <div className="flex flex-wrap items-center justify-between gap-2 bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39] font-mono text-xs">
-                <div className="flex flex-wrap items-center gap-5">
-                  <div>
-                    <span className="text-[10px] text-[#787b86] block">ACCOUNT EQUITY</span>
-                    <span className="text-white font-bold text-sm">
-                      $
-                      {totalEquity.toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-[#787b86] block">OPEN FLOATING P&L</span>
-                    <span
-                      className={`font-bold text-sm ${
-                        unrealizedPnL >= 0 ? 'text-[#089981]' : 'text-[#f23645]'
-                      }`}
-                    >
-                      {unrealizedPnL >= 0 ? '+' : ''}${unrealizedPnL.toFixed(2)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-[#787b86] block">BANKED / REALIZED P&L</span>
-                    <span
-                      className={`font-bold text-sm ${
-                        realizedPnL >= 0 ? 'text-[#089981]' : 'text-[#f23645]'
-                      }`}
-                    >
-                      {realizedPnL >= 0 ? '+' : ''}${realizedPnL.toFixed(2)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-[#787b86] block">WIN RATE</span>
-                    <span className="text-amber-400 font-bold text-sm">
-                      {winRate}% ({winningTrades.length}W / {losingTrades.length}L)
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {/* Quick R:R Presets */}
-                  <div className="hidden lg:flex items-center gap-1 text-[10px]">
-                    <span className="text-[#787b86] mr-1">Quick R:R:</span>
-                    {[1, 2, 3, 5].map((rr) => (
-                      <button
-                        key={rr}
-                        onClick={() => {
-                          setUseExactPrices(false);
-                          setTpDistance(Number((slDistance * rr).toFixed(2)));
-                        }}
-                        className="px-2 py-0.5 rounded bg-[#1e222d] hover:bg-[#262b38] border border-[#2a2e39] text-amber-300"
-                      >
-                        1:{rr}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button
-                    onClick={onResetBacktestAccount}
-                    className="px-2.5 py-1 rounded bg-[#1e222d] hover:bg-[#262b38] border border-[#2a2e39] text-[11px] text-gray-300 transition"
-                  >
-                    Reset $100k Account
-                  </button>
-                </div>
-              </div>
-
-              {/* Positions Table */}
-              {positions.length === 0 ? (
-                <div className="text-center py-3.5 text-xs text-[#787b86]">
-                  Set your <strong className="text-amber-300">Lot Size</strong>,{' '}
-                  <strong className="text-[#f23645]">Stop Loss (SL)</strong>, and{' '}
-                  <strong className="text-[#089981]">Take Profit (TP)</strong> above (or draw a{' '}
-                  <strong className="text-[#2962ff]">Long / Short Position box</strong> on the
-                  chart), then press <strong className="text-blue-400">Play</strong> to test your
-                  strategy completely free!
+        <div className="h-56 overflow-y-auto p-3 custom-scrollbar text-xs">
+          {/* TAB 1: OPEN POSITIONS */}
+          {activeTab === 'open_positions' && (
+            <div className="space-y-2">
+              {openPositions.length === 0 ? (
+                <div className="h-44 flex flex-col items-center justify-center opacity-60 text-center">
+                  <Layers className="w-7 h-7 mb-1.5 text-emerald-400" />
+                  <p className="font-bold">No Open Positions</p>
+                  <p className="text-[11px]">
+                    Use the Right Order Ticket or Chart Drawing Tools to execute a market or pending trade.
+                  </p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left font-mono text-xs border-collapse">
+                  <table className="w-full text-left border-collapse text-[11px]">
                     <thead>
-                      <tr className="text-[10px] text-[#787b86] border-b border-[#2a2e39]">
-                        <th className="py-1.5 px-2">SIDE / TYPE</th>
-                        <th className="py-1.5 px-2">LOT SIZE</th>
-                        <th className="py-1.5 px-2">ENTRY PRICE</th>
-                        <th className="py-1.5 px-2">STOP LOSS (RISK)</th>
-                        <th className="py-1.5 px-2">TAKE PROFIT (TARGET)</th>
-                        <th className="py-1.5 px-2">OUTCOME / STATUS</th>
-                        <th className="py-1.5 px-2">AMOUNT MADE / LOST</th>
-                        <th className="py-1.5 px-2 text-right">ACTION</th>
+                      <tr className="border-b border-gray-500/20 text-[10px] uppercase opacity-70 font-mono">
+                        <th className="py-1.5 px-2">Symbol</th>
+                        <th className="py-1.5 px-2">Side</th>
+                        <th className="py-1.5 px-2">Lots</th>
+                        <th className="py-1.5 px-2">Entry</th>
+                        <th className="py-1.5 px-2">Stop Loss</th>
+                        <th className="py-1.5 px-2">Take Profit</th>
+                        <th className="py-1.5 px-2">Floating P&L</th>
+                        <th className="py-1.5 px-2 text-right">
+                          Position Actions (Partial / Close / Journal)
+                        </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#2a2e39]/60">
-                      {positions.map((pos) => (
-                        <tr key={pos.id} className="hover:bg-[#1e222d]/60">
-                          <td className="py-1.5 px-2">
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                pos.side === 'LONG'
-                                  ? 'bg-[#089981]/20 text-[#089981]'
-                                  : 'bg-[#f23645]/20 text-[#f23645]'
-                              }`}
-                            >
-                              {pos.side}
-                            </span>
-                            <span className="ml-1.5 text-[10px] text-[#787b86]">
-                              {pos.orderType}
-                            </span>
-                          </td>
-                          <td className="py-1.5 px-2 text-amber-300 font-bold">
-                            {pos.lotSize.toFixed(2)} Lot
-                          </td>
-                          <td className="py-1.5 px-2 text-white">${pos.entryPrice.toFixed(2)}</td>
-                          <td className="py-1.5 px-2 text-[#f23645]">
-                            ${pos.stopLoss.toFixed(2)}{' '}
-                            <span className="text-[10px] opacity-75">
-                              (-${pos.riskDollars.toFixed(0)})
-                            </span>
-                          </td>
-                          <td className="py-1.5 px-2 text-[#089981]">
-                            ${pos.takeProfit.toFixed(2)}{' '}
-                            <span className="text-[10px] opacity-75">
-                              (+${pos.rewardDollars.toFixed(0)})
-                            </span>
-                          </td>
-                          <td className="py-1.5 px-2">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                pos.status === 'PENDING'
-                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                                  : pos.status === 'OPEN'
-                                  ? 'bg-blue-500/20 text-blue-300 animate-pulse'
-                                  : pos.status === 'CLOSED_TP'
-                                  ? 'bg-[#089981]/25 text-[#34d399] border border-[#089981]/50'
-                                  : pos.status === 'CLOSED_SL'
-                                  ? 'bg-[#f23645]/25 text-[#fb7185] border border-[#f23645]/50'
-                                  : 'bg-gray-600/30 text-gray-300'
-                              }`}
-                            >
-                              {pos.status === 'PENDING'
-                                ? '⏳ PENDING TOUCH'
-                                : pos.status === 'OPEN'
-                                ? '● ACTIVE IN PLAY'
-                                : pos.status === 'CLOSED_TP'
-                                ? '🎯 HIT TAKE PROFIT!'
-                                : pos.status === 'CLOSED_SL'
-                                ? '🛡️ HIT STOP LOSS'
-                                : 'CLOSED MANUAL'}
-                            </span>
-                          </td>
-                          <td
-                            className={`py-1.5 px-2 font-extrabold text-xs ${
-                              pos.status === 'PENDING'
-                                ? 'text-[#787b86]'
-                                : pos.pnl >= 0
-                                ? 'text-[#089981]'
-                                : 'text-[#f23645]'
-                            }`}
-                          >
-                            {pos.status === 'PENDING' ? (
-                              'Waiting for fill'
-                            ) : (
-                              <>
-                                {pos.pnl >= 0
-                                  ? `+$${pos.pnl.toFixed(2)}`
-                                  : `-$${Math.abs(pos.pnl).toFixed(2)}`}{' '}
-                                <span className="text-[10px] font-normal">
-                                  ({pos.rMultiple >= 0 ? '+' : ''}
-                                  {pos.rMultiple.toFixed(2)}R)
-                                </span>
-                              </>
-                            )}
-                          </td>
-                          <td className="py-1.5 px-2 text-right">
-                            {pos.status === 'OPEN' || pos.status === 'PENDING' ? (
-                              <button
-                                onClick={() => onClosePosition(pos.id)}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[10px] font-semibold transition"
+                    <tbody className="divide-y divide-gray-500/15 font-mono">
+                      {openPositions.map((pos) => {
+                        const posSym = pos.symbol || session.activeAsset || 'XAUUSD';
+                        const posSpec = getEffectiveInstrumentSpec(posSym, session);
+                        const mid =
+                          posSym === symbol ? currentMidPrice : pos.entryPrice;
+                        const { bid, ask } = getBidAskFromMid(mid, posSym, session);
+                        const markPrice = pos.side === 'LONG' ? bid : ask;
+                        const grossPnl = calculatePositionPnl(
+                          pos.side,
+                          pos.entryPrice,
+                          markPrice,
+                          pos.lotSize,
+                          posSym,
+                          session
+                        );
+                        const netFloating = Number(
+                          (
+                            grossPnl -
+                            (pos.commissionPaid || 0) -
+                            (pos.slippageCost || 0)
+                          ).toFixed(2)
+                        );
+                        const isEditing = editingRowId === pos.id;
+
+                        return (
+                          <tr key={pos.id} className="hover:bg-blue-500/5">
+                            <td className="py-2 px-2 font-bold">{posSym}</td>
+                            <td className="py-2 px-2">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  pos.side === 'LONG'
+                                    ? 'bg-emerald-500/15 text-emerald-400'
+                                    : 'bg-rose-500/15 text-rose-400'
+                                }`}
                               >
-                                <XCircle className="w-3 h-3" />
-                                {pos.status === 'PENDING' ? 'Cancel Order' : 'Close Trade'}
-                              </button>
-                            ) : (
-                              <span className="text-[10px] text-[#787b86]">
-                                Exit @ ${pos.exitPrice?.toFixed(2)}
+                                {pos.side}
                               </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="py-2 px-2 font-bold">
+                              {pos.lotSize.toFixed(2)}
+                            </td>
+                            <td className="py-2 px-2">
+                              {pos.entryPrice.toFixed(posSpec.decimals)}
+                            </td>
+                            <td className="py-2 px-2 text-rose-400">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  step={posSpec.minMove}
+                                  value={editSLInput}
+                                  onChange={(e) => setEditSLInput(e.target.value)}
+                                  className="w-24 px-1.5 py-0.5 rounded bg-black/40 border border-rose-500/40 text-rose-300"
+                                />
+                              ) : pos.stopLoss > 0 ? (
+                                pos.stopLoss.toFixed(posSpec.decimals)
+                              ) : (
+                                'None'
+                              )}
+                            </td>
+                            <td className="py-2 px-2 text-emerald-400">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  step={posSpec.minMove}
+                                  value={editTPInput}
+                                  onChange={(e) => setEditTPInput(e.target.value)}
+                                  className="w-24 px-1.5 py-0.5 rounded bg-black/40 border border-emerald-500/40 text-emerald-300"
+                                />
+                              ) : pos.takeProfit > 0 ? (
+                                pos.takeProfit.toFixed(posSpec.decimals)
+                              ) : (
+                                'Open'
+                              )}
+                            </td>
+                            <td
+                              className={`py-2 px-2 font-extrabold ${
+                                netFloating >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                              }`}
+                            >
+                              {formatMoney(netFloating, currency, true)}
+                            </td>
+                            <td className="py-2 px-2 text-right">
+                              <div className="flex items-center justify-end gap-1 font-sans">
+                                {isEditing ? (
+                                  <>
+                                    <button
+                                      onClick={() => commitRowEdit(pos)}
+                                      className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold"
+                                    >
+                                      Save SL/TP
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingRowId(null)}
+                                      className="px-2 py-0.5 rounded bg-gray-600/40 text-[10px]"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => startEditingRow(pos)}
+                                      className="px-1.5 py-0.5 rounded border border-gray-500/30 hover:border-blue-400 text-[10px] font-semibold flex items-center gap-0.5"
+                                      title="Move Stop Loss / Take Profit"
+                                    >
+                                      <Edit3 className="w-2.5 h-2.5" /> SL/TP
+                                    </button>
+                                    <button
+                                      onClick={() => onMoveToBreakEven(pos.id)}
+                                      className="px-1.5 py-0.5 rounded bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 border border-blue-500/30 text-[10px] font-bold"
+                                      title="Move Stop Loss to Entry Price (Break-Even)"
+                                    >
+                                      BE
+                                    </button>
+                                    {[0.25, 0.5, 0.75].map((pct) => (
+                                      <button
+                                        key={pct}
+                                        onClick={() => onClosePosition(pos.id, pct)}
+                                        className="px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[10px] font-mono font-bold"
+                                        title={`Partial close ${pct * 100}% of position`}
+                                      >
+                                        {pct * 100}%
+                                      </button>
+                                    ))}
+                                    <button
+                                      onClick={() => {
+                                        setSelectedJournalTradeId(pos.id);
+                                        setActiveTab('journal');
+                                      }}
+                                      className="px-1.5 py-0.5 rounded bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold"
+                                    >
+                                      Journal
+                                    </button>
+                                    <button
+                                      onClick={() => onClosePosition(pos.id, 1)}
+                                      className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold"
+                                    >
+                                      Close
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -792,199 +837,641 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             </div>
           )}
 
-          {dockTab === 'analytics' && (
-            <div className="space-y-3">
-              {/* Top 6 Quantitative Strategy KPIs */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 font-mono">
-                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
-                  <span className="text-[10px] text-[#787b86] block">WIN RATE</span>
-                  <span className="text-base font-black text-emerald-400">{winRate}%</span>
-                  <span className="text-[10px] text-[#787b86] block">
-                    {winningTrades.length} Wins / {losingTrades.length} Losses
-                  </span>
+          {/* TAB 2: PENDING ORDERS */}
+          {activeTab === 'pending_orders' && (
+            <div className="space-y-2">
+              {pendingOrders.length === 0 ? (
+                <div className="h-44 flex flex-col items-center justify-center opacity-60 text-center">
+                  <Clock className="w-7 h-7 mb-1.5 text-amber-400" />
+                  <p className="font-bold">No Pending Limit or Stop Orders</p>
+                  <p className="text-[11px]">
+                    Switch the Order Ticket to Limit or Stop to place pending orders.
+                  </p>
                 </div>
-
-                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
-                  <span className="text-[10px] text-[#787b86] block">PROFIT FACTOR</span>
-                  <span className="text-base font-black text-[#2962ff]">{profitFactor}</span>
-                  <span className="text-[10px] text-[#787b86] block">
-                    Gross +${grossProfit.toFixed(0)} / -${grossLoss.toFixed(0)}
-                  </span>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-[11px]">
+                    <thead>
+                      <tr className="border-b border-gray-500/20 text-[10px] uppercase opacity-70 font-mono">
+                        <th className="py-1.5 px-2">Symbol</th>
+                        <th className="py-1.5 px-2">Order Type</th>
+                        <th className="py-1.5 px-2">Lots</th>
+                        <th className="py-1.5 px-2">Trigger Price</th>
+                        <th className="py-1.5 px-2">Stop Loss</th>
+                        <th className="py-1.5 px-2">Take Profit</th>
+                        <th className="py-1.5 px-2 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-500/15 font-mono">
+                      {pendingOrders.map((pos) => {
+                        const posSym = pos.symbol || session.activeAsset || 'XAUUSD';
+                        const posSpec = getEffectiveInstrumentSpec(posSym, session);
+                        const isEditing = editingRowId === pos.id;
+                        return (
+                          <tr key={pos.id} className="hover:bg-blue-500/5">
+                            <td className="py-2 px-2 font-bold">{posSym}</td>
+                            <td className="py-2 px-2">
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 text-[10px] font-bold">
+                                {pos.orderSubType || `${pos.side}_LIMIT`}
+                              </span>
+                            </td>
+                            <td className="py-2 px-2">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  step={posSpec.quantityIncrement}
+                                  value={editLotsInput}
+                                  onChange={(e) => setEditLotsInput(e.target.value)}
+                                  className="w-16 px-1.5 py-0.5 rounded bg-black/40 border border-blue-500/40"
+                                />
+                              ) : (
+                                pos.lotSize.toFixed(2)
+                              )}
+                            </td>
+                            <td className="py-2 px-2 font-bold">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  step={posSpec.minMove}
+                                  value={editEntryInput}
+                                  onChange={(e) => setEditEntryInput(e.target.value)}
+                                  className="w-24 px-1.5 py-0.5 rounded bg-black/40 border border-blue-500/40"
+                                />
+                              ) : (
+                                pos.entryPrice.toFixed(posSpec.decimals)
+                              )}
+                            </td>
+                            <td className="py-2 px-2 text-rose-400">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  step={posSpec.minMove}
+                                  value={editSLInput}
+                                  onChange={(e) => setEditSLInput(e.target.value)}
+                                  className="w-24 px-1.5 py-0.5 rounded bg-black/40 border border-rose-500/40"
+                                />
+                              ) : pos.stopLoss > 0 ? (
+                                pos.stopLoss.toFixed(posSpec.decimals)
+                              ) : (
+                                'None'
+                              )}
+                            </td>
+                            <td className="py-2 px-2 text-emerald-400">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  step={posSpec.minMove}
+                                  value={editTPInput}
+                                  onChange={(e) => setEditTPInput(e.target.value)}
+                                  className="w-24 px-1.5 py-0.5 rounded bg-black/40 border border-emerald-500/40"
+                                />
+                              ) : pos.takeProfit > 0 ? (
+                                pos.takeProfit.toFixed(posSpec.decimals)
+                              ) : (
+                                'Open'
+                              )}
+                            </td>
+                            <td className="py-2 px-2 text-right font-sans">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {isEditing ? (
+                                  <>
+                                    <button
+                                      onClick={() => commitRowEdit(pos)}
+                                      className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold"
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingRowId(null)}
+                                      className="px-2 py-0.5 rounded bg-gray-600/40 text-[10px]"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => startEditingRow(pos)}
+                                      className="px-2 py-0.5 rounded border border-gray-500/30 hover:border-blue-400 text-[10px] font-semibold"
+                                    >
+                                      Edit Order
+                                    </button>
+                                    <button
+                                      onClick={() => onClosePosition(pos.id)}
+                                      className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[10px] font-bold"
+                                    >
+                                      Cancel Order
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-
-                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
-                  <span className="text-[10px] text-[#787b86] block">AVG R-MULTIPLE</span>
-                  <span
-                    className={`text-base font-black ${
-                      avgRMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                    }`}
-                  >
-                    {avgRMultiple >= 0 ? `+${avgRMultiple}R` : `${avgRMultiple}R`}
-                  </span>
-                  <span className="text-[10px] text-[#787b86] block">
-                    Expectancy: {avgTradeExpectancy >= 0 ? '+' : ''}${avgTradeExpectancy}
-                  </span>
-                </div>
-
-                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
-                  <span className="text-[10px] text-[#787b86] block">LONG VS SHORT</span>
-                  <span className="text-base font-black text-amber-400">
-                    L: {longWinRate}% · S: {shortWinRate}%
-                  </span>
-                  <span className="text-[10px] text-[#787b86] block">
-                    {longClosed.length} Longs · {shortClosed.length} Shorts
-                  </span>
-                </div>
-
-                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
-                  <span className="text-[10px] text-[#787b86] block">BEST TRADE</span>
-                  <span className="text-base font-black text-[#089981]">
-                    +${ Math.max(0, bestTradePnl).toFixed(2) }
-                  </span>
-                  <span className="text-[10px] text-[#787b86] block">Peak Single Return</span>
-                </div>
-
-                <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39]">
-                  <span className="text-[10px] text-[#787b86] block">MAX DRAWDOWN TRADE</span>
-                  <span className="text-base font-black text-[#f23645]">
-                    -${ Math.abs(Math.min(0, worstTradePnl)).toFixed(2) }
-                  </span>
-                  <span className="text-[10px] text-[#787b86] block">Largest Single Loss</span>
-                </div>
-              </div>
-
-              {/* Visual R-Multiple & Trade Distribution Strip */}
-              <div className="bg-[#131722] p-2.5 rounded-lg border border-[#2a2e39] flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-emerald-400" />
-                  <span className="font-bold text-white">
-                    Chart Flow Strategy Sequence (Recent Trades):
-                  </span>
-                </div>
-
-                {closedPositions.length === 0 ? (
-                  <span className="text-[#787b86] font-mono text-[11px]">
-                    Complete at least 1 backtest trade to populate your live R-Multiple & Session
-                    distribution!
-                  </span>
-                ) : (
-                  <div className="flex items-center gap-1.5 overflow-x-auto">
-                    {[...closedPositions].reverse().map((t, idx) => (
-                      <span
-                        key={t.id}
-                        className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold border ${
-                          t.pnl >= 0
-                            ? 'bg-[#089981]/20 border-[#089981]/50 text-emerald-300'
-                            : 'bg-[#f23645]/20 border-[#f23645]/50 text-rose-300'
-                        }`}
-                        title={`Trade #${idx + 1} (${t.sessionAtEntry}): ${
-                          t.pnl >= 0 ? '+' : ''
-                        }$${t.pnl.toFixed(2)}`}
-                      >
-                        #{idx + 1} {t.rMultiple >= 0 ? `+${t.rMultiple}R` : `${t.rMultiple}R`}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           )}
 
-          {dockTab === 'sessions' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-              {sessions.map((session) => {
-                const isOpenNow = activeSessionIds.has(session.id);
-                const latestBox = [...sessionBoxes]
-                  .reverse()
-                  .find((b) => b.session === session.id);
+          {/* TAB 3: CLOSED TRADES */}
+          {activeTab === 'closed_trades' && (
+            <div className="space-y-2">
+              {closedTrades.length === 0 ? (
+                <div className="h-44 flex flex-col items-center justify-center opacity-60 text-center">
+                  <BarChart3 className="w-7 h-7 mb-1.5 text-emerald-400" />
+                  <p className="font-bold">No Closed Trades Yet</p>
+                  <p className="text-[11px]">
+                    Completed trades will appear here with Net P&L, Realised R, Costs, and Ambiguity flags.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-[11px]">
+                    <thead>
+                      <tr className="border-b border-gray-500/20 text-[10px] uppercase opacity-70 font-mono">
+                        <th className="py-1.5 px-2">Exit Time</th>
+                        <th className="py-1.5 px-2">Symbol</th>
+                        <th className="py-1.5 px-2">Side</th>
+                        <th className="py-1.5 px-2">Lots</th>
+                        <th className="py-1.5 px-2">Entry → Exit</th>
+                        <th className="py-1.5 px-2">Costs</th>
+                        <th className="py-1.5 px-2">Realised R</th>
+                        <th className="py-1.5 px-2">Net P&L</th>
+                        <th className="py-1.5 px-2">Status / Policy</th>
+                        <th className="py-1.5 px-2 text-right">Journal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-500/15 font-mono">
+                      {closedTrades.map((pos) => {
+                        const posSym = pos.symbol || session.activeAsset || 'XAUUSD';
+                        const posSpec = getEffectiveInstrumentSpec(posSym, session);
+                        const totalCost =
+                          (pos.commissionPaid || 0) +
+                          (pos.spreadCost || 0) +
+                          (pos.slippageCost || 0);
+                        return (
+                          <tr key={pos.id} className="hover:bg-blue-500/5">
+                            <td className="py-2 px-2 text-[10px] opacity-80">
+                              {formatTimestampInTimezone(
+                                pos.exitTime || pos.entryTime,
+                                session.displayTimezone
+                              )}
+                            </td>
+                            <td className="py-2 px-2 font-bold">{posSym}</td>
+                            <td className="py-2 px-2">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  pos.side === 'LONG'
+                                    ? 'bg-emerald-500/15 text-emerald-400'
+                                    : 'bg-rose-500/15 text-rose-400'
+                                }`}
+                              >
+                                {pos.side}
+                              </span>
+                            </td>
+                            <td className="py-2 px-2">{pos.lotSize.toFixed(2)}</td>
+                            <td className="py-2 px-2">
+                              {pos.entryPrice.toFixed(posSpec.decimals)} →{' '}
+                              {(pos.exitPrice || pos.entryPrice).toFixed(posSpec.decimals)}
+                            </td>
+                            <td className="py-2 px-2 text-amber-400">
+                              {formatMoney(totalCost, currency)}
+                            </td>
+                            <td className="py-2 px-2 font-bold">
+                              {pos.rMultiple !== null && pos.rMultiple !== undefined ? (
+                                <span
+                                  className={
+                                    pos.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                                  }
+                                >
+                                  {pos.rMultiple >= 0 ? '+' : ''}
+                                  {pos.rMultiple.toFixed(2)}R
+                                </span>
+                              ) : (
+                                <span
+                                  className="opacity-50"
+                                  title="Initial Stop Loss was not defined"
+                                >
+                                  N/A
+                                </span>
+                              )}
+                            </td>
+                            <td
+                              className={`py-2 px-2 font-extrabold ${
+                                pos.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                              }`}
+                            >
+                              {formatMoney(pos.pnl, currency, true)}
+                            </td>
+                            <td className="py-2 px-2 font-sans">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/20 font-mono">
+                                  {pos.status.replace('CLOSED_', '')}
+                                </span>
+                                {pos.isAmbiguous && (
+                                  <span
+                                    className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold flex items-center gap-0.5"
+                                    title={
+                                      pos.ambiguityNote ||
+                                      '1m bar touched both SL and TP; conservative SL-first policy applied.'
+                                    }
+                                  >
+                                    <AlertTriangle className="w-2.5 h-2.5" /> Ambiguous (SL-First)
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2 px-2 text-right font-sans">
+                              <button
+                                onClick={() => {
+                                  setSelectedJournalTradeId(pos.id);
+                                  setActiveTab('journal');
+                                }}
+                                className="px-2 py-0.5 rounded bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold"
+                              >
+                                Open Journal
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
-                return (
-                  <div
-                    key={session.id}
-                    className={`rounded-lg p-2.5 border transition flex flex-col justify-between ${
-                      isOpenNow
-                        ? 'bg-[#1a2030] border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.08)]'
-                        : 'bg-[#131722] border-[#2a2e39]'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-base">{session.flag}</span>
-                          <div>
-                            <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                              {session.name}
-                            </div>
-                            <div className="text-[10px] font-mono text-[#787b86] flex items-center gap-1">
-                              <Clock className="w-2.5 h-2.5" />
-                              {String(session.startHourUTC).padStart(2, '0')}:00 –{' '}
-                              {String(session.endHourUTC).padStart(2, '0')}:00 UTC
-                            </div>
-                          </div>
-                        </div>
-
-                        <span
-                          className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                            isOpenNow
-                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse'
-                              : 'bg-gray-800/70 text-[#787b86] border-gray-700'
-                          }`}
-                        >
-                          {isOpenNow ? '● ACTIVE' : 'CLOSED'}
-                        </span>
-                      </div>
-
-                      {latestBox && timeframe !== '1D' ? (
-                        <div className="grid grid-cols-3 gap-1 my-1.5 bg-[#0b0e14]/80 p-1.5 rounded border border-[#2a2e39] font-mono text-[10px]">
-                          <div>
-                            <span className="text-[#787b86] block">HIGH</span>
-                            <span className="text-[#089981] font-semibold">
-                              ${latestBox.high.toFixed(2)}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[#787b86] block">LOW</span>
-                            <span className="text-[#f23645] font-semibold">
-                              ${latestBox.low.toFixed(2)}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[#787b86] block">RANGE</span>
-                            <span className="text-amber-300 font-semibold">
-                              ${latestBox.rangeDollars.toFixed(2)}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-gray-400 my-1.5 line-clamp-2">
-                          {session.goldBehavior}
-                        </p>
-                      )}
+          {/* TAB 4: TRADE JOURNAL */}
+          {activeTab === 'journal' && (
+            <div className="space-y-3">
+              {positions.length === 0 ? (
+                <div className="h-44 flex flex-col items-center justify-center opacity-60 text-center">
+                  <BookOpen className="w-7 h-7 mb-1.5 text-indigo-400" />
+                  <p className="font-bold">No Trades in Session Yet</p>
+                  <p className="text-[11px]">
+                    Execute a trade first to log entry/exit reasoning, emotional state, checklists, and chart screenshots.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+                  {/* Left column: Trade Selector + Tags + Emotional State + Save Status */}
+                  <div className={`lg:col-span-4 p-2.5 rounded-xl border space-y-2.5 ${cardBg}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
+                        <BookOpen className="w-3.5 h-3.5" /> Linked Trade Entry
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-400 font-semibold">
+                        {journalSaveStatus}
+                      </span>
                     </div>
 
-                    <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-[#2a2e39]/80 text-[11px]">
-                      <label className="flex items-center gap-1.5 cursor-pointer text-gray-300 hover:text-white">
-                        <input
-                          type="checkbox"
-                          checked={session.enabled}
-                          onChange={() => onToggleSessionEnabled(session.id)}
-                          className="accent-amber-400 rounded cursor-pointer"
-                        />
-                        <span>Highlight Box</span>
-                      </label>
+                    <select
+                      value={selectedJournalTradeId}
+                      onChange={(e) => setSelectedJournalTradeId(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-gray-500/30 bg-black/20 text-xs font-mono font-bold outline-none"
+                    >
+                      {positions.map((p) => (
+                        <option key={p.id} value={p.id} className="bg-[#131722] text-white">
+                          {p.symbol} {p.side} {p.lotSize}L @ {p.entryPrice} ({p.status})
+                        </option>
+                      ))}
+                    </select>
 
-                      {latestBox && (
-                        <button
-                          onClick={() => onFocusSessionTime(latestBox.startTime)}
-                          className="px-2 py-0.5 rounded bg-[#1e222d] hover:bg-[#262b38] border border-[#2a2e39] text-amber-300 font-mono text-[10px] transition"
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold opacity-70 mb-0.5">
+                          Strategy Tag
+                        </label>
+                        <input
+                          type="text"
+                          value={currentJournalEntry.strategyTag}
+                          onChange={(e) =>
+                            updateActiveJournal({ strategyTag: e.target.value })
+                          }
+                          className="w-full px-2 py-1 rounded border border-gray-500/30 bg-black/20 text-[11px]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold opacity-70 mb-0.5">
+                          Setup Tags (comma)
+                        </label>
+                        <input
+                          type="text"
+                          value={currentJournalEntry.setupTags.join(', ')}
+                          onChange={(e) =>
+                            updateActiveJournal({
+                              setupTags: e.target.value
+                                .split(',')
+                                .map((t) => t.trim())
+                                .filter(Boolean),
+                            })
+                          }
+                          className="w-full px-2 py-1 rounded border border-gray-500/30 bg-black/20 text-[11px]"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold opacity-70 mb-1">
+                        Emotional State
+                      </label>
+                      <div className="flex flex-wrap gap-1">
+                        {EMOTIONAL_STATES.map((em) => (
+                          <button
+                            key={em.id}
+                            type="button"
+                            onClick={() => updateActiveJournal({ emotionalState: em.id })}
+                            className={`px-2 py-0.5 rounded border text-[10px] font-bold transition ${
+                              currentJournalEntry.emotionalState === em.id
+                                ? em.color
+                                : 'border-gray-500/25 opacity-60 hover:opacity-100'
+                            }`}
+                          >
+                            {em.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] font-bold opacity-70">Execution Rating:</span>
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => updateActiveJournal({ rating: st })}
+                            className="p-0.5"
+                          >
+                            <Star
+                              className={`w-3.5 h-3.5 ${
+                                st <= currentJournalEntry.rating
+                                  ? 'text-amber-400 fill-amber-400'
+                                  : 'opacity-30'
+                              }`}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Middle column: Entry/Exit Reasoning, Notes & Lessons Learned */}
+                  <div className={`lg:col-span-5 p-2.5 rounded-xl border space-y-2 ${cardBg}`}>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold opacity-75 mb-0.5">
+                          Entry Reasoning
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={currentJournalEntry.entryReasoning}
+                          onChange={(e) =>
+                            updateActiveJournal({ entryReasoning: e.target.value })
+                          }
+                          placeholder="Why did you enter? HTF confluence, sweep..."
+                          className="w-full p-1.5 rounded border border-gray-500/30 bg-black/20 text-[11px] outline-none resize-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold opacity-75 mb-0.5">
+                          Exit Reasoning
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={currentJournalEntry.exitReasoning}
+                          onChange={(e) =>
+                            updateActiveJournal({ exitReasoning: e.target.value })
+                          }
+                          placeholder="How was the trade managed & exited?"
+                          className="w-full p-1.5 rounded border border-gray-500/30 bg-black/20 text-[11px] outline-none resize-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold opacity-75 mb-0.5">
+                          General Trade Notes
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={currentJournalEntry.notes}
+                          onChange={(e) => updateActiveJournal({ notes: e.target.value })}
+                          placeholder="Session execution observations..."
+                          className="w-full p-1.5 rounded border border-gray-500/30 bg-black/20 text-[11px] outline-none resize-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold opacity-75 mb-0.5">
+                          Lessons Learned
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={currentJournalEntry.lessonsLearned}
+                          onChange={(e) =>
+                            updateActiveJournal({ lessonsLearned: e.target.value })
+                          }
+                          placeholder="Key takeaway to repeat or avoid..."
+                          className="w-full p-1.5 rounded border border-gray-500/30 bg-black/20 text-[11px] outline-none resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right column: Checklist Completion & Chart Screenshots */}
+                  <div className={`lg:col-span-3 p-2.5 rounded-xl border space-y-2 ${cardBg}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                        <ListChecks className="w-3.5 h-3.5 text-emerald-400" /> Plan Checklist
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-emerald-400">
+                        {currentJournalEntry.checklist.filter((c) => c.checked).length}/
+                        {currentJournalEntry.checklist.length}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1 max-h-20 overflow-y-auto pr-1">
+                      {currentJournalEntry.checklist.map((item) => (
+                        <label
+                          key={item.id}
+                          className="flex items-center gap-1.5 text-[10px] cursor-pointer"
                         >
-                          Focus Session →
+                          <input
+                            type="checkbox"
+                            checked={item.checked}
+                            onChange={(e) => {
+                              const nextList = currentJournalEntry.checklist.map((c) =>
+                                c.id === item.id ? { ...c, checked: e.target.checked } : c
+                              );
+                              updateActiveJournal({ checklist: nextList });
+                            }}
+                            className="rounded accent-[#2962ff]"
+                          />
+                          <span className={item.checked ? 'line-through opacity-60' : ''}>
+                            {item.label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        value={newChecklistText}
+                        onChange={(e) => setNewChecklistText(e.target.value)}
+                        placeholder="Add checklist rule..."
+                        className="flex-1 px-2 py-0.5 rounded border border-gray-500/30 bg-black/20 text-[10px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!newChecklistText.trim()) return;
+                          updateActiveJournal({
+                            checklist: [
+                              ...currentJournalEntry.checklist,
+                              {
+                                id: `chk-${Date.now()}`,
+                                label: newChecklistText.trim(),
+                                checked: true,
+                              },
+                            ],
+                          });
+                          setNewChecklistText('');
+                        }}
+                        className="p-1 rounded bg-[#2962ff] text-white"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <div className="pt-1 border-t border-gray-500/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={handleCaptureChartSnapshot}
+                        className="px-2 py-1 rounded bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-400 text-[10px] font-bold flex items-center gap-1"
+                      >
+                        <Camera className="w-3 h-3" /> Capture Screenshot (
+                        {currentJournalEntry.screenshots.length})
+                      </button>
+                      {currentJournalEntry.screenshots.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => updateActiveJournal({ screenshots: [] })}
+                          className="text-[10px] text-rose-400 hover:underline"
+                        >
+                          Clear
                         </button>
                       )}
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 5: CHALLENGE OBJECTIVES & DAILY RESET AUDIT */}
+          {activeTab === 'challenge_objectives' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+              <div className={`lg:col-span-7 p-2.5 rounded-xl border space-y-2 ${cardBg}`}>
+                <div className="flex items-center justify-between flex-wrap gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <Trophy className="w-4 h-4 text-amber-400" />
+                    <span className="font-extrabold text-xs uppercase">
+                      {isPropChallenge
+                        ? `${rules.firmName} — ${rules.challengePhase.replace('_', ' ')} Rules`
+                        : 'Normal Backtesting Session Configuration'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {onOpenAnalyticsPage && (
+                      <button
+                        onClick={onOpenAnalyticsPage}
+                        className="px-2 py-1 rounded bg-[#2962ff] text-white keep-white text-[10px] font-bold flex items-center gap-1"
+                      >
+                        <BarChart3 className="w-3 h-3" /> View Analytics
+                      </button>
+                    )}
+                    {isPropChallenge && onStartNewChallengeAttempt && (
+                      <>
+                        <button
+                          onClick={() => onStartNewChallengeAttempt('PHASE_1')}
+                          className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white keep-white text-[10px] font-extrabold flex items-center gap-1"
+                        >
+                          <RotateCcw className="w-3 h-3" /> Redo Phase 1
+                        </button>
+                        <button
+                          onClick={() => onStartNewChallengeAttempt('PHASE_2')}
+                          className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-extrabold flex items-center gap-1"
+                        >
+                          <RotateCcw className="w-3 h-3" /> Redo Phase 2
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
+                  <div className="p-2 rounded bg-black/20 border border-gray-500/20">
+                    <div className="text-[9px] uppercase opacity-60">Profit Target</div>
+                    <div className="font-bold text-emerald-400">
+                      {formatMoney(liveMetrics.profitTargetAmount, currency)} (
+                      {rules.profitTargetPct}%)
+                    </div>
+                  </div>
+                  <div className="p-2 rounded bg-black/20 border border-gray-500/20">
+                    <div className="text-[9px] uppercase opacity-60">
+                      Daily Loss ({liveMetrics.calculationBasis})
+                    </div>
+                    <div className="font-bold text-amber-400">
+                      {formatMoney(liveMetrics.dailyLossLimitAmount, currency)} (
+                      {rules.maxDailyDrawdownPct}%)
+                    </div>
+                  </div>
+                  <div className="p-2 rounded bg-black/20 border border-gray-500/20">
+                    <div className="text-[9px] uppercase opacity-60">
+                      Max Loss ({liveMetrics.drawdownType})
+                    </div>
+                    <div className="font-bold text-rose-400">
+                      {formatMoney(liveMetrics.overallLossLimitAmount, currency)} (
+                      {rules.maxTotalDrawdownPct}%)
+                    </div>
+                  </div>
+                  <div className="p-2 rounded bg-black/20 border border-gray-500/20">
+                    <div className="text-[9px] uppercase opacity-60">Daily Reset TZ</div>
+                    <div className="font-bold text-blue-400">
+                      {rules.dailyResetTime || '00:00'}{' '}
+                      {rules.dailyResetTimezone || 'UTC'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`lg:col-span-5 p-2.5 rounded-xl border space-y-1.5 ${cardBg}`}>
+                <div className="text-[10px] font-extrabold uppercase tracking-wider opacity-75">
+                  Daily Reset Snapshots ({rules.dailyResetTimezone || 'UTC'})
+                </div>
+                <div className="max-h-28 overflow-y-auto text-[10px] font-mono space-y-1 pr-1">
+                  {(session.challengeState?.dailySnapshots || []).map((snap) => (
+                    <div
+                      key={snap.dayKey}
+                      className="flex items-center justify-between px-2 py-1 rounded bg-black/20 border border-gray-500/15"
+                    >
+                      <span className="font-bold">{snap.dayKey}</span>
+                      <span>
+                        Baseline: {formatMoney(snap.dailyBaseline, currency)}
+                      </span>
+                      <span className="text-amber-400">
+                        Floor: {formatMoney(snap.dailyLossThreshold, currency)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </div>

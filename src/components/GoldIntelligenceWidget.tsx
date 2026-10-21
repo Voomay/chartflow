@@ -22,10 +22,13 @@ import {
 import {
   GoldIndicatorReport,
   GoldNewsItem,
+  InstrumentSymbol,
   MacroEnvironment,
 } from '../types/trading';
+import { getInstrumentConfig } from '../services/goldDataService';
 
 interface GoldIntelligenceWidgetProps {
+  symbol?: InstrumentSymbol;
   report: GoldIndicatorReport;
   currentPrice: number;
   newsItems: GoldNewsItem[];
@@ -42,6 +45,7 @@ interface GoldIntelligenceWidgetProps {
 }
 
 export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
+  symbol = 'XAUUSD',
   report,
   currentPrice,
   newsItems,
@@ -54,6 +58,8 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'approach' | 'momentum' | 'news'>('approach');
   const [customHeadline, setCustomHeadline] = useState('');
+  const instCfg = getInstrumentConfig(symbol);
+  const dec = instCfg.decimals;
 
   const isBullish = report.overallScore >= 12;
   const isBearish = report.overallScore <= -12;
@@ -271,26 +277,26 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
                 <div className="bg-[#131722]/90 p-2 rounded border border-[#2a2e39]">
                   <span className="text-[10px] text-[#787b86] block">IDEAL ENTRY ZONE</span>
                   <span className="text-white font-semibold">
-                    ${report.bestApproach.entryZone[0].toFixed(2)} – $
-                    {report.bestApproach.entryZone[1].toFixed(2)}
+                    {report.bestApproach.entryZone[0].toFixed(dec)} –{' '}
+                    {report.bestApproach.entryZone[1].toFixed(dec)}
                   </span>
                 </div>
                 <div className="bg-[#131722]/90 p-2 rounded border border-[#f23645]/30">
                   <span className="text-[10px] text-[#f23645] block">INVALIDATION (SL)</span>
                   <span className="text-[#f23645] font-bold">
-                    ${report.bestApproach.stopLoss.toFixed(2)}
+                    {report.bestApproach.stopLoss.toFixed(dec)}
                   </span>
                 </div>
                 <div className="bg-[#131722]/90 p-2 rounded border border-[#089981]/30">
                   <span className="text-[10px] text-[#089981] block">TARGET 1 (1.5R)</span>
                   <span className="text-[#089981] font-bold">
-                    ${report.bestApproach.target1.toFixed(2)}
+                    {report.bestApproach.target1.toFixed(dec)}
                   </span>
                 </div>
                 <div className="bg-[#131722]/90 p-2 rounded border border-[#089981]/50">
                   <span className="text-[10px] text-emerald-300 block">TARGET 2 (RUNNER)</span>
                   <span className="text-emerald-300 font-bold">
-                    ${report.bestApproach.target2.toFixed(2)}
+                    {report.bestApproach.target2.toFixed(dec)}
                   </span>
                 </div>
               </div>
@@ -311,8 +317,8 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
                 }`}
               >
                 <Zap className="w-3.5 h-3.5" />
-                Deploy {report.bestApproach.bias === 'BEARISH' ? 'SHORT' : 'LONG'} Setup on Chart (@ $
-                {currentPrice.toFixed(2)})
+                Deploy {report.bestApproach.bias === 'BEARISH' ? 'SHORT' : 'LONG'} Setup on Chart (@{' '}
+                {currentPrice.toFixed(dec)})
               </button>
             </div>
 
@@ -351,7 +357,7 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
                   Institutional Orderblock & S/R Levels
                 </span>
                 <span className="text-[10px] font-mono text-[#787b86]">
-                  ATR(14): ${report.atr14.toFixed(2)}
+                  ATR(14): {report.atr14.toFixed(dec)}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2 font-mono text-xs">
@@ -365,7 +371,7 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
                       className="flex justify-between bg-[#131722] px-2 py-1 rounded border border-[#f23645]/25"
                     >
                       <span className="text-[#787b86]">R{i + 1}</span>
-                      <span className="text-[#f87171] font-semibold">${r.toFixed(2)}</span>
+                      <span className="text-[#f87171] font-semibold">{r.toFixed(dec)}</span>
                     </div>
                   ))}
                 </div>
@@ -379,7 +385,7 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
                       className="flex justify-between bg-[#131722] px-2 py-1 rounded border border-[#089981]/25"
                     >
                       <span className="text-[#787b86]">S{i + 1}</span>
-                      <span className="text-[#34d399] font-semibold">${s.toFixed(2)}</span>
+                      <span className="text-[#34d399] font-semibold">{s.toFixed(dec)}</span>
                     </div>
                   ))}
                 </div>
@@ -410,19 +416,19 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
               <div className="grid grid-cols-2 gap-2 font-mono text-xs">
                 <div className="bg-[#131722] p-2 rounded border border-[#2a2e39] flex justify-between">
                   <span className="text-cyan-400">EMA 20</span>
-                  <span className="text-white">${report.ema20.toFixed(2)}</span>
+                  <span className="text-white">{report.ema20.toFixed(dec)}</span>
                 </div>
                 <div className="bg-[#131722] p-2 rounded border border-[#2a2e39] flex justify-between">
                   <span className="text-amber-400">EMA 50</span>
-                  <span className="text-white">${report.ema50.toFixed(2)}</span>
+                  <span className="text-white">{report.ema50.toFixed(dec)}</span>
                 </div>
                 <div className="bg-[#131722] p-2 rounded border border-[#2a2e39] flex justify-between">
                   <span className="text-purple-400">EMA 200</span>
-                  <span className="text-white">${report.ema200.toFixed(2)}</span>
+                  <span className="text-white">{report.ema200.toFixed(dec)}</span>
                 </div>
                 <div className="bg-[#131722] p-2 rounded border border-[#2a2e39] flex justify-between">
                   <span className="text-blue-400">VWAP</span>
-                  <span className="text-white">${report.vwap.toFixed(2)}</span>
+                  <span className="text-white">{report.vwap.toFixed(dec)}</span>
                 </div>
               </div>
 
@@ -531,15 +537,15 @@ export const GoldIntelligenceWidget: React.FC<GoldIntelligenceWidgetProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-[#787b86]">ATR (14) Range:</span>
-                <span className="text-amber-400 font-bold">${report.atr14.toFixed(2)} / oz</span>
+                <span className="text-amber-400 font-bold">{report.atr14.toFixed(dec)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-[#787b86]">Upper Band:</span>
-                <span className="text-gray-200">${report.bollinger.upper.toFixed(2)}</span>
+                <span className="text-gray-200">{report.bollinger.upper.toFixed(dec)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-[#787b86]">Lower Band:</span>
-                <span className="text-gray-200">${report.bollinger.lower.toFixed(2)}</span>
+                <span className="text-gray-200">{report.bollinger.lower.toFixed(dec)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-[#787b86]">Band Width:</span>

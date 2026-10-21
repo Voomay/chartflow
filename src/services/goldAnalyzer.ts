@@ -2,10 +2,11 @@ import {
   Candle,
   GoldIndicatorReport,
   GoldNewsItem,
+  InstrumentSymbol,
   MacroEnvironment,
   SessionConfig,
 } from '../types/trading';
-import { getActiveSessionsAtTime } from './goldDataService';
+import { getActiveSessionsAtTime, getInstrumentConfig } from './goldDataService';
 
 export const DEFAULT_GOLD_NEWS: GoldNewsItem[] = [
   {
@@ -89,7 +90,11 @@ export const DEFAULT_MACRO_ENV: MacroEnvironment = {
 /**
  * Computes Exponential Moving Average series for an array of candles.
  */
-export function computeEMASeries(candles: Candle[], period: number): { time: number; value: number }[] {
+export function computeEMASeries(
+  candles: Candle[],
+  period: number,
+  decimals = 5
+): { time: number; value: number }[] {
   if (candles.length === 0) return [];
   const k = 2 / (period + 1);
   const result: { time: number; value: number }[] = [];
@@ -98,7 +103,7 @@ export function computeEMASeries(candles: Candle[], period: number): { time: num
   for (let i = 0; i < candles.length; i++) {
     const c = candles[i];
     ema = i === 0 ? c.close : c.close * k + ema * (1 - k);
-    result.push({ time: c.time, value: Number(ema.toFixed(2)) });
+    result.push({ time: c.time, value: Number(ema.toFixed(decimals)) });
   }
   return result;
 }
@@ -106,7 +111,10 @@ export function computeEMASeries(candles: Candle[], period: number): { time: num
 /**
  * Computes rolling VWAP series anchored by UTC day (or rolling 50 bars on 1D).
  */
-export function computeVWAPSeries(candles: Candle[]): { time: number; value: number }[] {
+export function computeVWAPSeries(
+  candles: Candle[],
+  decimals = 5
+): { time: number; value: number }[] {
   if (candles.length === 0) return [];
   const result: { time: number; value: number }[] = [];
   let cumPV = 0;
@@ -125,7 +133,7 @@ export function computeVWAPSeries(candles: Candle[]): { time: number; value: num
     const vol = Math.max(c.volume, 1);
     cumPV += typicalPrice * vol;
     cumVol += vol;
-    result.push({ time: c.time, value: Number((cumPV / cumVol).toFixed(2)) });
+    result.push({ time: c.time, value: Number((cumPV / cumVol).toFixed(decimals)) });
   }
   return result;
 }
@@ -228,23 +236,26 @@ export function analyzeGoldMarket(
   candles: Candle[],
   newsItems: GoldNewsItem[],
   macro: MacroEnvironment,
-  sessions: SessionConfig[]
+  sessions: SessionConfig[],
+  symbol: InstrumentSymbol = 'XAUUSD'
 ): GoldIndicatorReport {
+  const instCfg = getInstrumentConfig(symbol);
+  const dec = instCfg.decimals;
   const n = candles.length;
   const last = candles[n - 1] || {
     time: Math.floor(Date.now() / 1000),
-    open: 4140,
-    high: 4145,
-    low: 4135,
-    close: 4140,
+    open: instCfg.basePrice,
+    high: instCfg.basePrice + instCfg.volatility1m,
+    low: instCfg.basePrice - instCfg.volatility1m,
+    close: instCfg.basePrice,
     volume: 100,
   };
 
   // 1. EMA 20, 50, 200
-  const ema20Arr = computeEMASeries(candles, 20);
-  const ema50Arr = computeEMASeries(candles, 50);
-  const ema200Arr = computeEMASeries(candles, 200);
-  const vwapArr = computeVWAPSeries(candles);
+  const ema20Arr = computeEMASeries(candles, 20, dec);
+  const ema50Arr = computeEMASeries(candles, 50, dec);
+  const ema200Arr = computeEMASeries(candles, 200, dec);
+  const vwapArr = computeVWAPSeries(candles, dec);
 
   const ema20 = ema20Arr[n - 1]?.value ?? last.close;
   const ema50 = ema50Arr[n - 1]?.value ?? last.close;
@@ -295,8 +306,8 @@ export function analyzeGoldMarket(
   const stochD = Number((stochK * 0.85 + 7.5).toFixed(1));
 
   // 4. MACD (12, 26, 9)
-  const ema12Arr = computeEMASeries(candles, 12);
-  const ema26Arr = computeEMASeries(candles, 26);
+  const ema12Arr = computeEMASeries(candles, 12, dec);
+  const ema26Arr = computeEMASeries(candles, 26, dec);
   const macdSeries: number[] = [];
   for (let i = 0; i < n; i++) {
     macdSeries.push((ema12Arr[i]?.value ?? 0) - (ema26Arr[i]?.value ?? 0));
@@ -308,9 +319,9 @@ export function analyzeGoldMarket(
     prevHist = macdSeries[i - 1] - sig;
     sig = macdSeries[i] * k9 + sig * (1 - k9);
   }
-  const macdLine = Number((macdSeries[n - 1] ?? 0).toFixed(2));
-  const signalLine = Number(sig.toFixed(2));
-  const histogram = Number((macdLine - signalLine).toFixed(2));
+  const macdLine = Number((macdSeries[n - 1] ?? 0).toFixed(dec));
+  const signalLine = Number(sig.toFixed(dec));
+  const histogram = Number((macdLine - signalLine).toFixed(dec));
 
   let macdState: GoldIndicatorReport['macd']['state'] = 'FLAT';
   if (histogram > 0 && prevHist <= 0) macdState = 'BULLISH CROSS';
@@ -328,7 +339,8 @@ export function analyzeGoldMarket(
     const tr = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
     atrSum += tr;
   }
-  const atr14 = Number(Math.max(1.2, atrSum / Math.max(1, atrSliceCount)).toFixed(2));
+  const minAtr = Math.max(instCfg.minMove * 10, instCfg.volatility1m * 0.5);
+  const atr14 = Number(Math.max(minAtr, atrSum / Math.max(1, atrSliceCount)).toFixed(dec));
 
   // 6. Bollinger Bands (20, 2)
   const bbSlice = candles.slice(-20);
@@ -336,16 +348,16 @@ export function analyzeGoldMarket(
   const variance =
     bbSlice.reduce((acc, c) => acc + Math.pow(c.close - bbMean, 2), 0) / Math.max(1, bbSlice.length);
   const stdDev = Math.sqrt(variance);
-  const bbUpper = Number((bbMean + 2 * stdDev).toFixed(2));
-  const bbLower = Number((bbMean - 2 * stdDev).toFixed(2));
-  const bandwidthPct = Number((((bbUpper - bbLower) / Math.max(1, bbMean)) * 100).toFixed(2));
+  const bbUpper = Number((bbMean + 2 * stdDev).toFixed(dec));
+  const bbLower = Number((bbMean - 2 * stdDev).toFixed(dec));
+  const bandwidthPct = Number((((bbUpper - bbLower) / Math.max(0.0001, bbMean)) * 100).toFixed(2));
 
   // 7. Volume Pressure (20-bar Buy vs Sell Volume)
   const volSlice = candles.slice(-20);
   let buyVol = 0;
   let sellVol = 0;
   for (const c of volSlice) {
-    const range = Math.max(0.01, c.high - c.low);
+    const range = Math.max(instCfg.minMove, c.high - c.low);
     const buyRatio = (c.close - c.low) / range;
     buyVol += c.volume * buyRatio;
     sellVol += c.volume * (1 - buyRatio);
@@ -381,15 +393,15 @@ export function analyzeGoldMarket(
   const recentLow = Math.min(...candles.slice(-30).map((c) => c.low));
 
   const keySupport = [
-    Number(Math.min(last.close - atr14 * 1.1, ema20 < last.close ? ema20 : recentLow).toFixed(2)),
-    Number(Math.min(recentLow, last.close - atr14 * 2.4).toFixed(2)),
-    Number((recentLow - atr14 * 1.8).toFixed(2)),
+    Number(Math.min(last.close - atr14 * 1.1, ema20 < last.close ? ema20 : recentLow).toFixed(dec)),
+    Number(Math.min(recentLow, last.close - atr14 * 2.4).toFixed(dec)),
+    Number((recentLow - atr14 * 1.8).toFixed(dec)),
   ].sort((a, b) => b - a);
 
   const keyResistance = [
-    Number(Math.max(last.close + atr14 * 1.1, ema20 > last.close ? ema20 : recentHigh).toFixed(2)),
-    Number(Math.max(recentHigh, last.close + atr14 * 2.4).toFixed(2)),
-    Number((recentHigh + atr14 * 1.8).toFixed(2)),
+    Number(Math.max(last.close + atr14 * 1.1, ema20 > last.close ? ema20 : recentHigh).toFixed(dec)),
+    Number(Math.max(recentHigh, last.close + atr14 * 2.4).toFixed(dec)),
+    Number((recentHigh + atr14 * 1.8).toFixed(dec)),
   ].sort((a, b) => a - b);
 
   // 9. Sub-Scores Calculation (-100 to +100)
@@ -471,12 +483,14 @@ export function analyzeGoldMarket(
   let bestApproach: GoldIndicatorReport['bestApproach'];
 
   if (isBullish) {
-    const entryLow = Number((last.close - atr14 * 0.35).toFixed(2));
-    const entryHigh = Number((last.close + atr14 * 0.1).toFixed(2));
-    const stopLoss = Number((last.close - atr14 * 1.5).toFixed(2));
-    const target1 = Number((last.close + atr14 * 2.25).toFixed(2));
-    const target2 = Number((last.close + atr14 * 4.0).toFixed(2));
-    const riskReward = Number(((target2 - last.close) / Math.max(0.5, last.close - stopLoss)).toFixed(1));
+    const entryLow = Number((last.close - atr14 * 0.35).toFixed(dec));
+    const entryHigh = Number((last.close + atr14 * 0.1).toFixed(dec));
+    const stopLoss = Number((last.close - atr14 * 1.5).toFixed(dec));
+    const target1 = Number((last.close + atr14 * 2.25).toFixed(dec));
+    const target2 = Number((last.close + atr14 * 4.0).toFixed(dec));
+    const riskReward = Number(
+      ((target2 - last.close) / Math.max(instCfg.minMove, last.close - stopLoss)).toFixed(1)
+    );
 
     bestApproach = {
       headline:
@@ -486,30 +500,32 @@ export function analyzeGoldMarket(
       bias: 'BULLISH',
       strategyName: isLondonNYOverlap
         ? 'London–NY Overlap Momentum Breakout'
-        : 'Institutional Demand Pullback (XAU/USD Long)',
+        : `Institutional Demand Pullback (${instCfg.displaySymbol} Long)`,
       entryZone: [entryLow, entryHigh],
       stopLoss,
       target1,
       target2,
       riskReward,
       rationale: [
-        `Price ($${last.close.toFixed(2)}) is trading ${
+        `Price (${last.close.toFixed(dec)}) is trading ${
           last.close >= vwap ? 'above intraday VWAP' : 'near value support'
-        } ($${vwap.toFixed(2)}) with ${emaAlignment.toLowerCase()} structure.`,
+        } (${vwap.toFixed(dec)}) with ${emaAlignment.toLowerCase()} structure.`,
         `Momentum confirms upside pressure: RSI(14) at ${rsi14} (${rsiState}) and MACD ${macdState.toLowerCase()} (${histogram > 0 ? '+' : ''}${histogram}).`,
-        `Macro & News tailwind (${newsScore > 0 ? '+' : ''}${newsScore}/100): Central bank physical demand & easing real yields support higher Gold valuations.`,
+        `Macro & News tailwind (${newsScore > 0 ? '+' : ''}${newsScore}/100): Institutional orderflow & macro conditions support higher ${instCfg.displaySymbol} valuations.`,
       ],
       sessionNote: isLondonNYOverlap
-        ? `ACTIVE KILLZONE: London + New York Overlap is live. Expect maximum COMEX volume and trend extension toward $${target1.toFixed(2)}.`
-        : `Active Session: ${activeNames}. Look for liquidity sweeps of recent session lows above $${stopLoss.toFixed(2)} for optimal long entries.`,
+        ? `ACTIVE KILLZONE: London + New York Overlap is live. Expect maximum volume and trend extension toward ${target1.toFixed(dec)}.`
+        : `Active Session: ${activeNames}. Look for liquidity sweeps of recent session lows above ${stopLoss.toFixed(dec)} for optimal long entries.`,
     };
   } else if (isBearish) {
-    const entryLow = Number((last.close - atr14 * 0.1).toFixed(2));
-    const entryHigh = Number((last.close + atr14 * 0.35).toFixed(2));
-    const stopLoss = Number((last.close + atr14 * 1.5).toFixed(2));
-    const target1 = Number((last.close - atr14 * 2.25).toFixed(2));
-    const target2 = Number((last.close - atr14 * 4.0).toFixed(2));
-    const riskReward = Number(((last.close - target2) / Math.max(0.5, stopLoss - last.close)).toFixed(1));
+    const entryLow = Number((last.close - atr14 * 0.1).toFixed(dec));
+    const entryHigh = Number((last.close + atr14 * 0.35).toFixed(dec));
+    const stopLoss = Number((last.close + atr14 * 1.5).toFixed(dec));
+    const target1 = Number((last.close - atr14 * 2.25).toFixed(dec));
+    const target2 = Number((last.close - atr14 * 4.0).toFixed(dec));
+    const riskReward = Number(
+      ((last.close - target2) / Math.max(instCfg.minMove, stopLoss - last.close)).toFixed(1)
+    );
 
     bestApproach = {
       headline:
@@ -518,42 +534,47 @@ export function analyzeGoldMarket(
           : 'Bearish Bias — Fade Intraday Pops Below Session Resistance',
       bias: 'BEARISH',
       strategyName: isLondonNYOverlap
-        ? 'COMEX Distribution & Breakdown Short'
-        : 'Premium Supply Rejection (XAU/USD Short)',
+        ? 'Institutional Distribution & Breakdown Short'
+        : `Premium Supply Rejection (${instCfg.displaySymbol} Short)`,
       entryZone: [entryLow, entryHigh],
       stopLoss,
       target1,
       target2,
       riskReward,
       rationale: [
-        `Price ($${last.close.toFixed(2)}) faces overhead supply ${
-          last.close < ema20 ? `below EMA 20 ($${ema20.toFixed(2)})` : `near resistance ($${keyResistance[0]?.toFixed(2)})`
+        `Price (${last.close.toFixed(dec)}) faces overhead supply ${
+          last.close < ema20
+            ? `below EMA 20 (${ema20.toFixed(dec)})`
+            : `near resistance (${keyResistance[0]?.toFixed(dec)})`
         }.`,
         `Bearish momentum profile: RSI(14) at ${rsi14} and MACD histogram at ${histogram} with ${sellVolumePct}% seller volume dominance.`,
-        `Keep stop-loss strictly above $${stopLoss.toFixed(2)} (1.5x ATR) and scale out 50% at Target 1 ($${target1.toFixed(2)}).`,
+        `Keep stop-loss strictly above ${stopLoss.toFixed(dec)} (1.5x ATR) and scale out 50% at Target 1 (${target1.toFixed(dec)}).`,
       ],
       sessionNote: isLondonNYOverlap
-        ? `ACTIVE KILLZONE: London + New York Overlap is live. High probability of downside liquidity run toward $${target1.toFixed(2)}.`
+        ? `ACTIVE KILLZONE: London + New York Overlap is live. High probability of downside liquidity run toward ${target1.toFixed(dec)}.`
         : `Active Session: ${activeNames}. Wait for a retest of session supply before committing full short size.`,
     };
   } else {
-    const stopLoss = Number((last.close - atr14 * 1.5).toFixed(2));
-    const target1 = Number((last.close + atr14 * 2.0).toFixed(2));
-    const target2 = Number((last.close + atr14 * 3.2).toFixed(2));
+    const stopLoss = Number((last.close - atr14 * 1.5).toFixed(dec));
+    const target1 = Number((last.close + atr14 * 2.0).toFixed(dec));
+    const target2 = Number((last.close + atr14 * 3.2).toFixed(dec));
 
     bestApproach = {
       headline: 'Neutral / Rotational Regime — Trade Session High/Low Liquidity Sweeps',
       bias: 'NEUTRAL',
       strategyName: 'Session Range Mean-Reversion',
-      entryZone: [Number((last.close - atr14 * 0.5).toFixed(2)), Number((last.close + atr14 * 0.5).toFixed(2))],
+      entryZone: [
+        Number((last.close - atr14 * 0.5).toFixed(dec)),
+        Number((last.close + atr14 * 0.5).toFixed(dec)),
+      ],
       stopLoss,
       target1,
       target2,
       riskReward: 2.1,
       rationale: [
-        `Technicals (${technicalScore}) and Macro News (${newsScore}) are currently counter-balancing near VWAP ($${vwap.toFixed(2)}).`,
-        `Avoid chasing mid-range candles; wait for a sweep of ${keySupport[0]?.toFixed(2)} (Support) or ${keyResistance[0]?.toFixed(2)} (Resistance).`,
-        `ATR(14) volatility is $${atr14.toFixed(2)}/oz — favor tight risk management until London/NY breakout confirmation.`,
+        `Technicals (${technicalScore}) and Macro News (${newsScore}) are currently counter-balancing near VWAP (${vwap.toFixed(dec)}).`,
+        `Avoid chasing mid-range candles; wait for a sweep of ${keySupport[0]?.toFixed(dec)} (Support) or ${keyResistance[0]?.toFixed(dec)} (Resistance).`,
+        `ATR(14) volatility is ${atr14.toFixed(dec)} — favor tight risk management until London/NY breakout confirmation.`,
       ],
       sessionNote: `Active Session: ${activeNames}. Patience at range extremes offers the highest expectancy.`,
     };

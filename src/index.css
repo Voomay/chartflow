@@ -4,45 +4,47 @@
 
 @layer base {
   body {
-    background-color: #0b0e14;
+    background-color: #0d0f13;
     color: #d1d4dc;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     overflow: hidden;
   }
 }
 
-/* Automatic TradingView Light Mode (White Mode) overrides for dock & side panels */
-.theme-light .themed-panel,
-.theme-light aside,
-.theme-light .bg-\[\#131722\],
-.theme-light .bg-\[\#171b26\],
-.theme-light .bg-\[\#0f131d\] {
-  background-color: #ffffff !important;
-  color: #131722 !important;
-  border-color: #e0e3eb !important;
+/* Override KLineChart internal canvas inline cursor so Long/Short Position resize handles & edges display their directional resize cursors */
+[data-chart-cursor="cursor-ns-resize"],
+[data-chart-cursor="cursor-ns-resize"] * {
+  cursor: ns-resize !important;
 }
 
-.theme-light .bg-\[\#1e222d\],
-.theme-light .bg-\[\#1a2030\],
-.theme-light .bg-\[\#0b0e14\] {
-  background-color: #f8f9fd !important;
-  color: #131722 !important;
-  border-color: #e0e3eb !important;
+[data-chart-cursor="cursor-ew-resize"],
+[data-chart-cursor="cursor-ew-resize"] * {
+  cursor: ew-resize !important;
 }
 
-.theme-light .border-\[\#2a2e39\] {
-  border-color: #e0e3eb !important;
+[data-chart-cursor="cursor-nwse-resize"],
+[data-chart-cursor="cursor-nwse-resize"] * {
+  cursor: nwse-resize !important;
 }
 
-.theme-light .text-white,
-.theme-light .text-gray-200,
-.theme-light .text-gray-300 {
-  color: #131722 !important;
+[data-chart-cursor="cursor-move"],
+[data-chart-cursor="cursor-move"] * {
+  cursor: move !important;
 }
 
-.theme-light .text-gray-400,
-.theme-light .text-\[\#787b86\] {
-  color: #5d606b !important;
+[data-chart-cursor="cursor-pointer"],
+[data-chart-cursor="cursor-pointer"] * {
+  cursor: pointer !important;
+}
+
+[data-chart-cursor="cursor-col-resize"],
+[data-chart-cursor="cursor-col-resize"] * {
+  cursor: col-resize !important;
+}
+
+[data-chart-cursor="cursor-crosshair"],
+[data-chart-cursor="cursor-crosshair"] * {
+  cursor: crosshair !important;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -69,4 +71,123 @@
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* =====================================================================
+   Landing / Login page visual system (gradients + entrance animations)
+   ===================================================================== */
+
+.lp-grid {
+  background-image:
+    linear-gradient(to right, #3b82f6 1px, transparent 1px),
+    linear-gradient(to bottom, #3b82f6 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse at top, #000 20%, transparent 70%);
+  mask-image: radial-gradient(ellipse at top, #000 20%, transparent 70%);
+}
+
+/* Primary gradient button */
+.lp-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  border-radius: 0.75rem;
+  font-weight: 800;
+  color: #fff;
+  background-image: linear-gradient(135deg, #10b981 0%, #14b8a6 45%, #2962ff 100%);
+  background-size: 180% 180%;
+  background-position: 0% 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 10px 30px -8px rgba(16, 185, 129, 0.55);
+  transition: background-position 0.5s ease, transform 0.2s ease, box-shadow 0.3s ease;
+}
+.lp-btn-primary:hover {
+  background-position: 100% 50%;
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14) inset, 0 14px 38px -8px rgba(41, 98, 255, 0.6);
+}
+.lp-btn-primary:active {
+  transform: translateY(0);
+}
+.lp-btn-primary:focus-visible {
+  outline: 2px solid #34d399;
+  outline-offset: 2px;
+}
+
+/* Gradient-bordered containers */
+.lp-gradient-border {
+  padding: 1px;
+  background-image: linear-gradient(135deg, rgba(52, 211, 153, 0.55), rgba(255, 255, 255, 0.06) 40%, rgba(255, 255, 255, 0.04) 60%, rgba(41, 98, 255, 0.6));
+}
+
+.lp-card {
+  padding: 1px;
+  border-radius: 1rem;
+  background-image: linear-gradient(160deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.03) 50%, rgba(255, 255, 255, 0.06));
+  transition: transform 0.25s ease, background-image 0.25s ease, box-shadow 0.25s ease;
+}
+.lp-card:hover {
+  transform: translateY(-4px);
+  background-image: linear-gradient(160deg, rgba(52, 211, 153, 0.6), rgba(255, 255, 255, 0.04) 50%, rgba(41, 98, 255, 0.6));
+  box-shadow: 0 20px 50px -20px rgba(16, 185, 129, 0.35);
+}
+.lp-card-inner {
+  border-radius: calc(1rem - 1px);
+  background: linear-gradient(180deg, rgba(14, 19, 30, 0.96), rgba(9, 12, 19, 0.96));
+}
+
+/* Keyframes */
+@keyframes lp-fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes lp-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes lp-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes lp-blob {
+  0%, 100% { opacity: 0.85; scale: 1; }
+  50% { opacity: 1; scale: 1.08; }
+}
+@keyframes lp-gradient-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.lp-fade-up { animation: lp-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.lp-fade-in { animation: lp-fade-in 0.2s ease-out both; }
+.lp-d1 { animation-delay: 0.08s; }
+.lp-d2 { animation-delay: 0.16s; }
+.lp-d3 { animation-delay: 0.24s; }
+.lp-d4 { animation-delay: 0.32s; }
+.lp-float { animation: lp-float 6s ease-in-out infinite; }
+.lp-float-delay { animation-delay: -3s; }
+.lp-blob { animation: lp-blob 12s ease-in-out infinite; }
+.lp-blob-delay { animation-delay: -6s; }
+.lp-gradient-text {
+  background-size: 200% auto;
+  animation: lp-gradient-pan 8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-fade-up,
+  .lp-fade-in,
+  .lp-float,
+  .lp-blob,
+  .lp-gradient-text {
+    animation: none !important;
+  }
+  .lp-btn-primary,
+  .lp-card {
+    transition: none !important;
+  }
+  .lp-btn-primary:hover,
+  .lp-card:hover {
+    transform: none;
+  }
 }

@@ -1727,7 +1727,7 @@ export function App() {
 
         {/* Mobile quick actions: tools, Buy/Sell (long/short tool), order ticket */}
         {isMobile && !isChartWideMode && !showRightWidget && (
-          <div className="absolute right-[68px] bottom-12 z-30 flex flex-col items-end gap-2">
+          <div className="absolute right-1.5 bottom-12 z-30 flex flex-col items-end gap-2">
             <button
               onClick={() => setShowMobileTools((v) => !v)}
               className={`w-12 h-12 rounded-full text-white text-[10px] font-bold shadow-xl transition ${

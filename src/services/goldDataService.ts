@@ -24,7 +24,7 @@ export const TIMEFRAME_CONFIG: Record<
     binanceInterval: '1m',
     krakenInterval: 1,
     yahooInterval: '1m',
-    yahooRange: '5d',
+    yahooRange: '7d',
     seconds: 60,
     description: '1 Minute Scalping',
   },
@@ -1492,6 +1492,51 @@ export function aggregateCandlesToTimeframe(
 }
 
 const realCandleSeriesCache = new Map<string, Candle[]>();
+const marketFeedLabels = new Map<string, string>();
+export function getMarketFeedLabel(symbol: InstrumentSymbol, timeframe: Timeframe): string {
+  return marketFeedLabels.get(`${symbol}_${timeframe}`) || 'Provider history unavailable';
+}
+
+// Refresh snapshots replace the same timestamp; volumes must never be summed twice.
+export async function refreshMarketCandles(symbol: InstrumentSymbol, timeframe: Timeframe): Promise<boolean> {
+  const recent = await fetchRealYahooInstrumentCandles(symbol, timeframe, 2500, false);
+  if (!recent?.length) return false;
+  const key = `${symbol}_${timeframe}`;
+  // A fallback provider may cover a different price basis. Replace its series atomically.
+  realCandleSeriesCache.set(key, recent);
+  return true;
+}
+
+export function isQuoteOnlyChart(symbol: InstrumentSymbol, timeframe: Timeframe): boolean {
+  const sample = (getCachedRealCandles(timeframe, symbol) || []).slice(-120);
+  return sample.length >= 30 && sample.every(c => c.open === c.high && c.open === c.low && c.open === c.close);
+}
+
+// The visible chart uses observed prices only, never generated replay paths.
+// Replay clocks refer to the opening time of the last revealed bar.
+export function getProviderChartCandles(symbol: InstrumentSymbol, timeframe: Timeframe, clock: number, present = false): Candle[] {
+  const bars = getCachedRealCandles(timeframe, symbol);
+  if (!bars?.length || clock < bars[0].time || isQuoteOnlyChart(symbol, timeframe)) return [];
+  const bucket = getCanonicalBucketTime(clock, timeframe, symbol);
+  if (present) return bars.filter(c => c.time <= clock);
+  const completed = bars.filter(c => c.time + TIMEFRAME_CONFIG[timeframe].seconds <= clock);
+  const exact = bars.find(c => c.time === bucket);
+  // Never expose the final OHLC of an unfinished historical bar. Build it from
+  // completed lower bars (and the known open at the replay clock).
+  const lowerTfs: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D'];
+  for (const lower of lowerTfs) {
+    if (TIMEFRAME_CONFIG[lower].seconds >= TIMEFRAME_CONFIG[timeframe].seconds) break;
+    if (getMarketFeedLabel(symbol, lower) !== getMarketFeedLabel(symbol, timeframe)) continue;
+    const lowerBars = getCachedRealCandles(lower, symbol) || [];
+    const inside = lowerBars.filter(c => c.time >= bucket && c.time + TIMEFRAME_CONFIG[lower].seconds <= clock);
+    if (!inside.length || inside[0].time !== bucket) continue;
+    const partial = aggregateCandlesToTimeframe(inside, timeframe, symbol)[0];
+    if (partial) return [...completed, partial];
+  }
+  if (exact && clock >= bucket) return [...completed, {time: bucket, open: exact.open, high: exact.open, low: exact.open, close: exact.open, volume: 0}];
+  return completed;
+}
+
 
 export function getCachedRealCandles(
   timeframe: Timeframe,
@@ -1512,6 +1557,7 @@ export function setCachedRealCandles(
 
 export function clearRealCandleCache(): void {
   realCandleSeriesCache.clear();
+  marketFeedLabels.clear();
 }
 
 interface RawYahooChartResponse {
@@ -1640,12 +1686,13 @@ export async function fetchYahooChartRaw(
 async function fetchKrakenSpotFx1mCandles(
   symbol: InstrumentSymbol,
   krakenPair: string,
-  limit = 720
+  limit = 720,
+  timeframe: Timeframe = '1m'
 ): Promise<Candle[] | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5500);
-    const url = `https://api.kraken.com/0/public/OHLC?pair=${encodeURIComponent(krakenPair)}&interval=1`;
+    const url = `https://api.kraken.com/0/public/OHLC?pair=${encodeURIComponent(krakenPair)}&interval=${TIMEFRAME_CONFIG[timeframe].krakenInterval}`;
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
     if (!res.ok) return null;
@@ -1668,7 +1715,7 @@ async function fetchKrakenSpotFx1mCandles(
       volume: parseFloat(r[6]) || 0,
     }));
 
-    return sanitizeAndValidateCandles(rawCandles.slice(-limit), '1m', symbol);
+    return sanitizeAndValidateCandles(rawCandles.slice(-limit), timeframe, symbol);
   } catch {
     return null;
   }
@@ -1749,21 +1796,28 @@ export async function fetchRealYahooInstrumentCandles(
       recentOnly ? 10 : limit
     );
     if (binanceSpot && binanceSpot.length > 0) {
+      marketFeedLabels.set(`${symbol}_${timeframe}`, `Binance · ${mapEntry.binanceSymbol} (USDT spot)`);
       return binanceSpot.slice(-limit);
     }
   }
 
   // 2. FX 1m with genuine tick-aggregated OHLC wicks from Kraken Spot FX where available
-  if (timeframe === '1m' && mapEntry.krakenPair1m) {
+  if (mapEntry.krakenPair1m) {
     const kraken1m = await fetchKrakenSpotFx1mCandles(
       symbol,
       mapEntry.krakenPair1m,
-      recentOnly ? 15 : limit
+      recentOnly ? 15 : limit,
+      timeframe
     );
     if (kraken1m && kraken1m.length > 10) {
+      marketFeedLabels.set(`${symbol}_${timeframe}`, `Kraken · ${mapEntry.krakenPair1m} (spot)`);
       return kraken1m.slice(-limit);
     }
+    // Keep the same price basis across timeframes and refreshes.
+    return null;
   }
+
+  const yahooLabel = `Yahoo · ${mapEntry.primary}${symbol === 'XAUUSD' || symbol === 'XAGUSD' ? ' (futures proxy)' : ''}`;
 
   // 3. FX Daily ('1D') timeframe: Reconstruct from authoritative 60m bars to fix Yahoo's FX 1d (O === C) bug
   if (timeframe === '1D' && mapEntry.isForex) {
@@ -1779,6 +1833,7 @@ export async function fetchRealYahooInstrumentCandles(
         : [];
 
     if (reconstructedFrom1H.length > 0) {
+      marketFeedLabels.set(`${symbol}_${timeframe}`, yahooLabel);
       if (dailyRaw && dailyRaw.bars.length > 0) {
         const sanitizedDaily = sanitizeAndValidateCandles(dailyRaw.bars, '1D', symbol);
         const first1HDayTime = reconstructedFrom1H[0].time;
@@ -1793,6 +1848,7 @@ export async function fetchRealYahooInstrumentCandles(
   const range = recentOnly ? (timeframe === '1D' || timeframe === '1W' ? '5d' : '1d') : tfCfg.yahooRange;
   const rawData = await fetchYahooChartRaw(mapEntry.primary, tfCfg.yahooInterval, range);
   if (!rawData || rawData.bars.length === 0) return null;
+  marketFeedLabels.set(`${symbol}_${timeframe}`, yahooLabel);
 
   if (timeframe === '4H') {
     const aggregated4H = aggregateCandlesToTimeframe(rawData.bars, '4H', symbol);

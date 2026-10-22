@@ -1,3 +1,4 @@
+import {createLivePaperSession} from './services/livePaperTrading';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BacktestSessionMode,
@@ -17,12 +18,18 @@ import {
   TradingSession,
 } from './types/trading';
 import {
+  getCachedRealCandles,
+  isQuoteOnlyChart,
+  getProviderChartCandles,
+  getMarketFeedLabel,
+  refreshMarketCandles,
   computeSessionBoxes,
   getInstrumentConfig,
   INITIAL_SESSIONS,
   TIMEFRAME_CONFIG,
 } from './services/goldDataService';
 import {
+  evaluateSessionAt1mTimestamp,
   advanceOrRewindSessionToTimestamp,
   closeOrCancelPosition,
   computeLiveSessionMetrics,
@@ -257,10 +264,10 @@ export function App() {
     [updateActiveSession]
   );
 
-  const authoritativeClockTs =
-    activeSession.replayTimestamp ||
-    activeSession.startTimestamp ||
-    Math.floor(Date.parse('2026-10-05T08:00:00Z') / 1000);
+  const [isPresentTime, setIsPresentTime] = useState(activeSession.marketMode === 'LIVE_PAPER');
+  const [presentClockTs, setPresentClockTs] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => { setIsPresentTime(activeSession.marketMode === 'LIVE_PAPER'); }, [activeSession.id]);
+  const authoritativeClockTs = isPresentTime ? presentClockTs : (activeSession.replayTimestamp || activeSession.startTimestamp || Math.floor(Date.now() / 1000));
 
   // Hydrate real provider market data (Yahoo Finance / Kraken / Binance Spot) for the active symbol & timeframe
   const [marketDataVersion, setMarketDataVersion] = useState<number>(0);
@@ -286,39 +293,83 @@ export function App() {
     };
   }, [symbol, timeframe]);
 
-  // 5. Authoritative Historical Candles (Strictly <= authoritativeClockTs)
-  const visibleCandles = useMemo(
-    () =>
-      getAggregatedCandlesUpToClock(
-        symbol,
-        timeframe,
-        authoritativeClockTs,
-        activeSession,
-        50000
-      ),
-    [symbol, timeframe, authoritativeClockTs, activeSession, marketDataVersion]
-  );
+  useEffect(() => {
+    if (!isPresentTime) return;
+    let cancelled = false;
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      setIsMarketDataLoading(true);
+      try {
+        await Promise.all(Array.from(new Set(activeSession.chartLayout === 'SPLIT_2' ? [timeframe, secondaryTimeframe] : [timeframe])).map(tf => refreshMarketCandles(symbol, tf)));
+        if (!cancelled) setMarketDataVersion(v => v + 1);
+      } finally {
+        refreshing = false;
+        if (!cancelled) setIsMarketDataLoading(false);
+      }
+    };
+    setPresentClockTs(Math.floor(Date.now() / 1000));
+    void refresh();
+    const clockTimer = setInterval(() => setPresentClockTs(Math.floor(Date.now() / 1000)), 1000);
+    const dataTimer = setInterval(() => void refresh(), 15000);
+    return () => { cancelled = true; clearInterval(clockTimer); clearInterval(dataTimer); };
+  }, [isPresentTime, symbol, timeframe, secondaryTimeframe, activeSession.chartLayout]);
 
-  const secondaryVisibleCandles = useMemo(
-    () =>
-      activeSession.chartLayout === 'SPLIT_2'
-        ? getAggregatedCandlesUpToClock(
-            symbol,
-            secondaryTimeframe,
-            authoritativeClockTs,
-            activeSession,
-            50000
-          )
-        : [],
-    [
-      activeSession.chartLayout,
-      symbol,
-      secondaryTimeframe,
-      authoritativeClockTs,
-      activeSession,
-      marketDataVersion,
-    ]
-  );
+  const visibleCandles = useMemo(() => getProviderChartCandles(symbol, timeframe, authoritativeClockTs, isPresentTime),
+    [symbol, timeframe, authoritativeClockTs, isPresentTime, marketDataVersion]);
+  const secondaryVisibleCandles = useMemo(() => activeSession.chartLayout === 'SPLIT_2'
+    ? getProviderChartCandles(symbol, secondaryTimeframe, authoritativeClockTs, isPresentTime) : [],
+    [symbol, secondaryTimeframe, authoritativeClockTs, isPresentTime, marketDataVersion, activeSession.chartLayout]);
+  const handleGoToPresent = () => {
+    setIsPlaying(false);
+    const existing = tradingSessions.find(s => s.marketMode === 'LIVE_PAPER');
+    const paper = existing ? {...existing, activeAsset: symbol, activeTimeframe: timeframe,
+      paperOriginSessionId: activeSession.marketMode === 'LIVE_PAPER' ? existing.paperOriginSessionId : activeSession.id} : createLivePaperSession(activeSession);
+    setTradingSessions(list => existing ? list.map(s => s.id === paper.id ? paper : s) : [...list, paper]);
+    setActiveSessionId(paper.id);
+    setPresentClockTs(Math.floor(Date.now() / 1000));
+    setIsPresentTime(true);
+  };
+  const handleReturnToReplay = () => {
+    setIsPlaying(false);
+    const origin = tradingSessions.find(s => s.id === activeSession.paperOriginSessionId && s.marketMode !== 'LIVE_PAPER') || tradingSessions.find(s => s.marketMode !== 'LIVE_PAPER');
+    if (origin) { setActiveSessionId(origin.id); setIsPresentTime(false); }
+  };
+
+  const paperAccount = tradingSessions.find(s => s.marketMode === 'LIVE_PAPER');
+  const paperSymbols = Array.from(new Set([paperAccount?.activeAsset, ...(paperAccount?.positions || []).filter(p => p.status === 'OPEN' || p.status === 'PENDING').map(p => p.symbol || paperAccount?.activeAsset)].filter(Boolean))).sort().join(',');
+  useEffect(() => {
+    if (!paperAccount) return;
+    const accountId = paperAccount.id;
+    let cancelled = false;
+    let busy = false;
+    const refresh = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const updates = await Promise.all(paperSymbols.split(',').filter(Boolean).map(async value => {
+          const sym = value as InstrumentSymbol;
+          const loaded = await refreshMarketCandles(sym, '1m');
+          const bars = loaded ? getCachedRealCandles('1m', sym) : null;
+          const bar = bars?.[bars.length - 1];
+          return bar ? {sym, quote: {price: bar.close, time: bar.time, receivedAt: Math.floor(Date.now() / 1000)}} : null;
+        }));
+        if (cancelled) return;
+        const now = Math.floor(Date.now() / 1000);
+        setTradingSessions(list => list.map(s => {
+          if (s.id !== accountId) return s;
+          const liveQuotes = {...s.liveQuotes};
+          for (const update of updates) if (update) liveQuotes[update.sym] = update.quote;
+          return evaluateSessionAt1mTimestamp({...s, liveQuotes}, now).session;
+        }));
+        setMarketDataVersion(v => v + 1);
+      } finally { busy = false; }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 15000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [paperAccount?.id, paperSymbols]);
 
   const atr14 = useMemo(() => {
     if (visibleCandles.length < 2) {
@@ -713,10 +764,11 @@ export function App() {
   const handleStepBar = useCallback(
     (deltaBars: number) => {
       const stepSeconds = TIMEFRAME_CONFIG[timeframe]?.seconds || 60;
-      const targetTs = authoritativeClockTs + deltaBars * stepSeconds;
+      const replayClock = activeSession.replayTimestamp || activeSession.startTimestamp || authoritativeClockTs;
+      const targetTs = (isPresentTime ? replayClock : authoritativeClockTs) + deltaBars * stepSeconds;
       handleAdvanceOrRewindToTimestamp(targetTs);
     },
-    [authoritativeClockTs, timeframe, handleAdvanceOrRewindToTimestamp]
+    [activeSession, isPresentTime, authoritativeClockTs, timeframe, handleAdvanceOrRewindToTimestamp]
   );
 
   useEffect(() => {
@@ -809,6 +861,11 @@ export function App() {
   // 11. Order Execution, Modification, Partial/Full Closure & Break-Even Handlers
   const handleExecuteOrder = useCallback(
     (req: PlaceOrderInput): { ok: boolean; error?: string } => {
+      if (!visibleCandles.length) {
+        const error = 'Provider history is unavailable at this chart time.';
+        showToast(error, 'info');
+        return {ok: false, error};
+      }
       const res = validateAndPlaceOrder(activeSession, req);
       if (!res.ok) {
         showToast(res.error || 'Order rejected.', 'down');
@@ -855,7 +912,7 @@ export function App() {
       }
       return { ok: true };
     },
-    [activeSession, showToast]
+    [activeSession, showToast, isPresentTime, visibleCandles.length]
   );
 
   const handleModifyPositionOrOrder = useCallback(
@@ -1019,7 +1076,7 @@ export function App() {
 
   const currentCandle = visibleCandles[visibleCandles.length - 1];
   const currentMidPrice =
-    currentCandle?.close || getInstrumentConfig(symbol).basePrice;
+    (isPresentTime ? activeSession.liveQuotes?.[symbol]?.price : undefined) || currentCandle?.close || getInstrumentConfig(symbol).basePrice;
 
   const sessionBoxes = useMemo(
     () =>
@@ -1253,7 +1310,7 @@ export function App() {
         onSelectSymbol={handleSelectSymbol}
         timeframe={timeframe}
         onSelectTimeframe={handleSelectTimeframe}
-        currentPrice={currentMidPrice}
+        currentPrice={visibleCandles.length ? currentMidPrice : NaN}
         dailyChange={dailyChange}
         dailyChangePct={dailyChangePct}
         high24h={currentCandle?.high || currentMidPrice}
@@ -1266,16 +1323,16 @@ export function App() {
         isLoading={isMarketDataLoading}
         onRefreshData={() => {
           setIsMarketDataLoading(true);
-          hydrateRealMarketDataForSymbol(symbol, timeframe).then(() => {
+          refreshMarketCandles(symbol, timeframe).then((loaded) => {
             setIsMarketDataLoading(false);
             setMarketDataVersion((v) => v + 1);
             showToast(
-              `Authoritative market data refreshed for ${symbol} (${timeframe}).`,
+              loaded ? `Market data refreshed for ${symbol} (${timeframe}).` : `Provider unavailable; retaining the last received bars for ${symbol}.`,
               'info'
             );
           });
         }}
-        isReplayMode={true}
+        isReplayMode={!isPresentTime}
         onToggleReplayCutTool={() => {
           if (activeSession.mode === 'PROP_FIRM') {
             showToast(
@@ -1298,7 +1355,7 @@ export function App() {
           )
         }
         currentTimestamp={authoritativeClockTs}
-        candleRemainingText="REPLAY"
+        candleRemainingText={isPresentTime ? 'CURRENT MARKET' : 'REPLAY'}
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
         theme={theme}
@@ -1412,6 +1469,11 @@ export function App() {
           <div className="flex-1 min-w-0 min-h-0 flex" data-tour="chart-area">
             <TradingChart
               symbol={symbol}
+              marketPrice={isPresentTime ? currentMidPrice : undefined}
+              onGoToPresent={handleGoToPresent}
+              onReturnToReplay={handleReturnToReplay}
+              feedLabel={getMarketFeedLabel(symbol, timeframe)}
+              dataMessage={!visibleCandles.length ? (isMarketDataLoading ? 'Loading provider candles…' : isQuoteOnlyChart(symbol, timeframe) ? 'This feed supplies quote-only bars here; genuine candle OHLC is unavailable. Try the five-minute chart.' : 'No provider history for this date and timeframe. Select Present Time or choose a date within the available history.') : undefined}
               candles={visibleCandles}
               totalCandlesCount={visibleCandles.length}
               timeframe={timeframe}
@@ -1577,7 +1639,7 @@ export function App() {
                 handleAdvanceOrRewindToTimestamp(clickedTimestamp);
                 setActiveTool('cursor');
               }}
-              isReplayMode={true}
+              isReplayMode={!isPresentTime}
               replayIndex={Math.max(0, visibleCandles.length - 1)}
               drawings={currentSymbolDrawings}
               onAddDrawing={handleAddDrawing}
@@ -1585,7 +1647,7 @@ export function App() {
               onDeleteDrawing={handleDeleteDrawing}
               onClearDrawings={handleClearDrawings}
               focusedSessionTime={focusedSessionTime}
-              candleRemainingText="REPLAY"
+              candleRemainingText={isPresentTime ? 'CURRENT MARKET' : 'REPLAY'}
               isChartFullscreen={isChartWideMode}
               onToggleChartFullscreen={() => setIsChartWideMode((v) => !v)}
               theme={theme}
@@ -1653,6 +1715,11 @@ export function App() {
               <div className="flex-1 min-h-0 flex">
                 <TradingChart
                   symbol={symbol}
+                  marketPrice={isPresentTime ? currentMidPrice : undefined}
+              onGoToPresent={handleGoToPresent}
+              onReturnToReplay={handleReturnToReplay}
+                  feedLabel={getMarketFeedLabel(symbol, secondaryTimeframe)}
+                  dataMessage={!secondaryVisibleCandles.length ? 'No provider history for this date and timeframe.' : undefined}
                   candles={secondaryVisibleCandles}
                   totalCandlesCount={secondaryVisibleCandles.length}
                   timeframe={secondaryTimeframe}
@@ -1693,7 +1760,7 @@ export function App() {
                   onSelectReplayTimestamp={(_idx, ts) =>
                     handleAdvanceOrRewindToTimestamp(ts)
                   }
-                  isReplayMode={true}
+                  isReplayMode={!isPresentTime}
                   replayIndex={Math.max(0, secondaryVisibleCandles.length - 1)}
                   drawings={currentSymbolDrawings}
                   onAddDrawing={handleAddDrawing}
@@ -1701,7 +1768,7 @@ export function App() {
                   onDeleteDrawing={handleDeleteDrawing}
                   onClearDrawings={handleClearDrawings}
                   focusedSessionTime={focusedSessionTime}
-                  candleRemainingText="REPLAY"
+                  candleRemainingText={isPresentTime ? 'CURRENT MARKET' : 'REPLAY'}
                   isChartFullscreen={false}
                   onToggleChartFullscreen={() => {}}
                   theme={theme}
@@ -1743,7 +1810,7 @@ export function App() {
           )}
           <div className={isMobile ? 'max-h-[75vh] flex flex-col [&>aside]:!w-full [&>aside]:border-l-0 [&>aside]:border-t [&>aside]:rounded-t-2xl' : 'contents'}>
           <RightOrderPanel
-            session={activeSession}
+            key={activeSession.id}            session={activeSession}
             symbol={symbol}
             currentMidPrice={currentMidPrice}
             atr14={atr14}
@@ -1766,7 +1833,7 @@ export function App() {
 
         {/* Mobile quick actions: tools, Buy/Sell (long/short tool), order ticket */}
         {isMobile && !isChartWideMode && !showRightWidget && (
-          <div className="absolute right-1.5 bottom-12 z-30 flex flex-col items-end gap-2">
+          <div className="absolute right-20 bottom-16 z-30 flex flex-col items-end gap-2">
             <button
               onClick={() => setShowMobileTools((v) => !v)}
               className={`w-12 h-12 rounded-full text-white text-[10px] font-bold shadow-xl transition ${
@@ -1819,11 +1886,11 @@ export function App() {
           candles={visibleCandles}
           allCandlesCount={visibleCandles.length}
           replayIndex={Math.max(0, visibleCandles.length - 1)}
-          isReplayMode={true}
+          isReplayMode={!isPresentTime}
           isPlaying={isPlaying}
           playbackSpeedMs={playbackSpeedMs}
           onSetPlaybackSpeedMs={setPlaybackSpeedMs}
-          onTogglePlay={() => setIsPlaying((v) => !v)}
+          onTogglePlay={() => { if (isPresentTime) return; setIsPlaying((v) => !v); }}
           onStepBar={handleStepBar}
           onSkipToTimestamp={handleAdvanceOrRewindToTimestamp}
           onBranchSession={handleBranchSession}

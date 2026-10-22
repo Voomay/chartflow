@@ -952,6 +952,15 @@ export function getLatest1mCandleAtClock(
   timestampSec: number,
   _session?: TradingSession | null
 ): Candle | null {
+  if (_session?.marketMode === 'LIVE_PAPER') {
+    const quote = _session.liveQuotes?.[symbol];
+    if (!quote || !Number.isFinite(quote.price) || quote.price <= 0 ||
+      !Number.isFinite(quote.receivedAt) || !Number.isFinite(quote.time) ||
+      quote.receivedAt > timestampSec + 5 || timestampSec - quote.receivedAt > 90 ||
+      quote.time > timestampSec + 60 || timestampSec - quote.time > 20 * 60) return null;
+    // Evaluate only observed quote snapshots, never a candle's pre-entry wicks.
+    return {time: timestampSec, open: quote.price, high: quote.price, low: quote.price, close: quote.price, volume: 0};
+  }
   const startDay = Math.floor(timestampSec / 86400);
   for (let d = startDay; d >= startDay - 4; d--) {
     const dayBars = getDay1mCandles(symbol, d);
@@ -2268,6 +2277,7 @@ export function advanceOrRewindSessionToTimestamp(
   session: TradingSession,
   targetTimestamp: number
 ): StepEvaluationOutcome & { rewindBlockedReason?: string } {
+  if (session.marketMode === 'LIVE_PAPER') return {session, triggeredOrders: [], closedTrades: [], breachedNow: null, passedNow: null, rewindBlockedReason: 'Live paper trading follows provider quotes. Return to Replay to use historical controls.'};
   const currentTs = session.replayTimestamp || session.startTimestamp || targetTimestamp;
   const alignedTarget = Math.floor(targetTimestamp / 60) * 60;
 
@@ -2554,9 +2564,10 @@ export function validateAndPlaceOrder(
   }
 
   // 6. Resolve Current Bid & Ask Price at Session Clock
-  const clockTs =
+  const clockTs = session.marketMode === 'LIVE_PAPER' ? Math.floor(Date.now() / 1000) :
     session.replayTimestamp || session.startTimestamp || Math.floor(Date.now() / 1000);
   const candle = getLatest1mCandleAtClock(sym, clockTs, session);
+  if (session.marketMode === 'LIVE_PAPER' && !candle) return {ok: false, error: 'A fresh provider quote is required for this simulated live order. The market may be closed or the feed unavailable.', session};
   const midPrice = candle?.close ?? spec.basePrice;
   const { bid, ask, spread } = getBidAskFromMid(midPrice, sym, session);
 
@@ -2904,9 +2915,10 @@ export function modifyPositionOrOrder(
   const spec = getEffectiveInstrumentSpec(sym, session);
   const dec = spec.decimals;
   const rules = session.frozenConfig?.propFirmRules || session.propFirmRules;
-  const clockTs =
+  const clockTs = session.marketMode === 'LIVE_PAPER' ? Math.floor(Date.now() / 1000) :
     session.replayTimestamp || session.startTimestamp || Math.floor(Date.now() / 1000);
   const candle = getLatest1mCandleAtClock(sym, clockTs, session);
+  if (session.marketMode === 'LIVE_PAPER' && !candle) return {ok: false, error: 'Wait for a fresh provider quote before modifying this live paper order.', session};
   const { bid, ask } = getBidAskFromMid(candle?.close ?? target.entryPrice, sym, session);
 
   const entry =
@@ -3132,9 +3144,10 @@ export function closeOrCancelPosition(
   const sym = target.symbol || session.activeAsset || 'XAUUSD';
   const spec = getEffectiveInstrumentSpec(sym, session);
   const dec = spec.decimals;
-  const clockTs =
+  const clockTs = session.marketMode === 'LIVE_PAPER' ? Math.floor(Date.now() / 1000) :
     session.replayTimestamp || session.startTimestamp || Math.floor(Date.now() / 1000);
   const candle = getLatest1mCandleAtClock(sym, clockTs, session);
+  if (session.marketMode === 'LIVE_PAPER' && !candle && target.status !== 'PENDING') return {ok: false, error: 'Wait for a fresh provider quote before closing this live paper position.', session, closedPnlDelta: 0};
   const { bid, ask } = getBidAskFromMid(candle?.close ?? target.entryPrice, sym, session);
   const currency = session.frozenConfig?.accountCurrency || session.accountCurrency || 'USD';
 

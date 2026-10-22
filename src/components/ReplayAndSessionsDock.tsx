@@ -147,6 +147,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   session,
   symbol,
   candles,
+  isReplayMode,
   isPlaying,
   playbackSpeedMs,
   onSetPlaybackSpeedMs,
@@ -471,8 +472,9 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
       <div
         className={`flex-1 min-w-0 h-full pl-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar`}
       >
+        {!isReplayMode && <span className="shrink-0 text-[10px] font-bold text-emerald-400 px-2">LIVE PAPER · Simulated money · Quotes 15s</span>}
         {/* Left: Replay Transport Controls */}
-        <div className="flex items-center gap-1.5 shrink-0" data-tour="replay-controls">
+        <div className={isReplayMode ? "flex items-center gap-1.5 shrink-0" : "hidden"} data-tour="replay-controls">
           {!isPropChallenge ? (
             <button
               onClick={() =>
@@ -720,7 +722,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                         const posSym = pos.symbol || session.activeAsset || 'XAUUSD';
                         const posSpec = getEffectiveInstrumentSpec(posSym, session);
                         const mid =
-                          posSym === symbol ? currentMidPrice : pos.entryPrice;
+                          session.marketMode === 'LIVE_PAPER' ? session.liveQuotes?.[posSym]?.price ?? pos.entryPrice : posSym === symbol ? currentMidPrice : pos.entryPrice;
                         const { bid, ask } = getBidAskFromMid(mid, posSym, session);
                         const markPrice = pos.side === 'LONG' ? bid : ask;
                         const grossPnl = calculatePositionPnl(

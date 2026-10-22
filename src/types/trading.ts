@@ -425,6 +425,9 @@ export interface StrategyRecord {
 }
 
 export interface TradingSession {
+  marketMode?: 'LIVE_PAPER';
+  paperOriginSessionId?: string;
+  liveQuotes?: Partial<Record<InstrumentSymbol, {price: number; time: number; receivedAt: number}>>;
   id: string;
   userId?: string;
   name: string;

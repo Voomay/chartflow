@@ -57,6 +57,11 @@ import { DRAWING_COLORS } from './LeftToolbar';
 import { CANDLE_PRESETS } from './TopNavigation';
 
 interface TradingChartProps {
+  marketPrice?: number;
+  onGoToPresent?: () => void;
+  onReturnToReplay?: () => void;
+  feedLabel?: string;
+  dataMessage?: string;
   symbol: InstrumentSymbol;
   candles: Candle[];
   totalCandlesCount: number;
@@ -314,6 +319,11 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   drawingLineStyle,
   onSelectDrawingLineStyle,
   onSelectReplayTimestamp,
+  marketPrice,
+  onGoToPresent,
+  onReturnToReplay,
+  feedLabel,
+  dataMessage,
   isReplayMode,
   replayIndex,
   drawings,
@@ -3587,7 +3597,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       prevMeta.firstTime === firstTime &&
       candles.length >= prevMeta.length;
 
-    if (isIncrementalAppendOrUpdate && subscribeBarCallbackRef.current) {
+    const historyUnchanged = prevMeta.firstClose === firstClose && prevMeta.midClose === midClose;
+    if (isIncrementalAppendOrUpdate && historyUnchanged && subscribeBarCallbackRef.current) {
       const chartStore = (chart as any)._chartStore;
       const beforeDiff =
         typeof chartStore?.getLastBarRightSideDiffBarCount === 'function'
@@ -3631,6 +3642,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       });
       chart.setPeriod(mapTimeframeToPeriod(timeframe));
       chart.resetData();
+      chart.setBarSpace(7.5);
+      chart.scrollToRealTime();
     } else {
       // Rewind or historical jump on the same symbol & timeframe: preserve user's horizontal & vertical pan/zoom
       const chartStore = (chart as any)._chartStore;
@@ -3723,7 +3736,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   }, [focusedSessionTime, candles, drawOverlay]);
 
   const activeCandle = hoveredCandle || candles[candles.length - 1];
-  const latestClose = candles[candles.length - 1]?.close ?? instConfig.basePrice;
+  const latestClose = marketPrice ?? candles[candles.length - 1]?.close ?? instConfig.basePrice;
   const halfSpread = instConfig.defaultSpread / 2;
   const sellBid = Number((latestClose - halfSpread).toFixed(instConfig.decimals));
   const buyAsk = Number((latestClose + halfSpread).toFixed(instConfig.decimals));
@@ -3784,7 +3797,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           activeTool === 'replay_cut' ? 'cursor-col-resize' : cursorStyle
         }
         style={{ touchAction: 'none', WebkitTapHighlightColor: 'transparent' }}
-        className={`w-full h-full ${
+        className={`w-full h-[calc(100%-20px)] ${
           activeTool === 'replay_cut' ? 'cursor-col-resize' : cursorStyle
         }`}
       />
@@ -3794,6 +3807,9 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         ref={overlayCanvasRef}
         className="absolute inset-0 w-full h-full pointer-events-none z-10"
       />
+
+      {dataMessage && <div role="status" className="absolute inset-x-6 top-1/3 z-20 mx-auto max-w-lg rounded-lg border border-amber-500/40 bg-[#131722]/95 p-5 text-center text-sm text-amber-200">{dataMessage}</div>}
+      <div title={feedLabel} className="absolute bottom-0 inset-x-0 h-5 z-20 bg-inherit px-2 text-[9px] flex items-center gap-2 whitespace-nowrap overflow-hidden pointer-events-none"><strong>{isReplayMode ? 'REPLAY' : 'LIVE PAPER · SIMULATED'} · UTC · {symbol}</strong><span className="truncate">{feedLabel}{!isReplayMode && candles.length > 0 ? ' · Last bar ' + new Date(candles[candles.length - 1].time * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC · Refresh 15s · Feed may be delayed' : ''}</span></div>
 
       {/* Top-Left TradingView Header + Floating SELL / BUY Buttons */}
       {activeCandle && (
@@ -5370,7 +5386,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             <span>
               REPLAY BAR{' '}
               <strong>
-                {replayIndex + 1} / {totalCandlesCount}
+                {totalCandlesCount ? replayIndex + 1 : 0} / {totalCandlesCount}
               </strong>
             </span>
           </div>
@@ -5404,7 +5420,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       </div>
 
       {/* Bottom-Left Reset & Auto-Fit Button */}
-      <div className="absolute bottom-8 left-2 sm:left-3 z-20 flex items-center gap-1 sm:gap-1.5">
+      <div className="absolute bottom-12 left-2 sm:left-3 z-20 flex items-center gap-1 sm:gap-1.5">
         <button
           onClick={handleResetView}
           className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded border text-[10px] sm:text-[11px] shadow-sm transition ${
@@ -5420,20 +5436,21 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         </button>
         <button
           onClick={() => {
-            chartRef.current?.scrollToRealTime(200);
-            drawOverlay();
+            onGoToPresent?.();
+            handleResetView();
           }}
           className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded border text-[10px] sm:text-[11px] shadow-sm transition ${
             isLight
               ? 'bg-white hover:bg-[#f0f3fa] border-[#e0e3eb] text-[#131722]'
               : 'bg-[#1e222d]/90 hover:bg-[#262b38] border-[#2a2e39] text-gray-300'
           }`}
-          title="Jump to the current replay time (chart axis is UTC)"
+          title="Show today’s latest provider candles and refresh every 15 seconds (UTC axis)"
         >
           <Clock className="w-3 h-3 text-emerald-500" />
           <span>Present</span>
           <span className="hidden sm:inline">Time</span>
         </button>
+        {!isReplayMode && onReturnToReplay && <button onClick={onReturnToReplay} className="px-2 py-1 rounded border border-amber-500/40 bg-[#131722] text-amber-400 text-[10px]">Return to Replay</button>}
       </div>
     </div>
   );

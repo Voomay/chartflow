@@ -36,6 +36,7 @@ import {
   TradingSession,
 } from '../types/trading';
 import {
+  getCachedRealCandles,
   getInstrumentConfig,
   INSTRUMENTS,
   TIMEFRAME_CONFIG,
@@ -114,6 +115,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   onSelectTimeframe,
   currentPrice,
   dataSource: _dataSource,
+  isReplayMode,
   onToggleReplayCutTool,
   isReplayCutActive,
   showRightWidget,
@@ -194,7 +196,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   const floatingDiff = computedEquity - computedBalance;
 
   const displayTz = activeSession?.displayTimezone || 'UTC';
-  const authoritativeClockTs = activeSession?.replayTimestamp || currentTimestamp;
+  const authoritativeClockTs = currentTimestamp;
   const formattedReplayClock = formatTimestampInTimezone(authoritativeClockTs, displayTz);
   const isPropChallenge = activeSession?.mode === 'PROP_FIRM';
   const sessionStatus = activeSession?.challengeState?.status || activeSession?.status || 'ACTIVE';
@@ -272,7 +274,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                 {sessionStatus === 'ACTIVE'
                   ? isPropChallenge
                     ? phaseShortLabel
-                    : 'BACKTEST'
+                    : activeSession?.marketMode === 'LIVE_PAPER' ? 'PAPER · LIVE' : 'BACKTEST'
                   : `${isPropChallenge ? `${phaseShortLabel} · ` : ''}${sessionStatus}`}
               </span>
             </button>
@@ -324,7 +326,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                 ? 'bg-amber-50 border-amber-300 text-amber-900'
                 : 'bg-[#181c24] border-[#2a2f3b] text-[#e2e8f0]'
             }`}
-            title={`Authoritative Session Replay Clock (${displayTz}) — Future candles strictly hidden`}
+            title={`${isReplayMode ? 'Session replay clock' : 'Current market clock'} (${displayTz})`}
           >
             <Clock className="w-3 h-3 text-emerald-400 shrink-0" />
             <span className="font-bold">
@@ -798,11 +800,11 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                       <div className="text-right font-mono">
                         <div className="text-xs font-bold">
                           {isActive
-                            ? currentPrice.toFixed(inst.decimals)
-                            : inst.basePrice.toFixed(inst.decimals)}
+                            ? (Number.isFinite(currentPrice) ? currentPrice.toFixed(inst.decimals) : '—')
+                            : (getCachedRealCandles(timeframe, inst.symbol)?.filter(c => c.time <= currentTimestamp).slice(-1)[0]?.close.toFixed(inst.decimals) ?? '—')}
                         </div>
                         <div className="text-[10px] text-emerald-400 flex items-center gap-1 justify-end">
-                          <Radio className="w-2.5 h-2.5" /> 1m – 1W Synced
+                          <Radio className="w-2.5 h-2.5" /> Provider candles
                         </div>
                       </div>
                     </div>

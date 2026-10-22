@@ -19,8 +19,14 @@ function yahooFinanceApiPlugin(): Plugin {
       const symbol = urlObj.searchParams.get('symbol') || 'EURUSD=X';
       const interval = urlObj.searchParams.get('interval') || '15m';
       const range = urlObj.searchParams.get('range') || '1mo';
+      const period1 = urlObj.searchParams.get('period1');
+      const period2 = urlObj.searchParams.get('period2');
+      const includePrePost =
+        urlObj.searchParams.get('includePrePost') === 'true' ? 'true' : 'false';
 
-      const cacheKey = `${symbol}_${interval}_${range}`;
+      const cacheKey = `${symbol}_${interval}_${
+        period1 && period2 ? `${period1}_${period2}` : range
+      }_${includePrePost}`;
       const now = Date.now();
       const ttlMs = range === '1d' ? 2500 : 8000;
       const cached = yahooResponseCache.get(cacheKey);
@@ -41,11 +47,15 @@ function yahooFinanceApiPlugin(): Plugin {
       let lastErr: any = null;
       for (const host of hosts) {
         try {
+          const rangeOrPeriodQuery =
+            period1 && period2
+              ? `period1=${encodeURIComponent(period1)}&period2=${encodeURIComponent(period2)}`
+              : `range=${encodeURIComponent(range)}`;
           const targetUrl = `${host}/v8/finance/chart/${encodeURIComponent(
             symbol
-          )}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(
-            range
-          )}&includePrePost=true`;
+          )}?interval=${encodeURIComponent(
+            interval
+          )}&${rangeOrPeriodQuery}&includePrePost=${includePrePost}`;
 
           const upstream = await fetch(targetUrl, {
             headers: {

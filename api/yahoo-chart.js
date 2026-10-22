@@ -8,6 +8,9 @@ export default async function handler(req, res) {
   const symbol = req.query?.symbol || 'EURUSD=X';
   const interval = req.query?.interval || '15m';
   const range = req.query?.range || '1mo';
+  const period1 = req.query?.period1;
+  const period2 = req.query?.period2;
+  const includePrePost = req.query?.includePrePost === 'true' ? 'true' : 'false';
 
   const hosts = [
     'https://query1.finance.yahoo.com',
@@ -17,11 +20,15 @@ export default async function handler(req, res) {
   let lastError = null;
   for (const host of hosts) {
     try {
+      const rangeOrPeriodQuery =
+        period1 && period2
+          ? `period1=${encodeURIComponent(period1)}&period2=${encodeURIComponent(period2)}`
+          : `range=${encodeURIComponent(range)}`;
       const url = `${host}/v8/finance/chart/${encodeURIComponent(
         symbol
-      )}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(
-        range
-      )}&includePrePost=true`;
+      )}?interval=${encodeURIComponent(
+        interval
+      )}&${rangeOrPeriodQuery}&includePrePost=${includePrePost}`;
 
       const response = await fetch(url, {
         headers: {

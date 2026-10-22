@@ -220,6 +220,8 @@ function mapTimeframeToPeriod(tf: Timeframe): Period {
       return { type: 'hour', span: 4 };
     case '1D':
       return { type: 'day', span: 1 };
+    case '1W':
+      return { type: 'week', span: 1 };
   }
 }
 

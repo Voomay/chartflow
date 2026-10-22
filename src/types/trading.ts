@@ -1,4 +1,4 @@
-export type Timeframe = '1m' | '5m' | '15m' | '30m' | '1H' | '4H' | '1D';
+export type Timeframe = '1m' | '5m' | '15m' | '30m' | '1H' | '4H' | '1D' | '1W';
 
 export type InstrumentSymbol =
   | 'XAUUSD'
@@ -7,6 +7,7 @@ export type InstrumentSymbol =
   | 'US30'
   | 'SPX500'
   | 'GER30'
+  | 'UK100'
   | 'EURUSD'
   | 'GBPUSD'
   | 'USDJPY'
@@ -20,9 +21,21 @@ export type InstrumentSymbol =
   | 'AUDJPY'
   | 'EURAUD'
   | 'GBPAUD'
-  | 'CADJPY';
+  | 'CADJPY'
+  | 'USOIL'
+  | 'UKOIL'
+  | 'BTCUSD'
+  | 'ETHUSD';
 
-export type InstrumentCategory = 'ALL' | 'FOREX_MAJORS' | 'INDICES' | 'METALS';
+export type InstrumentCategory =
+  | 'ALL'
+  | 'FOREX'
+  | 'FOREX_MAJORS'
+  | 'FOREX_CROSSES'
+  | 'INDICES'
+  | 'METALS'
+  | 'ENERGIES'
+  | 'CRYPTO';
 
 export type AccountCurrency = 'USD' | 'EUR' | 'GBP' | 'AUD' | 'CAD' | 'JPY';
 

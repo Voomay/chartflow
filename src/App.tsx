@@ -31,6 +31,8 @@ import {
   getAggregatedCandlesUpToClock,
   getBidAskFromMid,
   getEffectiveInstrumentSpec,
+  hasRealMarketDataForSymbol,
+  hydrateRealMarketDataForSymbol,
   modifyPositionOrOrder,
   PlaceOrderInput,
   startNewChallengeAttempt,
@@ -260,6 +262,30 @@ export function App() {
     activeSession.startTimestamp ||
     Math.floor(Date.parse('2026-10-05T08:00:00Z') / 1000);
 
+  // Hydrate real provider market data (Yahoo Finance / Kraken / Binance Spot) for the active symbol & timeframe
+  const [marketDataVersion, setMarketDataVersion] = useState<number>(0);
+  const [isMarketDataLoading, setIsMarketDataLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsMarketDataLoading(true);
+    hydrateRealMarketDataForSymbol(symbol, timeframe)
+      .then((loaded) => {
+        if (!cancelled) {
+          setIsMarketDataLoading(false);
+          if (loaded) {
+            setMarketDataVersion((v) => v + 1);
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setIsMarketDataLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol, timeframe]);
+
   // 5. Authoritative Historical Candles (Strictly <= authoritativeClockTs)
   const visibleCandles = useMemo(
     () =>
@@ -270,7 +296,7 @@ export function App() {
         activeSession,
         50000
       ),
-    [symbol, timeframe, authoritativeClockTs, activeSession]
+    [symbol, timeframe, authoritativeClockTs, activeSession, marketDataVersion]
   );
 
   const secondaryVisibleCandles = useMemo(
@@ -290,6 +316,7 @@ export function App() {
       secondaryTimeframe,
       authoritativeClockTs,
       activeSession,
+      marketDataVersion,
     ]
   );
 
@@ -1231,11 +1258,23 @@ export function App() {
         dailyChangePct={dailyChangePct}
         high24h={currentCandle?.high || currentMidPrice}
         low24h={currentCandle?.low || currentMidPrice}
-        dataSource="LIVE_SPOT_FEED"
-        isLoading={false}
-        onRefreshData={() =>
-          showToast('Historical 1m feed synchronized to session clock.', 'info')
+        dataSource={
+          hasRealMarketDataForSymbol(symbol, timeframe)
+            ? 'LIVE_SPOT_FEED'
+            : 'SYNTHETIC_FALLBACK'
         }
+        isLoading={isMarketDataLoading}
+        onRefreshData={() => {
+          setIsMarketDataLoading(true);
+          hydrateRealMarketDataForSymbol(symbol, timeframe).then(() => {
+            setIsMarketDataLoading(false);
+            setMarketDataVersion((v) => v + 1);
+            showToast(
+              `Authoritative market data refreshed for ${symbol} (${timeframe}).`,
+              'info'
+            );
+          });
+        }}
         isReplayMode={true}
         onToggleReplayCutTool={() => {
           if (activeSession.mode === 'PROP_FIRM') {
@@ -1596,7 +1635,7 @@ export function App() {
                   HTF Sync Chart ({symbol} · {secondaryTimeframe})
                 </span>
                 <div className="flex items-center gap-1">
-                  {(['15m', '1H', '4H', '1D'] as Timeframe[]).map((tf) => (
+                  {(['15m', '1H', '4H', '1D', '1W'] as Timeframe[]).map((tf) => (
                     <button
                       key={tf}
                       onClick={() => setSecondaryTimeframe(tf)}

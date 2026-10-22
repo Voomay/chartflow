@@ -176,13 +176,14 @@ const POPULAR_MARKETS: InstrumentSymbol[] = [
   'GBPUSD',
   'USDJPY',
   'NAS100',
-  'US30',
   'SPX500',
+  'US30',
   'GER30',
+  'UK100',
+  'USOIL',
+  'BTCUSD',
   'GBPJPY',
   'XAGUSD',
-  'AUDUSD',
-  'USDCAD',
 ];
 
 const DATE_RANGE_PRESETS = [
@@ -469,7 +470,11 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   };
 
   const filteredInstruments = INSTRUMENTS.filter((inst) => {
-    const matchesCat = assetCategory === 'ALL' || inst.category === assetCategory;
+    const matchesCat =
+      assetCategory === 'ALL' ||
+      (assetCategory === 'FOREX' &&
+        (inst.category === 'FOREX_MAJORS' || inst.category === 'FOREX_CROSSES')) ||
+      inst.category === assetCategory;
     const q = assetSearch.trim().toLowerCase();
     const matchesSearch =
       !q ||
@@ -780,7 +785,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                     className="px-2.5 py-1 rounded-lg bg-[#1c2028] hover:bg-[#242933] border border-[#2c313d] text-[11px] font-semibold text-[#cbd5e1] flex items-center gap-1 transition"
                   >
                     <Search className="w-3 h-3" />
-                    <span>{showAllMarkets ? 'Hide Market Search' : 'Search All 20 Markets'}</span>
+                    <span>{showAllMarkets ? 'Hide Market Search' : 'Search All 25 Markets'}</span>
                   </button>
                 </div>
 
@@ -825,7 +830,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {(
-                          ['ALL', 'FOREX', 'METALS', 'INDICES', 'ENERGIES'] as InstrumentCategory[]
+                          ['ALL', 'FOREX', 'METALS', 'INDICES', 'ENERGIES', 'CRYPTO'] as InstrumentCategory[]
                         ).map((cat) => (
                           <button
                             key={cat}

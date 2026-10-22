@@ -92,7 +92,7 @@ interface TopNavigationProps {
   onStartTour?: () => void;
 }
 
-const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D'];
+const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W'];
 
 export const CANDLE_PRESETS: {
   id: Exclude<CandleColorStyle, 'custom'>;
@@ -160,7 +160,11 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   const dividerBg = isLight ? 'bg-[#e0e3eb]' : 'bg-[#262a34]';
 
   const filteredInstruments = INSTRUMENTS.filter((inst) => {
-    const matchesCat = selectedCategory === 'ALL' || inst.category === selectedCategory;
+    const matchesCat =
+      selectedCategory === 'ALL' ||
+      (selectedCategory === 'FOREX' &&
+        (inst.category === 'FOREX_MAJORS' || inst.category === 'FOREX_CROSSES')) ||
+      inst.category === selectedCategory;
     const q = searchQuery.trim().toLowerCase();
     const matchesSearch =
       !q ||
@@ -692,13 +696,15 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                     }`}
                   />
                 </div>
-                <div className="flex items-center gap-1 text-[11px] font-semibold">
+                <div className="flex items-center gap-1 text-[11px] font-semibold flex-wrap">
                   {(
                     [
                       ['ALL', 'All'],
+                      ['FOREX', 'Forex'],
                       ['METALS', 'Metals'],
                       ['INDICES', 'Indices'],
-                      ['FOREX', 'Forex'],
+                      ['ENERGIES', 'Energies'],
+                      ['CRYPTO', 'Crypto'],
                     ] as [InstrumentCategory, string][]
                   ).map(([cat, label]) => (
                     <button
@@ -796,7 +802,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                             : inst.basePrice.toFixed(inst.decimals)}
                         </div>
                         <div className="text-[10px] text-emerald-400 flex items-center gap-1 justify-end">
-                          <Radio className="w-2.5 h-2.5" /> 1m – 1D Synced
+                          <Radio className="w-2.5 h-2.5" /> 1m – 1W Synced
                         </div>
                       </div>
                     </div>

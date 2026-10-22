@@ -52,17 +52,22 @@ describe('Visible provider candles', () => {
    }
   }
  });
- it('requests matching native Kraken intervals for one-minute and five-minute FX', async () => {
-  const fetchMock=vi.fn(async (url: string) => ({ok:true,json:async()=>({error:[],result:{ZEURZUSD:Array.from({length:12},(_,i)=>[t+i*60,'1.10','1.12','1.09','1.11','1.11','12'])}})}));
+ it('requests matching native spot intervals for one-minute and five-minute FX', async () => {
+  const fetchMock=vi.fn(async (url: string) => ({ok:true,json:async()=>url.includes('/ohlc?')
+    ? {symbol:'EURUSD',interval:url.includes('interval=5m')?'5m':'1m',bars:Array.from({length:12},(_,i)=>({openTime:new Date((t+i*60)*1000).toISOString(),open:1.1,high:1.12,low:1.09,close:1.11,tickVolume:12}))}
+    : {symbol:'EURUSD',bid:1.1,ask:1.11,timestamp:new Date().toISOString(),marketState:'open'}}));
   vi.stubGlobal('fetch',fetchMock);
   await fetchRealYahooInstrumentCandles('EURUSD','1m');
   await fetchRealYahooInstrumentCandles('EURUSD','5m');
-  expect(fetchMock.mock.calls[0][0]).toContain('interval=1');
-  expect(fetchMock.mock.calls[1][0]).toContain('interval=5');
+  const urls=fetchMock.mock.calls.map(c=>c[0]).filter(u=>u.includes('/ohlc?'));
+  expect(urls[0]).toContain('interval=1m');
+  expect(urls[1]).toContain('interval=5m');
  });
  it('refresh replaces current OHLC and volume instead of freezing the cache or doubling volume', async () => {
   setCachedRealCandles('1m','USDJPY',[bar(t,150)]);
-  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({chart:{result:[{timestamp:[t],indicators:{quote:[{open:[150],high:[151],low:[149],close:[150.5],volume:[100]}]}}]}})})));
+  vi.stubGlobal('fetch',vi.fn(async (url: string)=>({ok:true,json:async()=>url.includes('/ohlc?')
+    ? {symbol:'USDJPY',interval:'1m',bars:[{openTime:new Date(t*1000).toISOString(),open:150,high:151,low:149,close:150.5,tickVolume:100}]}
+    : {symbol:'USDJPY',bid:150.4,ask:150.6,timestamp:new Date().toISOString(),marketState:'open'}})));
   expect(await refreshMarketCandles('USDJPY','1m')).toBe(true);
   expect(getCachedRealCandles('1m','USDJPY')![0].close).toBe(150.5);
   await refreshMarketCandles('USDJPY','1m');

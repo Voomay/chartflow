@@ -1,5 +1,10 @@
 import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import spotHandler from './api/spot-candles.js';
+function spotPlugin(): Plugin {
+  const use = (server: any) => { server.middlewares.use('/api/spot-candles', spotHandler); };
+  return {name: 'spot-market-feed', configureServer: use, configurePreviewServer: use};
+}
 
 interface CacheEntry {
   timestamp: number;
@@ -107,7 +112,7 @@ function yahooFinanceApiPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), yahooFinanceApiPlugin()],
+  plugins: [react(), yahooFinanceApiPlugin(), spotPlugin()],
   cacheDir: 'd:/fx/.vite-cache',
   server: {
     port: 3005,

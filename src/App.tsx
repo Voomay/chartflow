@@ -1,3 +1,4 @@
+import {getSpotQuote, getSpotFeedStatus, SPOT_SYMBOLS} from './services/spotFeed';
 import {createLivePaperSession} from './services/livePaperTrading';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -312,7 +313,7 @@ export function App() {
     setPresentClockTs(Math.floor(Date.now() / 1000));
     void refresh();
     const clockTimer = setInterval(() => setPresentClockTs(Math.floor(Date.now() / 1000)), 1000);
-    const dataTimer = setInterval(() => void refresh(), 15000);
+    const dataTimer = setInterval(() => void refresh(), 5000);
     return () => { cancelled = true; clearInterval(clockTimer); clearInterval(dataTimer); };
   }, [isPresentTime, symbol, timeframe, secondaryTimeframe, activeSession.chartLayout]);
 
@@ -353,7 +354,7 @@ export function App() {
           const loaded = await refreshMarketCandles(sym, '1m');
           const bars = loaded ? getCachedRealCandles('1m', sym) : null;
           const bar = bars?.[bars.length - 1];
-          return bar ? {sym, quote: {price: bar.close, time: bar.time, receivedAt: Math.floor(Date.now() / 1000)}} : null;
+          return loaded && getSpotQuote(sym) ? {sym,quote:getSpotQuote(sym)!} : bar ? {sym, quote: {price: bar.close, time: bar.time, receivedAt: Math.floor(Date.now() / 1000)}} : null;
         }));
         if (cancelled) return;
         const now = Math.floor(Date.now() / 1000);
@@ -367,7 +368,7 @@ export function App() {
       } finally { busy = false; }
     };
     void refresh();
-    const timer = setInterval(() => void refresh(), 15000);
+    const timer = setInterval(() => void refresh(), 5000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [paperAccount?.id, paperSymbols]);
 
@@ -866,7 +867,10 @@ export function App() {
         showToast(error, 'info');
         return {ok: false, error};
       }
-      const res = validateAndPlaceOrder(activeSession, req);
+      const symForQuote = req.symbol || activeSession.activeAsset;
+      const quote = getSpotQuote(symForQuote);
+      const executionSession = activeSession.marketMode === 'LIVE_PAPER' && quote ? {...activeSession,liveQuotes:{...activeSession.liveQuotes,[symForQuote]:quote}} : activeSession;
+      const res = validateAndPlaceOrder(executionSession, req);
       if (!res.ok) {
         showToast(res.error || 'Order rejected.', 'down');
         return { ok: false, error: res.error };
@@ -926,7 +930,11 @@ export function App() {
         endTime?: number;
       }
     ): { ok: boolean; error?: string } => {
-      const res = modifyPositionOrOrder(activeSession, positionId, {
+      const target = activeSession.positions?.find(p => p.id === positionId);
+      const symForQuote = target?.symbol || activeSession.activeAsset;
+      const quote = getSpotQuote(symForQuote);
+      const executionSession = activeSession.marketMode === 'LIVE_PAPER' && quote ? {...activeSession,liveQuotes:{...activeSession.liveQuotes,[symForQuote]:quote}} : activeSession;
+      const res = modifyPositionOrOrder(executionSession, positionId, {
         newStopLoss: updates.stopLoss,
         newTakeProfit: updates.takeProfit,
         newEntryPrice: updates.entryPrice,
@@ -947,7 +955,11 @@ export function App() {
 
   const handleClosePosition = useCallback(
     (positionId: string, fraction: number = 1) => {
-      const res = closeOrCancelPosition(activeSession, positionId, fraction);
+      const target = activeSession.positions?.find(p => p.id === positionId);
+      const symForQuote = target?.symbol || activeSession.activeAsset;
+      const quote = getSpotQuote(symForQuote);
+      const executionSession = activeSession.marketMode === 'LIVE_PAPER' && quote ? {...activeSession,liveQuotes:{...activeSession.liveQuotes,[symForQuote]:quote}} : activeSession;
+      const res = closeOrCancelPosition(executionSession, positionId, fraction);
       if (!res.ok) {
         showToast(res.error || 'Could not close position.', 'down');
         return;
@@ -1076,7 +1088,7 @@ export function App() {
 
   const currentCandle = visibleCandles[visibleCandles.length - 1];
   const currentMidPrice =
-    (isPresentTime ? activeSession.liveQuotes?.[symbol]?.price : undefined) || currentCandle?.close || getInstrumentConfig(symbol).basePrice;
+    (isPresentTime ? getSpotQuote(symbol)?.price ?? activeSession.liveQuotes?.[symbol]?.price : undefined) || currentCandle?.close || getInstrumentConfig(symbol).basePrice;
 
   const sessionBoxes = useMemo(
     () =>
@@ -1473,6 +1485,7 @@ export function App() {
               onGoToPresent={handleGoToPresent}
               onReturnToReplay={handleReturnToReplay}
               feedLabel={getMarketFeedLabel(symbol, timeframe)}
+              feedStatus={isPresentTime && SPOT_SYMBOLS.has(symbol) ? getSpotFeedStatus(symbol, presentClockTs) : undefined}
               dataMessage={!visibleCandles.length ? (isMarketDataLoading ? 'Loading provider candles…' : isQuoteOnlyChart(symbol, timeframe) ? 'This feed supplies quote-only bars here; genuine candle OHLC is unavailable. Try the five-minute chart.' : 'No provider history for this date and timeframe. Select Present Time or choose a date within the available history.') : undefined}
               candles={visibleCandles}
               totalCandlesCount={visibleCandles.length}
@@ -1719,6 +1732,7 @@ export function App() {
               onGoToPresent={handleGoToPresent}
               onReturnToReplay={handleReturnToReplay}
                   feedLabel={getMarketFeedLabel(symbol, secondaryTimeframe)}
+                  feedStatus={isPresentTime && SPOT_SYMBOLS.has(symbol) ? getSpotFeedStatus(symbol, presentClockTs) : undefined}
                   dataMessage={!secondaryVisibleCandles.length ? 'No provider history for this date and timeframe.' : undefined}
                   candles={secondaryVisibleCandles}
                   totalCandlesCount={secondaryVisibleCandles.length}

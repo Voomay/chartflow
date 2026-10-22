@@ -61,6 +61,7 @@ interface TradingChartProps {
   onGoToPresent?: () => void;
   onReturnToReplay?: () => void;
   feedLabel?: string;
+  feedStatus?: string;
   dataMessage?: string;
   symbol: InstrumentSymbol;
   candles: Candle[];
@@ -323,6 +324,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   onGoToPresent,
   onReturnToReplay,
   feedLabel,
+  feedStatus,
   dataMessage,
   isReplayMode,
   replayIndex,
@@ -3809,7 +3811,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       />
 
       {dataMessage && <div role="status" className="absolute inset-x-6 top-1/3 z-20 mx-auto max-w-lg rounded-lg border border-amber-500/40 bg-[#131722]/95 p-5 text-center text-sm text-amber-200">{dataMessage}</div>}
-      <div title={feedLabel} className="absolute bottom-0 inset-x-0 h-5 z-20 bg-inherit px-2 text-[9px] flex items-center gap-2 whitespace-nowrap overflow-hidden pointer-events-none"><strong>{isReplayMode ? 'REPLAY' : 'LIVE PAPER · SIMULATED'} · UTC · {symbol}</strong><span className="truncate">{feedLabel}{!isReplayMode && candles.length > 0 ? ' · Last bar ' + new Date(candles[candles.length - 1].time * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC · Refresh 15s · Feed may be delayed' : ''}</span></div>
+      <div title={feedLabel} className="absolute bottom-0 inset-x-0 h-5 z-20 bg-inherit px-2 text-[9px] flex items-center gap-2 whitespace-nowrap overflow-hidden pointer-events-none"><strong className="shrink-0">{isReplayMode ? 'REPLAY' : 'LIVE PAPER'} · UTC · {symbol}</strong>{!isReplayMode && feedStatus && <span className="shrink-0">{feedStatus}</span>}<span className="truncate">{feedLabel}{candles.length > 0 ? ' · Candle opens ' + new Date(candles[candles.length - 1].time * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : ''}</span></div>
 
       {/* Top-Left TradingView Header + Floating SELL / BUY Buttons */}
       {activeCandle && (
@@ -3837,7 +3839,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               </div>
               <span className="font-bold text-xs sm:text-[13px] tracking-tight whitespace-nowrap">
                 <span className="sm:hidden">{instConfig.name} • {timeframe}</span>
-                <span className="hidden sm:inline">{instConfig.name} • {timeframe} • {instConfig.exchange}</span>
+                <span className="hidden sm:inline">{instConfig.name} • {timeframe} • {feedLabel?.startsWith('biquote') ? 'BROKER SPOT' : instConfig.exchange}</span>
               </span>
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
             </div>
@@ -5444,7 +5446,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               ? 'bg-white hover:bg-[#f0f3fa] border-[#e0e3eb] text-[#131722]'
               : 'bg-[#1e222d]/90 hover:bg-[#262b38] border-[#2a2e39] text-gray-300'
           }`}
-          title="Show today’s latest provider candles and refresh every 15 seconds (UTC axis)"
+          title="Show today’s latest provider candles and refresh every 5 seconds (UTC axis)"
         >
           <Clock className="w-3 h-3 text-emerald-500" />
           <span>Present</span>

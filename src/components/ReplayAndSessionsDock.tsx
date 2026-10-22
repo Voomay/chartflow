@@ -472,7 +472,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
       <div
         className={`flex-1 min-w-0 h-full pl-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar`}
       >
-        {!isReplayMode && <span className="shrink-0 text-[10px] font-bold text-emerald-400 px-2">LIVE PAPER · Simulated money · Quotes 15s</span>}
+        {!isReplayMode && <span className="shrink-0 text-[10px] font-bold text-emerald-400 px-2">LIVE PAPER · Simulated money · Quotes 5s</span>}
         {/* Left: Replay Transport Controls */}
         <div className={isReplayMode ? "flex items-center gap-1.5 shrink-0" : "hidden"} data-tour="replay-controls">
           {!isPropChallenge ? (

@@ -954,10 +954,10 @@ export function getLatest1mCandleAtClock(
 ): Candle | null {
   if (_session?.marketMode === 'LIVE_PAPER') {
     const quote = _session.liveQuotes?.[symbol];
-    if (!quote || !Number.isFinite(quote.price) || quote.price <= 0 ||
+    if (!quote || quote.marketState === 'closed' || !Number.isFinite(quote.price) || quote.price <= 0 ||
       !Number.isFinite(quote.receivedAt) || !Number.isFinite(quote.time) ||
       quote.receivedAt > timestampSec + 5 || timestampSec - quote.receivedAt > 90 ||
-      quote.time > timestampSec + 60 || timestampSec - quote.time > 20 * 60) return null;
+      quote.time > timestampSec + 60 || timestampSec - quote.time > (quote.maxAgeSeconds ?? 20 * 60)) return null;
     // Evaluate only observed quote snapshots, never a candle's pre-entry wicks.
     return {time: timestampSec, open: quote.price, high: quote.price, low: quote.price, close: quote.price, volume: 0};
   }

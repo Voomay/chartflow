@@ -1,3 +1,4 @@
+import {SPOT_SYMBOLS, fetchSpotCandles, clearSpotQuotes, getSpotQuote} from './spotFeed';
 import {
   Candle,
   InstrumentConfig,
@@ -98,7 +99,7 @@ export interface VerifiedSymbolCatalogueEntry {
   displaySymbol: string;
   name: string;
   marketType: 'FOREX_MAJOR' | 'FOREX_CROSS' | 'METAL_FUTURES_SPOT' | 'CASH_INDEX' | 'ENERGY_FUTURES' | 'CRYPTO_SPOT';
-  provider: 'YAHOO_FINANCE' | 'BINANCE_SPOT';
+  provider: 'YAHOO_FINANCE' | 'BINANCE_SPOT' | 'BIQUOTE_SPOT';
   providerSymbol: string;
   secondaryProviderSymbol?: string;
   tradingViewReferenceSymbol: string;
@@ -124,7 +125,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
   {
     symbol: 'XAUUSD',
     displaySymbol: 'XAU/USD',
-    name: 'Gold Spot / U.S. Dollar (COMEX GC=F / Spot)',
+    name: 'Gold Spot / U.S. Dollar',
     exchange: 'COMEX · NYMEX',
     category: 'METALS',
     icon: 'XAU',
@@ -140,7 +141,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
   {
     symbol: 'XAGUSD',
     displaySymbol: 'XAG/USD',
-    name: 'Silver Spot / U.S. Dollar (COMEX SI=F / Spot)',
+    name: 'Silver Spot / U.S. Dollar',
     exchange: 'COMEX · NYMEX',
     category: 'METALS',
     icon: 'XAG',
@@ -1193,6 +1194,19 @@ export const VERIFIED_SYMBOL_CATALOGUE: Record<InstrumentSymbol, VerifiedSymbolC
   },
 };
 
+// Keep the instrument catalogue consistent with the active spot feed.
+for (const symbol of SPOT_SYMBOLS) {
+  const entry = VERIFIED_SYMBOL_CATALOGUE[symbol];
+  entry.provider = 'BIQUOTE_SPOT';
+  entry.providerSymbol = symbol;
+  entry.secondaryProviderSymbol = undefined;
+  entry.name = INSTRUMENTS.find(i => i.symbol === symbol)!.name;
+  entry.exchange = 'Broker spot via biquote relay';
+  entry.timezone = 'UTC';
+  entry.dailyCloseBoundary = 'Provider daily bars at 00:00 UTC; weekly aggregation starts Monday UTC';
+  entry.historicalCoverage = {'1m': 'Recent provider minute history; availability varies', '5m_15m_30m': 'Native provider intervals; availability varies', '1H_4H': 'Native provider intervals; availability varies', '1D_1W': 'Provider daily history; weekly bars aggregated from the same source'};
+  entry.notes = 'Community MT5 relay, provisionally validated. Broker identity and historical provenance are provider-controlled. No guaranteed service level or exact OANDA match.';
+}
 export const INITIAL_SESSIONS: SessionConfig[] = [
   {
     id: 'sydney',
@@ -1517,8 +1531,19 @@ export function isQuoteOnlyChart(symbol: InstrumentSymbol, timeframe: Timeframe)
 export function getProviderChartCandles(symbol: InstrumentSymbol, timeframe: Timeframe, clock: number, present = false): Candle[] {
   const bars = getCachedRealCandles(timeframe, symbol);
   if (!bars?.length || clock < bars[0].time || isQuoteOnlyChart(symbol, timeframe)) return [];
-  const bucket = getCanonicalBucketTime(clock, timeframe, symbol);
-  if (present) return bars.filter(c => c.time <= clock);
+  const bucket = timeframe === '1D' && SPOT_SYMBOLS.has(symbol) ? Math.floor(clock / 86400) * 86400 : getCanonicalBucketTime(clock, timeframe, symbol);
+  if (present) {
+    const visible = bars.filter(c => c.time <= clock);
+    const quote = SPOT_SYMBOLS.has(symbol) ? getSpotQuote(symbol) : undefined;
+    const last = visible[visible.length - 1];
+    // Apply a newly observed quote only inside the existing current candle.
+    // Native provider OHLC supplies history and the true open; never invent a missing bar.
+    if (quote && last && quote.time >= last.time && quote.time < last.time + TIMEFRAME_CONFIG[timeframe].seconds && quote.time <= clock && clock - quote.time <= 60) {
+      const close = Number(quote.price.toFixed(getInstrumentConfig(symbol).decimals));
+      return [...visible.slice(0,-1), {...last, close, high: Math.max(last.high,close), low: Math.min(last.low,close)}];
+    }
+    return visible;
+  }
   const completed = bars.filter(c => c.time + TIMEFRAME_CONFIG[timeframe].seconds <= clock);
   const exact = bars.find(c => c.time === bucket);
   // Never expose the final OHLC of an unfinished historical bar. Build it from
@@ -1557,6 +1582,7 @@ export function setCachedRealCandles(
 
 export function clearRealCandleCache(): void {
   realCandleSeriesCache.clear();
+  clearSpotQuotes();
   marketFeedLabels.clear();
 }
 
@@ -1783,6 +1809,12 @@ export async function fetchRealYahooInstrumentCandles(
   limit = 1000,
   recentOnly = false
 ): Promise<Candle[] | null> {
+  if (SPOT_SYMBOLS.has(symbol)) {
+    const spot = await fetchSpotCandles(symbol, timeframe, Math.max(30,limit));
+    if (!spot?.length) return null;
+    marketFeedLabels.set(`${symbol}_${timeframe}`, 'biquote · MT5 broker spot (provisional)');
+    return (timeframe === '1W' ? aggregateCandlesToTimeframe(spot, '1W', symbol) : spot).slice(-limit);
+  }
   const tfCfg = TIMEFRAME_CONFIG[timeframe];
   const mapEntry = YAHOO_SYMBOL_MAP[symbol];
   if (!mapEntry) return null;

@@ -41,7 +41,7 @@ describe('Live paper trading',()=>{
   expect(result.position!.entryPrice).toBe(getBidAskFromMid(1.1,'EURUSD',paper).bid);
  });
  it('rejects missing, stale, future, and invalid quotes without synthetic execution',()=>{
-  const quotes=[undefined,{price:1.1,time:now,receivedAt:now-91},{price:1.1,time:now-1201,receivedAt:now},{price:1.1,time:now+61,receivedAt:now},{price:NaN,time:now,receivedAt:now}];
+  const quotes=[undefined,{price:1.1,time:now,receivedAt:now-91},{price:1.1,time:now-1201,receivedAt:now},{price:1.1,time:now+61,receivedAt:now},{price:NaN,time:now,receivedAt:now},{price:1.1,time:now-61,receivedAt:now,maxAgeSeconds:60},{price:1.1,time:now,receivedAt:now,marketState:'closed'}];
   for(const quote of quotes){const paper=account();paper.liveQuotes={EURUSD:quote};
    expect(getLatest1mCandleAtClock('EURUSD',now,paper)).toBeNull();
    expect(validateAndPlaceOrder(paper,input).ok).toBe(false);

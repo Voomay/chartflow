@@ -140,6 +140,57 @@ const EquityCurve: React.FC = () => {
 
 /* ---------- Page ---------- */
 
+// Competitor pricing as publicly listed (monthly billing). Verify periodically — competitor prices change.
+const COMPARE_PRICING = [
+  {
+    name: 'Chart Replay',
+    highlight: true,
+    price: '$0',
+    period: 'forever',
+    tiers: 'All features included',
+    note: 'No credit card. No session caps.',
+  },
+  {
+    name: 'FX Replay',
+    highlight: false,
+    price: '$17.99 – $35',
+    period: '/ month',
+    tiers: 'Free (limited) · Intermediate · Pro',
+    note: 'Unlimited sessions & prop simulator on Pro.',
+  },
+  {
+    name: 'TradeZella',
+    highlight: false,
+    price: '$35 – $99',
+    period: '/ month',
+    tiers: 'Essential · Pro · Ultra',
+    note: 'Journal-first; replay is an add-on feature.',
+  },
+];
+
+type CompareCell = boolean | 'partial' | string;
+const COMPARE_ROWS: { feature: string; us: CompareCell; fx: CompareCell; tz: CompareCell }[] = [
+  { feature: 'Monthly price', us: 'Free', fx: '$17.99–$35', tz: '$35–$99' },
+  { feature: 'Candle-by-candle bar replay', us: true, fx: true, tz: true },
+  { feature: 'Unlimited backtest sessions', us: true, fx: 'Pro only', tz: true },
+  { feature: 'Prop firm challenge simulator (Phase 1 / 2 / Funded)', us: true, fx: 'Pro only', tz: 'partial' },
+  { feature: 'Drag-to-adjust Long / Short position tool', us: true, fx: true, tz: 'partial' },
+  { feature: 'Built-in trade journal & screenshots', us: true, fx: 'partial', tz: true },
+  { feature: 'Analytics: equity curve, P&L calendar, R-multiples', us: true, fx: true, tz: true },
+  { feature: 'Session boxes (Asia / London / New York)', us: true, fx: 'partial', tz: false },
+  { feature: 'Momentum Forecaster overlay', us: true, fx: false, tz: false },
+  { feature: 'Mobile-friendly replay & order ticket', us: true, fx: 'partial', tz: 'partial' },
+  { feature: 'No credit card to start', us: true, fx: true, tz: false },
+  { feature: 'Proudly South African 🇿🇦', us: true, fx: false, tz: false },
+];
+
+const CompareMark: React.FC<{ v: CompareCell; strong?: boolean }> = ({ v, strong }) => {
+  if (v === true) return <CheckCircle2 className={`w-5 h-5 mx-auto ${strong ? 'text-emerald-400' : 'text-emerald-500/80'}`} />;
+  if (v === false) return <X className="w-5 h-5 mx-auto text-rose-500/70" />;
+  if (v === 'partial') return <span className="text-xs font-semibold text-amber-400">Limited</span>;
+  return <span className={`text-xs sm:text-sm font-bold ${strong ? 'text-emerald-300' : 'text-[#cbd5e1]'}`}>{v}</span>;
+};
+
 export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -158,6 +209,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
 
   const navLinks = [
     { id: 'features', label: 'Features' },
+    { id: 'compare', label: 'Compare' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'get-started', label: 'Get Started' },
   ];
@@ -414,6 +466,101 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                 </div>
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* COMPARISON */}
+        <section id="compare" className="max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
+          <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-14">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-400/25 text-blue-300 text-xs font-mono font-bold mb-4">
+              <span>HONEST COMPARISON</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white">
+              Chart Replay vs{' '}
+              <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">FX Replay</span>{' '}
+              vs{' '}
+              <span className="bg-gradient-to-r from-sky-400 to-blue-400 bg-clip-text text-transparent">TradeZella</span>
+            </h2>
+            <p className="mt-4 text-base sm:text-lg text-[#9ca3af]">
+              Same core replay and prop-firm workflow — without the monthly bill.
+            </p>
+          </div>
+
+          {/* Pricing cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 mb-10">
+            {COMPARE_PRICING.map((p) => (
+              <div
+                key={p.name}
+                className={`rounded-2xl p-6 border ${
+                  p.highlight
+                    ? 'border-emerald-400/60 bg-gradient-to-b from-emerald-500/15 to-[#0a0e17] shadow-[0_0_40px_rgba(16,185,129,0.15)]'
+                    : 'border-white/10 bg-[#0d1220]'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-bold text-white">{p.name}</h3>
+                  {p.highlight && (
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950">
+                      BEST VALUE
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className={`text-3xl font-black ${p.highlight ? 'text-emerald-300' : 'text-white'}`}>{p.price}</span>
+                  <span className="text-sm text-[#9ca3af]">{p.period}</span>
+                </div>
+                <p className="mt-3 text-xs font-mono text-[#94a3b8]">{p.tiers}</p>
+                <p className="mt-1 text-sm text-[#9ca3af]">{p.note}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Feature table */}
+          <div className="rounded-2xl border border-white/10 bg-[#0b101b] overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left">
+              <thead>
+                <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-[#94a3b8]">
+                  <th className="px-4 sm:px-6 py-4 font-bold">Feature</th>
+                  <th className="px-3 py-4 text-center font-bold text-emerald-300 bg-emerald-500/10">Chart Replay</th>
+                  <th className="px-3 py-4 text-center font-bold">FX Replay</th>
+                  <th className="px-3 py-4 text-center font-bold">TradeZella</th>
+                </tr>
+              </thead>
+              <tbody>
+                {COMPARE_ROWS.map((r) => (
+                  <tr key={r.feature} className="border-b border-white/5 last:border-0 hover:bg-white/[0.02]">
+                    <td className="px-4 sm:px-6 py-3 text-sm text-[#e2e8f0]">{r.feature}</td>
+                    <td className="px-3 py-3 text-center bg-emerald-500/[0.06]"><CompareMark v={r.us} strong /></td>
+                    <td className="px-3 py-3 text-center"><CompareMark v={r.fx} /></td>
+                    <td className="px-3 py-3 text-center"><CompareMark v={r.tz} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-[11px] text-[#64748b] text-center">
+            Competitor pricing based on publicly listed monthly plans at time of writing; features and prices may change. FX Replay and TradeZella are trademarks of their respective owners.
+          </p>
+
+          {/* Why choose us */}
+          <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+            {[
+              { t: 'Save $200–$1,200 a year', d: 'Everything the paid tools charge for — replay, prop simulator, journal and analytics — at zero cost.' },
+              { t: 'Built for prop firm traders', d: 'Phase 1, Phase 2 and Funded rules with daily drawdown, max loss and no-rewind enforcement.' },
+              { t: 'Practice anywhere', d: 'Fully usable on your phone: replay, speed controls, Buy/Sell position tool and order ticket.' },
+            ].map((w) => (
+              <div key={w.t} className="rounded-2xl p-6 border border-white/10 bg-[#0d1220]">
+                <CheckCircle2 className="w-6 h-6 text-emerald-400 mb-3" />
+                <h3 className="text-lg font-bold text-white mb-1.5">{w.t}</h3>
+                <p className="text-sm text-[#9ca3af] leading-relaxed">{w.d}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-8 text-center">
+            <button onClick={() => openAuth('signup')} className="lp-btn-primary px-6">
+              <span>Start Free — No Card Needed</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
         </section>
 

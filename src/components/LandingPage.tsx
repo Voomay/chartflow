@@ -146,7 +146,7 @@ const COMPARE_PRICING = [
     name: 'Chart Replay',
     highlight: true,
     price: '$0',
-    period: 'forever',
+    period: '/ month',
     tiers: 'All features included',
     note: 'No credit card. No session caps.',
   },
@@ -516,7 +516,27 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
           </div>
 
           {/* Feature table */}
-          <div className="rounded-2xl border border-white/10 bg-[#0b101b] overflow-x-auto">
+          {/* Mobile: stacked feature cards */}
+          <div className="md:hidden space-y-2.5">
+            <div className="grid grid-cols-3 gap-1 px-3 text-[10px] font-bold uppercase tracking-wider text-center">
+              <span className="text-emerald-300">Chart Replay</span>
+              <span className="text-[#94a3b8]">FX Replay</span>
+              <span className="text-[#94a3b8]">TradeZella</span>
+            </div>
+            {COMPARE_ROWS.map((r) => (
+              <div key={r.feature} className="rounded-xl border border-white/10 bg-[#0b101b] p-3">
+                <p className="text-sm font-semibold text-[#e2e8f0] mb-2.5">{r.feature}</p>
+                <div className="grid grid-cols-3 gap-1 text-center">
+                  <div className="rounded-lg bg-emerald-500/10 py-2"><CompareMark v={r.us} strong /></div>
+                  <div className="rounded-lg bg-white/[0.03] py-2"><CompareMark v={r.fx} /></div>
+                  <div className="rounded-lg bg-white/[0.03] py-2"><CompareMark v={r.tz} /></div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop: full table */}
+          <div className="hidden md:block rounded-2xl border border-white/10 bg-[#0b101b] overflow-x-auto">
             <table className="w-full min-w-[640px] text-left">
               <thead>
                 <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-[#94a3b8]">
@@ -557,7 +577,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
             ))}
           </div>
           <div className="mt-8 text-center">
-            <button onClick={() => openAuth('signup')} className="lp-btn-primary px-6">
+            <button onClick={() => openAuth('signup')} className="lp-btn-primary px-6 w-full sm:w-auto">
               <span>Start Free — No Card Needed</span>
               <ArrowRight className="w-4 h-4" />
             </button>

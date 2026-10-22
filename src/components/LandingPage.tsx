@@ -185,10 +185,10 @@ const COMPARE_ROWS: { feature: string; us: CompareCell; fx: CompareCell; tz: Com
 ];
 
 const CompareMark: React.FC<{ v: CompareCell; strong?: boolean }> = ({ v, strong }) => {
-  if (v === true) return <CheckCircle2 className={`w-5 h-5 mx-auto ${strong ? 'text-emerald-400' : 'text-emerald-500/80'}`} />;
+  if (v === true) return <CheckCircle2 className={`mx-auto ${strong ? 'w-6 h-6 text-emerald-300 drop-shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'w-5 h-5 text-emerald-500/70'}`} />;
   if (v === false) return <X className="w-5 h-5 mx-auto text-rose-500/70" />;
   if (v === 'partial') return <span className="text-xs font-semibold text-amber-400">Limited</span>;
-  return <span className={`text-xs sm:text-sm font-bold ${strong ? 'text-emerald-300' : 'text-[#cbd5e1]'}`}>{v}</span>;
+  return <span className={`font-bold ${strong ? 'text-sm sm:text-base font-black text-emerald-300' : 'text-xs sm:text-sm text-[#cbd5e1]'}`}>{v}</span>;
 };
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
@@ -518,18 +518,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
           {/* Feature table */}
           {/* Mobile: stacked feature cards */}
           <div className="md:hidden space-y-2.5">
-            <div className="grid grid-cols-3 gap-1 px-3 text-[10px] font-bold uppercase tracking-wider text-center">
-              <span className="text-emerald-300">Chart Replay</span>
-              <span className="text-[#94a3b8]">FX Replay</span>
-              <span className="text-[#94a3b8]">TradeZella</span>
+            <div className="text-center mb-1">
+              <span className="inline-block text-lg font-black text-white tracking-tight">Feature Comparison</span>
+              <p className="text-xs text-[#94a3b8]">What you get with each platform</p>
+            </div>
+            <div className="sticky top-14 z-10 grid grid-cols-3 gap-1.5 p-1.5 rounded-xl bg-[#0a0e17]/95 backdrop-blur border border-white/10 text-[10px] font-extrabold uppercase tracking-wider text-center">
+              <span className="py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 shadow-[0_0_16px_rgba(16,185,129,0.45)]">★ Chart Replay</span>
+              <span className="py-2 text-[#94a3b8]">FX Replay</span>
+              <span className="py-2 text-[#94a3b8]">TradeZella</span>
             </div>
             {COMPARE_ROWS.map((r) => (
               <div key={r.feature} className="rounded-xl border border-white/10 bg-[#0b101b] p-3">
                 <p className="text-sm font-semibold text-[#e2e8f0] mb-2.5">{r.feature}</p>
                 <div className="grid grid-cols-3 gap-1 text-center">
-                  <div className="rounded-lg bg-emerald-500/10 py-2"><CompareMark v={r.us} strong /></div>
-                  <div className="rounded-lg bg-white/[0.03] py-2"><CompareMark v={r.fx} /></div>
-                  <div className="rounded-lg bg-white/[0.03] py-2"><CompareMark v={r.tz} /></div>
+                  <div className="rounded-lg py-2 bg-gradient-to-b from-emerald-500/30 to-emerald-500/10 ring-1 ring-emerald-400/70 shadow-[0_0_14px_rgba(16,185,129,0.35)]"><CompareMark v={r.us} strong /></div>
+                  <div className="rounded-lg bg-white/[0.03] py-2 opacity-75"><CompareMark v={r.fx} /></div>
+                  <div className="rounded-lg bg-white/[0.03] py-2 opacity-75"><CompareMark v={r.tz} /></div>
                 </div>
               </div>
             ))}

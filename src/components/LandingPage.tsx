@@ -1,3 +1,4 @@
+import {LegalLinks,LegalDocumentKey} from './LegalLinks';
 ﻿import React, { useState } from 'react';
 import {
   ArrowRight,
@@ -25,6 +26,7 @@ export type LandingLaunchAction =
   | 'dashboard';
 
 interface LandingPageProps {
+  onOpenLegal?:(page:LegalDocumentKey)=>void;
   onLaunchTerminal: (initialAction?: LandingLaunchAction) => void;
   onOpenLogin: (mode?: 'login' | 'signup') => void;
   currentUser: { name: string; email: string } | null;
@@ -191,7 +193,7 @@ const CompareMark: React.FC<{ v: CompareCell; strong?: boolean }> = ({ v, strong
   return <span className={`font-bold ${strong ? 'text-sm sm:text-base font-black text-emerald-300' : 'text-xs sm:text-sm text-[#cbd5e1]'}`}>{v}</span>;
 };
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const scrollToSection = (id: string) => {
@@ -637,6 +639,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
             </button>
           </div>
         </div>
+        <div className="max-w-[1400px] mx-auto pt-4 flex flex-col sm:flex-row items-center justify-between gap-3"><p className="text-[11px] opacity-65">Technology for trader development · Simulated money only · Not a financial institution</p><LegalLinks onOpen={onOpenLegal}/></div>
       </footer>
     </div>
   );

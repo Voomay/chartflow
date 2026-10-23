@@ -39,6 +39,8 @@ export interface TourStep {
   placement?: TourPlacement;
   /** 'click' = advance when the user clicks the highlighted element. */
   advanceOn?: 'next' | 'click';
+  /** Allow editing the highlighted controls while advancing with Next. */
+  allowInteraction?: boolean;
   /** Hint shown for click steps, e.g. "Click Buy or Sell". */
   clickHint?: string;
   /** Silently skip this step if its target is not on screen. */
@@ -283,11 +285,9 @@ const sameBox = (a: Box | null, b: Box | null) =>
   Math.abs(a.height - b.height) < 0.5;
 
 const findTarget = (id: string): HTMLElement | null => {
-  const el = document.querySelector<HTMLElement>(`[data-tour="${id}"]`);
-  if (!el) return null;
-  const r = el.getBoundingClientRect();
-  if (r.width <= 0 || r.height <= 0) return null;
-  return el;
+  return Array.from(document.querySelectorAll<HTMLElement>(`[data-tour="${id}"]`)).find(el=>{
+    const rect=el.getBoundingClientRect();return rect.width>0&&rect.height>0;
+  }) || null;
 };
 
 export const GuidedTour: React.FC<GuidedTourProps> = ({
@@ -472,6 +472,7 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
+      if(document.querySelector('dialog[open]'))return;
       if (e.key === 'Escape') {
         e.preventDefault();
         handleSkip();
@@ -629,7 +630,7 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({
           width: Math.max(0, vw - hole.left - hole.width),
           height: hole.height,
         },
-        ...(isClickStep ? [] : [hole]),
+        ...(isClickStep || step.allowInteraction ? [] : [hole]),
       ]
     : [{ top: 0, left: 0, width: vw, height: vh }];
 

@@ -493,9 +493,9 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
 
   return (
     <div className="dark-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 select-none">
-      <div className="w-full max-w-[860px] max-h-[92vh] bg-[#101216] border border-[#24272f] rounded-2xl shadow-[0_25px_90px_rgba(0,0,0,0.95)] flex flex-col overflow-hidden text-[#f3f4f6] font-sans">
+      <div role="dialog" aria-modal="true" aria-label="Create or manage trading sessions" className="session-gradient-shell w-full max-w-[860px] max-h-[92vh] bg-[#101216] border border-[#24272f] rounded-2xl shadow-[0_25px_90px_rgba(0,0,0,0.95)] flex flex-col overflow-hidden text-[#f3f4f6] font-sans">
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-[#22252d] bg-[#14171c] flex items-center justify-between gap-3 shrink-0">
+        <div className="session-gradient-header px-6 py-4 border-b border-[#22252d] bg-[#14171c] flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-[#1e222a] border border-[#2e333d] flex items-center justify-center text-emerald-400 font-black text-xs">
               FX
@@ -548,7 +548,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
         </div>
 
         {/* Main Body */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 bg-[#101216]">
+        <div className="session-gradient-body flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 bg-[#101216]">
           {activeView === 'saved_sessions' ? (
             /* SAVED SESSIONS LIST */
             <div className="space-y-3">
@@ -666,7 +666,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
             /* STREAMLINED SINGLE-PAGE SETUP */
             <>
               {/* STEP 1: MODE SELECTOR */}
-              <div className="space-y-2">
+              <div data-tour="setup-mode" className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 font-mono text-[11px] font-bold flex items-center justify-center">
                     1
@@ -753,7 +753,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
             </div>
 
               {/* STEP 2: TARGET MARKET SELECTION */}
-              <div className="p-4 rounded-xl bg-[#14171c] border border-[#24272f] space-y-3">
+              <div data-tour="setup-market" className="p-4 rounded-xl bg-[#14171c] border border-[#24272f] space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <label className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
@@ -872,7 +872,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
               </div>
 
               {/* STEP 3: HISTORICAL DATE & TIME SELECTION ("WHEN TO TRADE FROM") */}
-              <div className="p-4 rounded-xl bg-[#14171c] border border-[#24272f] space-y-3.5">
+              <div data-tour="setup-schedule" className="p-4 rounded-xl bg-[#14171c] border border-[#24272f] space-y-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <label className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
@@ -971,7 +971,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
               </div>
 
               {/* STEP 4: ACCOUNT BALANCE & SESSION DETAILS */}
-              <div className="p-4 rounded-xl bg-[#14171c] border border-[#24272f] space-y-3.5">
+              <div data-tour="setup-details" className="p-4 rounded-xl bg-[#14171c] border border-[#24272f] space-y-3.5">
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
                   {/* Starting Balance */}
                   <div className="sm:col-span-7 space-y-1.5">
@@ -1690,7 +1690,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-[#22252d] bg-[#14171c] flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="session-gradient-footer px-6 py-4 border-t border-[#22252d] bg-[#14171c] flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="text-xs text-[#8b92a5] flex flex-wrap items-center gap-2">
             <span className="font-semibold text-white">
               {mode === 'PROP_FIRM' ? propFirmRules.firmName : 'Normal Backtest'}

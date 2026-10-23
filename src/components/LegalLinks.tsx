@@ -1,0 +1,3 @@
+import React from 'react';
+export type LegalDocumentKey='terms'|'privacy'|'popia';
+export const LegalLinks:React.FC<{onOpen?:(page:LegalDocumentKey)=>void;className?:string}>=({onOpen,className=''})=><nav aria-label="Legal information" className={`flex flex-wrap gap-x-3 gap-y-2 text-[10px] ${className}`}>{([{id:'terms',label:'Terms & Conditions'},{id:'privacy',label:'Privacy Policy'},{id:'popia',label:'POPIA'}] as const).map(page=><a key={page.id} href={`?legal=${page.id}`} onClick={onOpen?event=>{event.preventDefault();onOpen(page.id);}:undefined} className="opacity-65 hover:opacity-100 hover:text-emerald-400 transition-colors">{page.label}</a>)}</nav>;

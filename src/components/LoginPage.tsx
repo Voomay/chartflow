@@ -1,3 +1,4 @@
+import {LegalLinks,LegalDocumentKey} from './LegalLinks';
 import React, { useEffect, useState } from 'react';
 import { ChartReplayLogo } from './ChartReplayLogo';
 import { PlatformPreview } from './LandingExtras';
@@ -27,6 +28,7 @@ export interface ChartFlowUser {
 }
 
 interface LoginPageProps {
+  onOpenLegal?:(page:LegalDocumentKey)=>void;
   initialMode?: 'login' | 'signup' | 'reset';
   currentUser: ChartFlowUser | null;
   onSuccessAuth: (user: ChartFlowUser) => void;
@@ -39,6 +41,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   initialMode = 'login',
   onSuccessAuth,
   onBackToLanding,
+  onOpenLegal,
 }) => {
   const [mode, setMode] = useState<'login' | 'signup' | 'reset'>(initialMode);
   const [name, setName] = useState('');
@@ -398,6 +401,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <Zap className="w-3.5 h-3.5 text-emerald-400" />
             <span>Sign in as Guest</span>
           </button>
+          <p className="text-[10px] text-slate-500 mt-5 text-center">Technology for learning · Simulated money only</p><LegalLinks onOpen={onOpenLegal} className="justify-center mt-3 text-slate-400"/>
         </div>
       </div>
     </div>

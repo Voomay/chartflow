@@ -1,3 +1,4 @@
+import {computeTradeStreaks} from './tradeStreaks';
 import {
   AccountCurrency,
   BacktestPosition,
@@ -598,6 +599,8 @@ export interface ComputedAnalyticsReport {
   longestWinStreak: number;
   longestLossStreak: number;
   currentStreak: number;
+  currentLossStreak: number;
+  losingStreakCount: number;
   avgHoldingTimeSeconds: number | null; // null when totalClosedTrades === 0
   totalTradingCosts: number;
   // Series for charts
@@ -840,26 +843,7 @@ export function computeAnalyticsReport(
         )
       : null;
 
-  // Streaks
-  let longestWinStreak = 0;
-  let longestLossStreak = 0;
-  let currentStreak = 0;
-  let tempW = 0;
-  let tempL = 0;
-
-  for (const t of filteredClosedTrades) {
-    if (t.pnl > 0.005) {
-      tempW += 1;
-      tempL = 0;
-      currentStreak = tempW;
-      if (tempW > longestWinStreak) longestWinStreak = tempW;
-    } else if (t.pnl < -0.005) {
-      tempL += 1;
-      tempW = 0;
-      currentStreak = -tempL;
-      if (tempL > longestLossStreak) longestLossStreak = tempL;
-    }
-  }
+  const {longestWinStreak,longestLossStreak,currentStreak,currentLossStreak,losingStreakCount}=computeTradeStreaks(filteredClosedTrades);
 
   // Average Holding Time
   const holdingDurations = filteredClosedTrades
@@ -1171,6 +1155,8 @@ export function computeAnalyticsReport(
     longestWinStreak,
     longestLossStreak,
     currentStreak,
+    currentLossStreak,
+    losingStreakCount,
     avgHoldingTimeSeconds,
     totalTradingCosts,
     equityCurve,
@@ -1345,7 +1331,7 @@ export function deleteUserAccount(userEmail: string): boolean {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && (key.startsWith(prefix) || key.includes(cleanEmail.replace(/[^a-z0-9]/g, '_')))) {
+      if (key && (key.startsWith(prefix) || key.includes(cleanEmail.replace(/[^a-z0-9]/g, '_')) || key===`chart_flow_balance_hidden_v1:${cleanEmail}` || key===`chartflow_workspace_tour_v1:${encodeURIComponent(cleanEmail)}`)) {
         keysToRemove.push(key);
       }
     }

@@ -1,3 +1,6 @@
+import {BalanceBadge} from './components/BalanceBadge';
+import {LegalPage} from './components/LegalPage';
+import {LegalDocumentKey} from './components/LegalLinks';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MotivationWelcome } from './components/MotivationWelcome';
 import { resetMotivationVisit } from './services/motivation';
@@ -106,15 +109,17 @@ export function App() {
         joinedAt: saved.joinedAt,
       };
     }
-    return {
-      name: 'Alex Mercer',
-      email: 'trader@chartflow.io',
-      plan: 'FREE_FOREVER',
-      joinedAt: '2026-10-01',
-    };
+    return null;
   });
 
   const userEmail = currentUser?.email || 'trader@chartflow.io';
+  const readLegalPage=():LegalDocumentKey|null=>{const page=new URLSearchParams(window.location.search).get('legal');return page==='terms'||page==='privacy'||page==='popia'?page:null;};
+  const [legalPage,setLegalPage]=useState<LegalDocumentKey|null>(readLegalPage);
+  useEffect(()=>{const back=()=>setLegalPage(readLegalPage());window.addEventListener('popstate',back);return()=>window.removeEventListener('popstate',back);},[]);
+  const [balanceHidden,setBalanceHidden]=useState(false);
+  useEffect(()=>{try{setBalanceHidden(localStorage.getItem(`chart_flow_balance_hidden_v1:${userEmail}`)==='true');}catch{setBalanceHidden(false);}},[userEmail]);
+  const toggleBalance=()=>setBalanceHidden(previous=>{const next=!previous;try{localStorage.setItem(`chart_flow_balance_hidden_v1:${userEmail}`,String(next));}catch{}return next;});
+
 
   // 2. View Navigation State (persisted so refresh resumes accurately)
   const [activeView, setActiveView] = useState<
@@ -1170,10 +1175,15 @@ export function App() {
     }
   }, []);
 
+  const openLegal=(page:LegalDocumentKey)=>{const url=new URL(window.location.href);url.searchParams.set('legal',page);window.history.pushState({},'',url);setLegalPage(page);};
+  const closeLegal=()=>{const url=new URL(window.location.href);url.searchParams.delete('legal');window.history.pushState({},'',url);setLegalPage(null);};
+  const signOut=()=>{setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
+  if(legalPage)return <LegalPage page={legalPage} onNavigate={openLegal} onBack={closeLegal}/>;
+
   // VIEW 1: LANDING PAGE (HOMEPAGE)
   if (activeView === 'landing') {
     return (
-      <LandingPage
+      <LandingPage onOpenLegal={openLegal}
         onLaunchTerminal={(action) => {
           if (action === 'prop_firm') {
             setCreateSessionModalMode('PROP_FIRM');
@@ -1211,7 +1221,7 @@ export function App() {
   // VIEW 2: LOGIN / REGISTRATION / PASSWORD RESET
   if (activeView === 'login' || !currentUser) {
     return (
-      <LoginPage
+      <LoginPage onOpenLegal={openLegal}
         initialMode={loginInitialMode}
         onSuccessAuth={(user: ChartFlowUser) => {
           resetMotivationVisit(user.email);
@@ -1271,6 +1281,8 @@ export function App() {
           onStartNewChallengeAttempt={(sessId, targetPhase) =>
             handleStartNewChallengeAttempt(sessId, targetPhase)
           }
+          isSessionSetupOpen={isCreateSessionModalOpen}
+          onCloseSessionSetup={()=>setIsCreateSessionModalOpen(false)}
           onOpenCreateSessionModal={(mode) => {
             setCreateSessionModalMode(mode || 'BACKTESTING');
             setIsCreateSessionModalOpen(true);
@@ -1278,6 +1290,7 @@ export function App() {
           onSaveJournalEntry={(sessId, tradeId, entry) =>
             handleSaveJournalEntry(tradeId, entry, sessId)
           }
+          onOpenLegal={openLegal}
           strategies={strategies}
           onSaveStrategies={(nextStrategies) => {
             setStrategies(nextStrategies);
@@ -1292,11 +1305,7 @@ export function App() {
             setActiveView('login');
             showToast('Account and all associated session data permanently deleted.', 'info');
           }}
-          onLogout={() => {
-            setActiveLoggedInUser(null);
-            setCurrentUser(null);
-            setActiveView('login');
-          }}
+          onLogout={signOut}
           theme={theme}
           onToggleTheme={() =>
             setTheme((t) => (t === 'light' ? 'dark' : 'light'))
@@ -1436,6 +1445,10 @@ export function App() {
         onOpenLogin={() => setActiveView('login')}
         currentUser={currentUser}
         activeSession={activeSession}
+        balanceHidden={balanceHidden}
+        onToggleBalance={toggleBalance}
+        onChangeTimezone={timezone=>updateActiveSession(session=>({...session,displayTimezone:timezone}))}
+        onLogout={signOut}
         liveBalance={liveMetrics.currentBalance}
         liveEquity={liveMetrics.currentEquity}
         onOpenCreateSession={() => setIsCreateSessionModalOpen(true)}
@@ -1724,6 +1737,7 @@ export function App() {
               isChartFullscreen={isChartWideMode}
               onToggleChartFullscreen={() => setIsChartWideMode((v) => !v)}
               theme={theme}
+              displayTimezone={activeSession.displayTimezone||'UTC'}
               candleStyle={candleStyle}
               onSelectCandleStyle={setCandleStyle}
               customCandleColors={customCandleColors}
@@ -1733,10 +1747,10 @@ export function App() {
               hideDrawings={hideDrawings}
               magnetMode={magnetMode}
               atr14={atr14}
-              mobileTradeControls={isMobile && !showRightWidget ? (<div className="flex flex-wrap items-center gap-1.5">
+              mobileTradeControls={isMobile && !showRightWidget ? (<div role="toolbar" aria-label="Mobile trading actions" className="flex flex-col items-center gap-2">
             <button
               onClick={() => setShowMobileTools((v) => !v)}
-              className={`h-9 px-2.5 rounded-lg text-white text-[10px] font-bold border border-white/10 transition ${
+              className={`w-12 h-12 shrink-0 rounded-full text-white text-[10px] font-bold shadow-lg transition ${
                 showMobileTools ? 'bg-amber-500 text-slate-950 ring-2 ring-white' : 'bg-[#2962ff]'
               }`}
             >
@@ -1760,47 +1774,22 @@ export function App() {
                     isLong ? 'up' : 'down'
                   );
                 }}
-                className={`min-w-[76px] h-10 px-2 rounded-lg text-white text-[10px] font-bold flex flex-col items-center justify-center active:scale-95 transition ${
+                className={`w-12 h-12 shrink-0 rounded-full text-white text-[11px] font-extrabold shadow-lg flex items-center justify-center active:scale-95 transition ${
                   side === 'LONG' ? 'bg-emerald-600' : 'bg-rose-600'
                 }`}
               >
-                <span className="font-mono text-[11px]">{(side==='LONG'?getBidAskFromMid(currentMidPrice,symbol,activeSession).ask:getBidAskFromMid(currentMidPrice,symbol,activeSession).bid).toFixed(getEffectiveInstrumentSpec(symbol,activeSession).decimals)}</span><span>{side === 'LONG' ? 'BUY' : 'SELL'}</span>
+                {side === 'LONG' ? 'BUY' : 'SELL'}
               </button>
             ))}
             <button
               onClick={() => setShowRightWidget(true)}
-              className="h-9 px-2.5 rounded-lg bg-[#161920] border border-emerald-500/40 text-white text-[10px] font-bold flex items-center justify-center gap-1 active:scale-95 transition"
+              className="w-12 h-12 shrink-0 rounded-full bg-[#161920] border-2 border-emerald-500/70 text-white text-[9px] font-extrabold leading-tight shadow-lg flex flex-col items-center justify-center active:scale-95 transition"
             >
-              <span>Order</span>
+              <span>Place</span><span>Order</span>
             </button>
           </div>) : undefined}
-              mobileAccountSummary={
-                isMobile ? (
-                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border border-[#2a2e39] bg-[#131722]/90 backdrop-blur-md text-[11px] font-mono shadow-sm">
-                    <span>
-                      <span className="opacity-60 font-sans font-bold text-[9px] mr-1">BAL</span>
-                      <span className="font-bold text-white">
-                        ${liveMetrics.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </span>
-                    <span className="w-px h-3 bg-gray-500/40" />
-                    <span>
-                      <span className="opacity-60 font-sans font-bold text-[9px] mr-1">EQ</span>
-                      <span
-                        className={`font-bold ${
-                          liveMetrics.currentEquity > liveMetrics.currentBalance + 0.01
-                            ? 'text-emerald-400'
-                            : liveMetrics.currentEquity < liveMetrics.currentBalance - 0.01
-                            ? 'text-rose-400'
-                            : 'text-white'
-                        }`}
-                      >
-                        ${liveMetrics.currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </span>
-                  </div>
-                ) : undefined
-              }
+              mobileAccountSummary={isMobile?<BalanceBadge balance={liveMetrics.currentBalance} equity={liveMetrics.currentEquity} currency={activeSession.accountCurrency||'USD'} hidden={balanceHidden} onToggle={toggleBalance} isLight={theme==='light'} className="inline-flex"/>:undefined}
+
             />
           </div>
 
@@ -1893,7 +1882,8 @@ export function App() {
                   isChartFullscreen={false}
                   onToggleChartFullscreen={() => {}}
                   theme={theme}
-                  candleStyle={candleStyle}
+                  displayTimezone={activeSession.displayTimezone||'UTC'}
+              candleStyle={candleStyle}
                   onSelectCandleStyle={setCandleStyle}
                   customCandleColors={customCandleColors}
                   onChangeCustomCandleColors={setCustomCandleColors}
@@ -1908,7 +1898,7 @@ export function App() {
           )}
         </div>
 
-        {!isChartWideMode && (!isMobile || !showRightWidget) && <button
+        {!isChartWideMode && !isMobile && <button
           type="button"
           aria-label={showRightWidget ? 'Collapse order panel' : 'Expand order panel'}
           aria-expanded={showRightWidget}

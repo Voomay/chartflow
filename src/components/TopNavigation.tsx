@@ -1,3 +1,5 @@
+import {createPortal} from 'react-dom';
+import {BalanceBadge} from './BalanceBadge';
 import React, { useState, useRef, useLayoutEffect } from 'react';
 import { ChartReplayMark } from './ChartReplayLogo';
 import {
@@ -20,12 +22,14 @@ import {
   Sun,
   Trophy,
   User,
+  LogOut,
   Wallet,
   X,
   Zap,
 } from 'lucide-react';
 import {
   CandleColorStyle,
+  DisplayTimezone,
   CustomCandleColors,
   InstrumentCategory,
   InstrumentSymbol,
@@ -91,6 +95,10 @@ interface TopNavigationProps {
   onOpenGuide?: () => void;
   onOpenSettings?: () => void;
   onStartTour?: () => void;
+  onLogout?:()=>void;
+  balanceHidden?:boolean;
+  onToggleBalance?:()=>void;
+  onChangeTimezone?:(timezone:DisplayTimezone)=>void;
 }
 
 const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M'];
@@ -143,6 +151,10 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   onOpenGuide,
   onOpenSettings,
   onStartTour,
+  onLogout,
+  balanceHidden=false,
+  onToggleBalance=()=>{},
+  onChangeTimezone,
 }) => {
   const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false);
   const [isCandleMenuOpen, setIsCandleMenuOpen] = useState(false);
@@ -175,6 +187,15 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
     return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); window.removeEventListener('keydown', escape); };
   }, [isTimeframeMenuOpen]);
 
+  const candleButtonRef=useRef<HTMLButtonElement>(null);
+  const [candleMenuPosition,setCandleMenuPosition]=useState({left:8,top:48});
+  useLayoutEffect(()=>{
+    if(!isCandleMenuOpen)return;
+    const place=()=>{const rect=candleButtonRef.current?.getBoundingClientRect();if(rect)setCandleMenuPosition({left:Math.max(8,Math.min(rect.left,window.innerWidth-280)),top:rect.bottom+8});};
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')setIsCandleMenuOpen(false);};
+    place();window.addEventListener('resize',place);window.addEventListener('scroll',place,true);window.addEventListener('keydown',escape);
+    return()=>{window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);window.removeEventListener('keydown',escape);};
+  },[isCandleMenuOpen]);
   const dividerBg = isLight ? 'bg-[#e0e3eb]' : 'bg-[#262a34]';
 
   const filteredInstruments = INSTRUMENTS.filter((inst) => {
@@ -352,10 +373,15 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
             </span>
           </div>
 
+          {onChangeTimezone && <label className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] shrink-0 ${cardBg}`} title="Change chart time zone"><Clock className="w-3 h-3 text-emerald-500"/><select aria-label="Chart time zone" value={displayTz} onChange={event=>onChangeTimezone(event.target.value as DisplayTimezone)} className="bg-transparent outline-none max-w-[100px]">{([{value:'UTC',label:'UTC'},{value:'Europe/London',label:'London'},{value:'America/New_York',label:'New York'},{value:'Africa/Johannesburg',label:'South Africa'},{value:'Europe/Prague',label:'Prague'},{value:'Asia/Tokyo',label:'Tokyo'},{value:'Australia/Sydney',label:'Sydney'}] as const).map(zone=><option key={zone.value} value={zone.value} className={isLight?'bg-white text-slate-900':'bg-[#161920] text-slate-100'}>{zone.label}</option>)}</select></label>}
+
           {/* Candle Color Picker */}
-          <div className="relative hidden xl:block shrink-0">
+          <div className="relative shrink-0">
             <button
-              onClick={() => setIsCandleMenuOpen((v) => !v)}
+              ref={candleButtonRef}
+              aria-label="Customize candle colors"
+              aria-expanded={isCandleMenuOpen}
+              onClick={() => {setIsTimeframeMenuOpen(false);setIsCandleMenuOpen((v) => !v);}}
               className={`flex items-center gap-1 px-1.5 py-1 rounded text-[11px] font-medium border transition whitespace-nowrap ${cardBg}`}
               title="Customize Candle Colors"
             >
@@ -372,9 +398,10 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
               </span>
             </button>
 
-            {isCandleMenuOpen && (
-              <div
-                className={`absolute left-0 top-9 w-64 rounded-xl border p-3 z-50 text-xs shadow-2xl space-y-2.5 ${
+            {isCandleMenuOpen && createPortal(<>
+              <button type="button" aria-label="Dismiss candle color menu" className="fixed inset-0 z-[70] cursor-default" onClick={()=>setIsCandleMenuOpen(false)} />
+              <div role="dialog" aria-label="Candle colors" style={{...candleMenuPosition,maxHeight:Math.max(180,window.innerHeight-candleMenuPosition.top-12)}}
+                className={`fixed w-64 overflow-y-auto rounded-xl border p-3 z-[71] text-xs shadow-2xl space-y-2.5 ${
                   isLight
                     ? 'bg-white border-[#d8dce6] text-[#131722]'
                     : 'bg-[#161920] border-[#282c35] text-[#d1d4dc]'
@@ -426,43 +453,15 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                     );
                   })}
                 </div>
+                <div className="border-t border-slate-500/20 pt-2 grid grid-cols-2 gap-2">{(['upColor','downColor'] as const).map(key=><label key={key} className="flex items-center justify-between gap-2 text-[10px]">{key==='upColor'?'Bullish':'Bearish'}<input aria-label={key==='upColor'?'Bullish candle color':'Bearish candle color'} type="color" value={customCandleColors[key]} onChange={event=>{onSelectCandleStyle('custom');onChangeCustomCandleColors({...customCandleColors,[key]:event.target.value});}} className="w-8 h-7 rounded bg-transparent cursor-pointer"/></label>)}</div>
               </div>
-            )}
+            </>,document.body)}
           </div>
         </div>
 
         {/* Center/Right: Account Balance & Equity + Data Status + Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          {/* Live Balance & Equity Display */}
-          <div
-            className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded border text-[11px] font-mono shrink-0 ${
-              isLight
-                ? 'bg-[#f8f9fd] border-[#d8dce6] text-[#131722]'
-                : 'bg-[#0d0f13] border-[#262a34] text-slate-200'
-            }`}
-            title="Live Session Balance & Equity (Updated on every 1m execution step)"
-          >
-            <div className="flex items-center gap-1">
-              <Wallet className="w-3 h-3 text-emerald-400 shrink-0" />
-              <span className="text-[9px] uppercase font-sans font-bold opacity-60">Bal:</span>
-              <span className="font-bold">{formatMoney(computedBalance, accountCurrency)}</span>
-            </div>
-            <div className={`h-3 w-px ${dividerBg}`} />
-            <div className="flex items-center gap-1">
-              <span className="text-[9px] uppercase font-sans font-bold opacity-60">Eq:</span>
-              <span
-                className={`font-bold ${
-                  floatingDiff > 0.01
-                    ? 'text-emerald-400'
-                    : floatingDiff < -0.01
-                    ? 'text-rose-400'
-                    : ''
-                }`}
-              >
-                {formatMoney(computedEquity, accountCurrency)}
-              </span>
-            </div>
-          </div>
+          <BalanceBadge balance={computedBalance} equity={computedEquity} currency={accountCurrency} hidden={balanceHidden} onToggle={onToggleBalance} isLight={isLight} className="hidden sm:flex" />
 
           {/* View Analytics Action */}
           {onOpenAnalyticsPage && (
@@ -485,21 +484,11 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
               title="Open Sessions & Account Dashboard"
             >
               <LayoutDashboard className="w-3.5 h-3.5 text-[#a0a7b8] shrink-0" />
-              <span className="hidden lg:inline">Dashboard</span>
+              <span className="hidden md:inline">Dashboard</span>
             </button>
           )}
 
-          {/* Settings Button */}
-          {onOpenSettings && (
-            <button
-              onClick={onOpenSettings}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${cardBg}`}
-              title="Open Account Profile & Simulator Settings"
-            >
-              <Settings className="w-3.5 h-3.5 text-[#a0a7b8] shrink-0" />
-              <span className="hidden xl:inline">Settings</span>
-            </button>
-          )}
+          <button onClick={currentUser?onLogout:onOpenLogin} aria-label={currentUser?'Log out':'Sign in'} title={currentUser?'Log out and return to homepage':'Sign in'} className={`flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-semibold whitespace-nowrap shrink-0 ${cardBg}`}><LogOut className="w-3.5 h-3.5"/><span className="hidden md:inline">{currentUser?'Log out':'Sign in'}</span></button>
 
           {/* Take the Tour (interactive spotlight walkthrough) */}
           {onStartTour && (
@@ -557,23 +546,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
             )}
           </button>
 
-          {/* User Account Button */}
-          <button
-            onClick={onOpenLogin}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${
-              currentUser
-                ? isLight
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                  : 'bg-[#181c24] border-[#2e3440] text-emerald-400'
-                : cardBg
-            }`}
-            title={currentUser ? `Account: ${currentUser.name}` : 'Account Login'}
-          >
-            <User className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden 2xl:inline">
-              {currentUser ? currentUser.name.split(' ')[0] : 'Account'}
-            </span>
-          </button>
+
         </div>
         </div>
       </header>

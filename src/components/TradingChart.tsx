@@ -1,3 +1,4 @@
+import {formatTimestampInTimezone} from '../services/simulationEngine';
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { TradeReactions } from './TradeReactions';
 import { computeForecast } from '../services/forecaster';
@@ -27,6 +28,7 @@ import {
   SessionConfig,
   ThemeMode,
   Timeframe,
+  DisplayTimezone,
   TradingSession,
 } from '../types/trading';
 import { computeEMASeries, computeVWAPSeries } from '../services/goldAnalyzer';
@@ -59,6 +61,7 @@ import { DRAWING_COLORS } from './LeftToolbar';
 import { CANDLE_PRESETS } from './TopNavigation';
 
 interface TradingChartProps {
+  displayTimezone?:DisplayTimezone;
   accountCurrency?: string;
   reactionScope?: string;
   reactionSession?: TradingSession;
@@ -363,6 +366,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   hideDrawings,
   magnetMode,
   atr14,
+  displayTimezone='UTC',
   mobileAccountSummary,
   mobileTradeControls,
   onTogglePositionBox,
@@ -532,6 +536,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const stateRef = useRef({
     symbol,
     instConfig,
+    displayTimezone,
     candles,
     timeframe,
     sessions,
@@ -574,6 +579,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   stateRef.current = {
     symbol,
     instConfig,
+    displayTimezone,
     candles,
     timeframe,
     sessions,
@@ -898,6 +904,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
     const {
       instConfig: currInst,
+      displayTimezone: currDisplayTimezone,
       candles: currCandles,
       timeframe: currTf,
       sessions: currSessions,
@@ -1956,11 +1963,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      const dateStr = new Date(currHover.time * 1000)
-        .toISOString()
-        .replace('T', ' ')
-        .slice(0, 16);
-      const cutLabel = `Click to Rewind (${dateStr} UTC)`;
+      const dateStr = formatTimestampInTimezone(currHover.time,currDisplayTimezone);
+      const cutLabel = `Click to Rewind (${dateStr} ${currDisplayTimezone})`;
       ctx.font = '500 10px JetBrains Mono, monospace';
       const cw = ctx.measureText(cutLabel).width + 14;
       const pillX = Math.min(chartPlotWidth - cw - 8, Math.max(8, currHover.x - cw / 2));
@@ -3418,6 +3422,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     yToPrice,
   ]);
 
+  useEffect(()=>{chartRef.current?.setTimezone(displayTimezone);drawOverlay();},[displayTimezone,drawOverlay]);
+
   // Apply White Mode (Light) vs Black Mode (Dark) + Candle Color Palette dynamically in KLineChart
   useEffect(() => {
     const chart = chartRef.current;
@@ -3790,13 +3796,15 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       />
 
       <div title={[feedLabel,dataMessage].filter(Boolean).join(' · ')} className="absolute bottom-0 inset-x-0 h-5 z-20 bg-inherit px-2 text-[9px] flex items-center gap-2 whitespace-nowrap overflow-hidden pointer-events-none">
-        <strong className="shrink-0">{isReplayMode ? 'REPLAY' : 'LIVE PAPER'} · UTC · {symbol}</strong>
+        <strong className="shrink-0">{isReplayMode ? 'REPLAY' : 'LIVE PAPER'} · {displayTimezone} · {symbol}</strong>
         {!isReplayMode && feedStatus && <span className="shrink-0">{feedStatus}</span>}
         {onLoadOlderHistory && candles.length>0 && <button type="button" aria-label="Load older chart history" title="Load earlier history; scrolling to the left edge also loads older bars" disabled={manualHistoryBusy} onClick={async()=>{setManualHistoryBusy(true);try{await onLoadOlderHistory(timeframe,candles[0].time);}finally{setManualHistoryBusy(false);}}} className="pointer-events-auto shrink-0 rounded px-1 text-slate-400 hover:bg-white/10 hover:text-emerald-400 disabled:opacity-40">‹</button>}
-        {candles.length>0 && <span aria-label="Loaded chart history" className="shrink-0 text-slate-400">{new Date(candles[0].time*1000).toISOString().slice(0,10)} → {new Date(candles[candles.length-1].time*1000).toISOString().slice(0,10)}</span>}
-        <span className="truncate">{dataMessage || feedLabel}{candles.length > 0 ? ' · Candle opens ' + new Date(candles[candles.length - 1].time * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : ''}</span>
+        {candles.length>0 && <span aria-label="Loaded chart history" className="shrink-0 text-slate-400">{formatTimestampInTimezone(candles[0].time,displayTimezone).slice(0,10)} → {formatTimestampInTimezone(candles[candles.length-1].time,displayTimezone).slice(0,10)}</span>}
+        <span className="truncate">{dataMessage || feedLabel}{candles.length > 0 ? ' · Candle opens ' + formatTimestampInTimezone(candles[candles.length - 1].time,displayTimezone,true) + ' ' + displayTimezone : ''}</span>
         {dataMessage && onGoToNextAvailableBar && <button type="button" onClick={onGoToNextAvailableBar} className="pointer-events-auto shrink-0 text-amber-400 hover:underline">Next available bar</button>}
       </div>
+
+      {mobileTradeControls && <div className="absolute right-2 top-[calc(50%+112px)] -translate-y-1/2 z-30 pointer-events-auto">{mobileTradeControls}</div>}
 
       <TradeReactions key={`${reactionScope}:${symbol}`} positions={positions} currency={accountCurrency} isLight={isLight} anchorRef={reactionAnchorRef} midPrice={marketPrice ?? candles[candles.length - 1]?.close} symbol={symbol} session={reactionSession} />
 
@@ -3891,8 +3899,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               </span>
             </div>
           </div>
-
-          {mobileTradeControls && <div className="pointer-events-auto">{mobileTradeControls}</div>}
 
           {/* Row 2: TradingView One-Click SELL / BUY Floating Buttons + KLineChart Overlays & Sub-Panes */}
           <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
@@ -5452,7 +5458,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               ? 'bg-white hover:bg-[#f0f3fa] border-[#e0e3eb] text-[#131722]'
               : 'bg-[#1e222d]/90 hover:bg-[#262b38] border-[#2a2e39] text-gray-300'
           }`}
-          title="Show today’s latest provider candles and refresh every 5 seconds (UTC axis)"
+          title="Show today’s latest provider candles and refresh every 5 seconds in the selected chart time zone"
         >
           <Clock className="w-3 h-3 text-emerald-500" />
           <span>Present</span>

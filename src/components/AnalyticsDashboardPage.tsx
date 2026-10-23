@@ -1,3 +1,6 @@
+import {LegalLinks,LegalDocumentKey} from './LegalLinks';
+import { WorkspaceTour } from './WorkspaceTour';
+import { PerformanceOverview } from './PerformanceOverview';
 import { DashboardOverview } from './DashboardOverview';
 import { StrategyNotes } from './StrategyNotes';
 import { MotivationPreference } from './MotivationWelcome';
@@ -69,6 +72,7 @@ export type HubSidebarSection =
   | 'settings';
 
 interface AnalyticsDashboardPageProps {
+  onOpenLegal?:(page:LegalDocumentKey)=>void;
   activeSession: TradingSession;
   sessions: TradingSession[];
   onSelectSessionAndResume: (sessionId: string) => void;
@@ -82,6 +86,8 @@ interface AnalyticsDashboardPageProps {
     sessionId: string,
     targetPhase?: 'PHASE_1' | 'PHASE_2'
   ) => void;
+  isSessionSetupOpen?: boolean;
+  onCloseSessionSetup?: ()=>void;
   onOpenCreateSessionModal: (mode?: 'BACKTESTING' | 'PROP_FIRM') => void;
   onSaveJournalEntry?: (
     sessionId: string,
@@ -103,6 +109,7 @@ interface AnalyticsDashboardPageProps {
 
 export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   activeSession,
+  onOpenLegal,
   sessions,
   onSelectSessionAndResume,
   onSelectSessionForAnalytics,
@@ -110,6 +117,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   onUpdateSessionSettings,
   onStartNewChallengeAttempt,
   onOpenCreateSessionModal,
+  isSessionSetupOpen=false,
+  onCloseSessionSetup=()=>{},
   strategies = [],
   onSaveStrategies,
   currentUser,
@@ -128,6 +137,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   const [deleteAccountInput, setDeleteAccountInput] = useState('');
   const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
   const [deleteStrategyId, setDeleteStrategyId] = useState<string | null>(null);
+  const [sessionSearch,setSessionSearch]=useState('');
   const [strategySearch, setStrategySearch] = useState('');
   const [sidebarSection, setSidebarSection] =
     useState<HubSidebarSection>(initialSection);
@@ -147,6 +157,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   const [editSessionName, setEditSessionName] = useState('');
   const [editSessionStrategy, setEditSessionStrategy] = useState('');
   const [editSessionDesc, setEditSessionDesc] = useState('');
+
+  const [analyticsRange,setAnalyticsRange]=useState('ALL');
 
   // Analytics Filters State
   const [filters, setFilters] = useState<AnalyticsFilterState>({
@@ -332,10 +344,10 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
     [sessions]
   );
   const displayedDashboardSessions = useMemo(() => {
-    if (dashboardModeTab === 'BACKTESTING') return normalSessions;
-    if (dashboardModeTab === 'PROP_FIRM') return propSessions;
-    return sessions;
-  }, [dashboardModeTab, normalSessions, propSessions, sessions]);
+    const modeSessions=dashboardModeTab==='BACKTESTING'?normalSessions:dashboardModeTab==='PROP_FIRM'?propSessions:sessions;
+    const query=sessionSearch.trim().toLowerCase();
+    return query?modeSessions.filter(session=>[session.name,session.strategyName,...session.assets].join(' ').toLowerCase().includes(query)):modeSessions;
+  }, [dashboardModeTab, normalSessions, propSessions, sessions, sessionSearch]);
 
   const renderSidebarContent = () => (
     <div className="h-full flex flex-col justify-between overflow-y-auto">
@@ -373,7 +385,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         </div>
 
         {/* Primary Action: Create Session */}
-        <button
+        <button data-tour="hub-create"
           onClick={() => {
             setMobileMenuOpen(false);
             onOpenCreateSessionModal();
@@ -430,6 +442,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             return (
               <button
                 key={item.id}
+                data-tour={`hub-nav-${item.id}`}
                 aria-current={active ? 'page' : undefined}
                 onClick={() => {
                   setSidebarSection(item.id);
@@ -482,12 +495,13 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             )}
           </div>
         )}
+        <LegalLinks onOpen={onOpenLegal} className="pt-2"/>
       </div>
     </div>
   );
 
   return (
-    <div className={`h-screen w-screen flex overflow-hidden hub-modern ${bgMain}`}>
+    <div data-hub-theme={isLight?'light':'dark'} className={`h-screen w-screen flex overflow-hidden hub-modern ${bgMain}`}>
       {/* DESKTOP SIDEBAR */}
       <aside className={`hidden md:flex w-64 border-r flex-col justify-between shrink-0 ${sidebarBg}`}>
         {renderSidebarContent()}
@@ -539,6 +553,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            <WorkspaceTour userKey={currentUser?.email||'guest'} name={currentUser?.name} section={sidebarSection} isSessionSetupOpen={isSessionSetupOpen} onNavigate={section=>{setSidebarSection(section);setMobileMenuOpen((section==='analytics'||section==='notes') && window.matchMedia('(max-width:767px)').matches);}} onOpenSessionSetup={()=>onOpenCreateSessionModal('BACKTESTING')} onCloseSessionSetup={onCloseSessionSetup} />
             {onToggleTheme && (
               <button
                 onClick={onToggleTheme}
@@ -558,7 +573,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 )}
               </button>
             )}
-            <button
+            <button data-tour="hub-chart"
               onClick={onReturnToChart}
               className="px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow transition shrink-0"
             >
@@ -573,32 +588,32 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         {(sidebarSection === 'dashboard' || sidebarSection === 'sessions') && (
           <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
             {sidebarSection === 'dashboard' && (
-              <DashboardOverview name={currentUser?.name} sessions={sessions} strategyCount={strategies.length} isLight={isLight} onResume={onReturnToChart} onCreate={onOpenCreateSessionModal} onNotes={()=>setSidebarSection('notes')} onGuide={()=>setSidebarSection('guide')} />
+              <DashboardOverview name={currentUser?.name} sessions={sessions} activeSession={activeSession} strategyCount={strategies.length} isLight={isLight} onResume={onReturnToChart} onCreate={onOpenCreateSessionModal} onNotes={()=>setSidebarSection('notes')} onGuide={()=>setSidebarSection('guide')} />
             )}
             <div className="flex items-end justify-between gap-3 pt-2">
               <div><h2 className="text-base font-semibold tracking-tight">{sidebarSection==='dashboard'?'Your sessions':'All sessions'}</h2><p className="text-xs opacity-50 mt-1">Pick up where you left off.</p></div>
-              <span className="text-[10px] uppercase tracking-wider opacity-45">Simulated trading</span>
+              <label className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${subCardBg}`}><Search className="w-4 h-4 opacity-50"/><input aria-label="Search sessions" value={sessionSearch} onChange={event=>setSessionSearch(event.target.value)} placeholder="Search sessions..." className="bg-transparent outline-none w-28 sm:w-44"/></label>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 {(
                   [
                     { id: 'ALL', label: `All Sessions (${sessions.length})` },
                     {
                       id: 'BACKTESTING',
-                      label: `Normal Backtesting (${normalSessions.length})`,
+                      label: `Backtesting (${normalSessions.length})`,
                     },
                     {
                       id: 'PROP_FIRM',
-                      label: `Prop Firm Challenges (${propSessions.length})`,
+                      label: `Prop challenges (${propSessions.length})`,
                     },
                   ] as const
                 ).map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setDashboardModeTab(tab.id)}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition ${
+                    className={`px-3.5 py-1.5 rounded-full whitespace-nowrap text-xs font-semibold border transition ${
                       dashboardModeTab === tab.id
                         ? 'bg-[#252a34] text-white border-[#3a404f]'
                         : `${subCardBg} opacity-75 hover:opacity-100`
@@ -618,7 +633,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             </div>
 
             {/* Sessions Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {displayedDashboardSessions.map((sess) => {
                 const metrics = computeLiveSessionMetrics(sess);
                 const isProp = sess.mode === 'PROP_FIRM';
@@ -646,7 +661,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 return (
                   <div
                     key={sess.id}
-                    className={`p-4 sm:p-5 rounded-2xl border flex flex-col justify-between space-y-4 transition-colors hover:border-emerald-500/30 ${
+                    className={`hub-session-card p-4 sm:p-5 rounded-2xl border flex flex-col justify-between space-y-4 transition-colors hover:border-emerald-500/30 ${
                       status === 'FAILED'
                         ? 'border-rose-500/60 ring-1 ring-rose-500/20'
                         : isCurrent
@@ -877,8 +892,9 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         {/* SECTION 9: ANALYTICS VIEW */}
         {sidebarSection === 'analytics' && (
           <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
+            <div><h2 className="text-2xl lg:text-3xl font-semibold tracking-tight">Performance analytics</h2><p className="text-sm opacity-60 mt-2">Understand your edge. Improve every session.</p></div>
             {/* Filters Bar */}
-            <div className={`p-4 rounded-2xl border space-y-3 ${cardBg}`}>
+            <div className="hub-surface p-4 rounded-2xl space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider">
                   <Filter className="w-4 h-4 text-[#2962ff]" />
@@ -904,6 +920,13 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Session</span><select aria-label="Analytics session" value={filters.sessionId} onChange={event=>setFilters(previous=>({...previous,sessionId:event.target.value}))} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="ALL">All sessions</option>{sessions.map(session=><option key={session.id} value={session.id}>{session.name}</option>)}</select></label>
+                <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Instrument</span><select aria-label="Analytics instrument" value={filters.instrument} onChange={event=>setFilters(previous=>({...previous,instrument:event.target.value as AnalyticsFilterState['instrument']}))} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="ALL">All instruments</option>{INSTRUMENTS.map(instrument=><option key={instrument.symbol} value={instrument.symbol}>{instrument.symbol}</option>)}</select></label>
+                <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Date range · UTC</span><select aria-label="Analytics date range" value={!filters.dateFrom&&!filters.dateTo&&analyticsRange!=='CUSTOM'?'ALL':analyticsRange} onChange={event=>{const range=event.target.value;setAnalyticsRange(range);if(range==='CUSTOM')return;const today=new Date().toISOString().slice(0,10);setFilters(previous=>({...previous,dateFrom:range==='ALL'?'':new Date(Date.now()-(Number(range)-1)*86400000).toISOString().slice(0,10),dateTo:range==='ALL'?'':today}));}} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="ALL">All time</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 365 days</option><option value="CUSTOM">Custom dates</option></select></label>
+              </div>
+              {analyticsRange==='CUSTOM'&&<div className="flex flex-wrap gap-3 text-xs">{(['dateFrom','dateTo'] as const).map(field=><label key={field} className="flex items-center gap-2"><span className="opacity-60">{field==='dateFrom'?'From':'To'}</span><input aria-label={field==='dateFrom'?'Analytics from date':'Analytics to date'} type="date" value={filters[field]} onChange={event=>setFilters(previous=>({...previous,[field]:event.target.value}))} className={`rounded-lg border px-3 py-2 ${subCardBg}`}/></label>)}</div>}
+              <details><summary className="text-[11px] opacity-60 cursor-pointer mb-2">More filters</summary>
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 text-xs">
                 <div>
                   <label className="block text-[10px] font-bold opacity-65 mb-1">
@@ -1051,8 +1074,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   </button>
                 </div>
               </div>
+              </details>
             </div>
 
+            <PerformanceOverview report={report} isLight={isLight} />
+            <details className="hub-surface rounded-2xl p-4 space-y-4"><summary className="cursor-pointer text-xs font-semibold opacity-75">Advanced metrics, drawdown &amp; execution costs</summary>
             {/* 13 Explicit KPIs Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {/* 1. Net P&L & Return % */}
@@ -1461,6 +1487,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               })()}
             </div>
 
+            </details>
+
             {/* Daily P&L Calendar & Breakdowns by Instrument / Strategy / Hour */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               {/* Daily P&L Calendar */}
@@ -1809,7 +1837,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         {sidebarSection === 'strategies' && (
           <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
             {/* Header & Description */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-500/20 pb-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-gray-500/20 pb-4">
               <div>
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#2962ff]/10 border border-[#2962ff]/30 text-[#2962ff] text-[11px] font-mono font-bold mb-2">
                   <Compass className="w-3.5 h-3.5" />
@@ -2026,7 +2054,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         {sidebarSection === 'settings' && (
           <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
             {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-500/20 pb-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-gray-500/20 pb-4">
               <div>
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#2962ff]/10 border border-[#2962ff]/30 text-[#2962ff] text-[11px] font-mono font-bold mb-2">
                   <Settings className="w-3.5 h-3.5" />
@@ -2103,7 +2131,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 <Sun className="w-4 h-4 text-amber-400" />
                 <span>Display &amp; Simulator Preferences</span>
               </h3>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1">
                 <div>
                   <div className="text-xs font-bold text-white">Color Theme</div>
                   <p className="text-[11px] opacity-70">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useLayoutEffect } from 'react';
 import { ChartReplayMark } from './ChartReplayLogo';
 import {
   BarChart3,
@@ -93,7 +93,7 @@ interface TopNavigationProps {
   onStartTour?: () => void;
 }
 
-const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W'];
+const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M'];
 
 export const CANDLE_PRESETS: {
   id: Exclude<CandleColorStyle, 'custom'>;
@@ -159,6 +159,22 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   const cardBg = isLight
     ? 'bg-[#f8f9fd] hover:bg-[#f0f3fa] border-[#e0e3eb] text-[#131722]'
     : 'bg-[#181c24] hover:bg-[#202530] border-[#262a34] text-gray-200';
+  const timeframeButtonRef = useRef<HTMLButtonElement>(null);
+  const [timeframeMenuPosition, setTimeframeMenuPosition] = useState({left: 8, top: 48});
+  useLayoutEffect(() => {
+    if (!isTimeframeMenuOpen) return;
+    const place = () => {
+      const rect = timeframeButtonRef.current?.getBoundingClientRect();
+      if (rect) setTimeframeMenuPosition({left: Math.max(8, Math.min(rect.left, window.innerWidth - 200)), top: rect.bottom + 6});
+    };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setIsTimeframeMenuOpen(false); };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('keydown', escape);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); window.removeEventListener('keydown', escape); };
+  }, [isTimeframeMenuOpen]);
+
   const dividerBg = isLight ? 'bg-[#e0e3eb]' : 'bg-[#262a34]';
 
   const filteredInstruments = INSTRUMENTS.filter((inst) => {
@@ -305,6 +321,8 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
           <div className="relative shrink-0">
             <button
               type="button"
+              ref={timeframeButtonRef}
+              aria-expanded={isTimeframeMenuOpen}
               onClick={() => setIsTimeframeMenuOpen((v) => !v)}
               className={`flex items-center gap-1.5 px-2 py-1 rounded border transition whitespace-nowrap ${cardBg}`}
               title={`Active Timeframe: ${timeframe} (${TIMEFRAME_CONFIG[timeframe].description}) — Click to switch timeframe`}
@@ -471,18 +489,6 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
             </button>
           )}
 
-          {/* Quick-Start Guide Button */}
-          {onOpenGuide && (
-            <button
-              onClick={onOpenGuide}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${cardBg}`}
-              title="Open Step-by-Step Guide (What Is Where · Session Setup · First Buy/Sell)"
-            >
-              <BookOpen className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-              <span className="hidden xl:inline">Guide</span>
-            </button>
-          )}
-
           {/* Settings Button */}
           {onOpenSettings && (
             <button
@@ -507,36 +513,6 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
               <span className="hidden md:inline">Tour</span>
             </button>
           )}
-
-          {/* Bar Replay Cut Button (Disabled in Prop Firm mode) */}
-          {!isPropChallenge && (
-            <button
-              onClick={onToggleReplayCutTool}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${
-                isReplayCutActive
-                  ? 'bg-amber-500 text-[#0d0f13] border-amber-500'
-                  : cardBg
-              }`}
-              title="Bar Replay Cut Tool — Click a bar on chart to jump/rewind (Normal Mode only)"
-            >
-              <Scissors className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span className="hidden xl:inline">Cut</span>
-            </button>
-          )}
-
-          {/* Toggle Right Order Ticket & Challenge Panel */}
-          <button
-            onClick={onToggleRightWidget}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${
-              showRightWidget && !isChartWideMode
-                ? 'bg-[#252a34] text-white keep-white border-[#3a404f]'
-                : cardBg
-            }`}
-            title="Toggle Right Order Ticket & Live Challenge Tracker Panel"
-          >
-            <BrainCircuit className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden xl:inline">Order Ticket</span>
-          </button>
 
           {/* Theme Toggle */}
           <button
@@ -610,7 +586,8 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
             onClick={() => setIsTimeframeMenuOpen(false)}
           />
           <div
-            className={`fixed left-2 sm:left-32 top-12 w-48 rounded-xl border p-1.5 z-50 text-xs shadow-2xl space-y-0.5 ${
+            style={{left: timeframeMenuPosition.left, top: timeframeMenuPosition.top, maxHeight: 'calc(100dvh - 64px)'}}
+            className={`fixed overflow-y-auto w-48 rounded-xl border p-1.5 z-50 text-xs shadow-2xl space-y-0.5 ${
               isLight
                 ? 'bg-white border-[#d8dce6] text-[#131722]'
                 : 'bg-[#161920] border-[#282c35] text-[#d1d4dc]'

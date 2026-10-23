@@ -27,7 +27,11 @@ import {
   fetchGoldCandles,
   getActiveSessionsAtTime,
   getCanonicalBucketTime,
+  getTimeframeEndTime,
   getCachedRealCandles,
+  getHistoricalCandles,
+  hasHistoricalArchive,
+  getProviderChartCandles,
   getInstrumentConfig,
   INITIAL_SESSIONS,
   INSTRUMENTS,
@@ -256,8 +260,8 @@ export function validateSessionHistoricalData(
   const endTs = Math.floor(Date.parse(`${endDate}T23:59:00Z`) / 1000);
   const replayStartTs = Math.floor(Date.parse(`${startDate}T${timeStr}:00Z`) / 1000);
 
-  const minSupportedTs = Math.floor(Date.parse('2018-01-01T00:00:00Z') / 1000);
-  const maxSupportedTs = Math.floor(Date.parse('2030-12-31T23:59:00Z') / 1000);
+  const minSupportedTs = Math.floor(Date.parse('2010-01-01T00:00:00Z') / 1000);
+  const maxSupportedTs = Math.floor(Date.now()/86400000)*86400+86399;
 
   if (Number.isNaN(startTs) || Number.isNaN(endTs)) {
     errors.push('Invalid calendar date provided.');
@@ -267,7 +271,7 @@ export function validateSessionHistoricalData(
     }
     if (startTs < minSupportedTs) {
       errors.push(
-        `Historical data prior to 2018-01-01 is unavailable (requested ${startDate}).`
+        `Choose a date from 2010 onward; original archive coverage is checked when the chart loads (requested ${startDate}).`
       );
     }
     if (endTs > maxSupportedTs) {
@@ -290,22 +294,8 @@ export function validateSessionHistoricalData(
     }
   }
 
-  const nowSec = Math.floor(Date.now() / 1000);
-  const ageDays = (nowSec - startTs) / 86400;
-  let dataSourceLabel = 'Authoritative Live Market Feed (1m – 1W)';
-  if (!Number.isNaN(startTs)) {
-    if (ageDays > 730) {
-      warnings.push(
-        'Selected start date is >730 days ago: 1D/1W bars use authoritative provider history; intraday bars are reconstructed from daily boundaries.'
-      );
-      dataSourceLabel = 'Authoritative Daily/Weekly Feed (>730d Window)';
-    } else if (ageDays > 60) {
-      warnings.push(
-        'Selected start date is >60 days ago: 1H, 4H, 1D & 1W use authoritative provider bars; sub-hourly bars are derived from 1H boundaries.'
-      );
-      dataSourceLabel = 'Authoritative 1H / 4H / 1D / 1W Feed (60d–730d Window)';
-    }
-  }
+  const dataSourceLabel = 'Original historical archive (coverage checked on load)';
+  warnings.push('Replay requires original provider minute data. Missing dates and source gaps remain unavailable.');
 
   const spanMinutes = Math.max(0, Math.floor((endTs - startTs) / 60));
 
@@ -502,6 +492,7 @@ function getDailyAnchorPrice(symbol: InstrumentSymbol, utcDayIndex: number): num
  * - Priority 4: On weekends (Saturday UTC) for non-crypto markets, returns `[]` (market closed).
  */
 export function getDay1mCandles(symbol: InstrumentSymbol, utcDayIndex: number): Candle[] {
+  if(hasHistoricalArchive(symbol)) return (getHistoricalCandles('1m',symbol)||[]).filter(c=>c.time>=utcDayIndex*86400 && c.time<(utcDayIndex+1)*86400);
   const dayStartSec = utcDayIndex * 86400;
   const cfg = getInstrumentConfig(symbol);
   const decimals = cfg.decimals;
@@ -755,6 +746,8 @@ export function getAggregatedCandlesUpToClock(
   session?: TradingSession | null,
   maxBarsToReturn = 50000
 ): Candle[] {
+  if(session?.marketMode !== 'LIVE_PAPER' && hasHistoricalArchive(symbol)) return getProviderChartCandles(symbol,timeframe,replayTimestamp).slice(-maxBarsToReturn);
+
   const tfSec = TIMEFRAME_CONFIG[timeframe].seconds;
   const spec = getEffectiveInstrumentSpec(symbol, session);
   const decimals = spec.decimals;
@@ -775,7 +768,7 @@ export function getAggregatedCandlesUpToClock(
         }
       } else {
         const lowerCandidates: Timeframe[] =
-          timeframe === '1W'
+          (timeframe === '1W' || timeframe === '1M')
             ? ['1D', '4H', '1H']
             : timeframe === '1D'
             ? ['1H', '15m', '5m', '1m']
@@ -814,7 +807,7 @@ export function getAggregatedCandlesUpToClock(
         // If no lower-timeframe real bar covers the active bucket yet, check if the bucket itself is already completed in realTfSeries
         if (!partialBar) {
           const exactBar = realTfSeries.find((c) => c.time === currentBucketStart);
-          if (exactBar && currentBucketStart + tfSec <= replayTimestamp + 60) {
+          if (exactBar && getTimeframeEndTime(currentBucketStart, timeframe) <= replayTimestamp + 60) {
             partialBar = { ...exactBar };
           } else if (exactBar) {
             // Only expose the open price at the exact start of the bucket—never leak future high/low/close
@@ -851,6 +844,7 @@ export function getAggregatedCandlesUpToClock(
     '4H': 240,
     '1D': 380,
     '1W': 1100,
+    '1M': 3653,
   };
   const lookbackDays = lookbackDaysByTf[timeframe] || 14;
   const anchorStartDay = session?.startTimestamp
@@ -862,17 +856,17 @@ export function getAggregatedCandlesUpToClock(
   );
 
   // Special handling for 1W aggregation across days
-  if (timeframe === '1W') {
+  if (timeframe === '1W' || timeframe === '1M') {
     const dailyBars = getAggregatedCandlesUpToClock(
       symbol,
       '1D',
       replayTimestamp,
       session,
-      maxBarsToReturn * 5
+      maxBarsToReturn * (timeframe === '1M' ? 31 : 7)
     );
     const weeklyMap = new Map<number, Candle>();
     for (const dBar of dailyBars) {
-      const wBucket = getCanonicalBucketTime(dBar.time, '1W', symbol);
+      const wBucket = getCanonicalBucketTime(dBar.time, timeframe, symbol);
       const existing = weeklyMap.get(wBucket);
       if (!existing) {
         weeklyMap.set(wBucket, { ...dBar, time: wBucket });
@@ -950,7 +944,8 @@ export function getAggregatedCandlesUpToClock(
 export function getLatest1mCandleAtClock(
   symbol: InstrumentSymbol,
   timestampSec: number,
-  _session?: TradingSession | null
+  _session?: TradingSession | null,
+  completedArchiveBar = false
 ): Candle | null {
   if (_session?.marketMode === 'LIVE_PAPER') {
     const quote = _session.liveQuotes?.[symbol];
@@ -960,6 +955,12 @@ export function getLatest1mCandleAtClock(
       quote.time > timestampSec + 60 || timestampSec - quote.time > (quote.maxAgeSeconds ?? 20 * 60)) return null;
     // Evaluate only observed quote snapshots, never a candle's pre-entry wicks.
     return {time: timestampSec, open: quote.price, high: quote.price, low: quote.price, close: quote.price, volume: 0};
+  }
+  if(hasHistoricalArchive(symbol)) {
+    const wanted=Math.floor(timestampSec/60)*60-(completedArchiveBar?60:0);
+    const exact=(getHistoricalCandles('1m',symbol)||[]).find(c=>c.time===wanted);
+    if(!exact)return null;
+    return completedArchiveBar?exact:{...exact,high:exact.open,low:exact.open,close:exact.open,volume:0};
   }
   const startDay = Math.floor(timestampSec / 86400);
   for (let d = startDay; d >= startDay - 4; d--) {
@@ -987,6 +988,10 @@ export function get1mExecutionSlice(
   _session?: TradingSession | null
 ): Candle[] {
   if (toTimestampInclusive <= fromTimestampExclusive) return [];
+  if(_session?.marketMode !== 'LIVE_PAPER' && hasHistoricalArchive(symbol)) {
+    return (getHistoricalCandles('1m',symbol)||[]).filter(c=>c.time+60>fromTimestampExclusive && c.time+60<=toTimestampInclusive).map(c=>({...c,time:c.time+60}));
+  }
+
   const startDay = Math.floor(fromTimestampExclusive / 86400);
   const endDay = Math.floor(toTimestampInclusive / 86400);
   const slice: Candle[] = [];
@@ -1765,7 +1770,7 @@ export function evaluateSessionAt1mTimestamp(
     const sym = pos.symbol || session.activeAsset || 'XAUUSD';
     const spec = getEffectiveInstrumentSpec(sym, session);
     const dec = spec.decimals;
-    const candle = getLatest1mCandleAtClock(sym, timestampSec, session);
+    const candle = getLatest1mCandleAtClock(sym, timestampSec, session, true);
     if (!candle) return pos;
 
     const spread = getSessionSpreadPrice(sym, session);
@@ -2281,6 +2286,21 @@ export function advanceOrRewindSessionToTimestamp(
   const currentTs = session.replayTimestamp || session.startTimestamp || targetTimestamp;
   const alignedTarget = Math.floor(targetTimestamp / 60) * 60;
 
+  // Never simulate an open trade through minutes outside the loaded source window.
+  if (alignedTarget > currentTs) {
+    for (const position of session.positions ?? []) {
+      if (position.status !== 'OPEN' && position.status !== 'PENDING') continue;
+      const symbol = position.symbol || session.activeAsset || 'XAUUSD';
+      if (!hasHistoricalArchive(symbol)) continue;
+      const minutes = getHistoricalCandles('1m', symbol) || [];
+      if (!minutes.length || currentTs < minutes[0].time || alignedTarget > minutes[minutes.length - 1].time + 60) {
+        return {session, triggeredOrders: [], closedTrades: [], breachedNow: null, passedNow: null,
+          rewindBlockedReason: 'Original minute data for this whole jump is not loaded. Use shorter replay steps while trades are open.'};
+      }
+    }
+  }
+
+
   // Enforce Prop Firm No-Rewind Rule in the engine!
   if (session.mode === 'PROP_FIRM' && alignedTarget < currentTs) {
     return {
@@ -2567,6 +2587,7 @@ export function validateAndPlaceOrder(
   const clockTs = session.marketMode === 'LIVE_PAPER' ? Math.floor(Date.now() / 1000) :
     session.replayTimestamp || session.startTimestamp || Math.floor(Date.now() / 1000);
   const candle = getLatest1mCandleAtClock(sym, clockTs, session);
+  if(session.marketMode !== 'LIVE_PAPER' && hasHistoricalArchive(sym) && !candle) return {ok:false,error:'No original minute bar at this replay time. Trading is paused across archive gaps.',session};
   if (session.marketMode === 'LIVE_PAPER' && !candle) return {ok: false, error: 'A fresh provider quote is required for this simulated live order. The market may be closed or the feed unavailable.', session};
   const midPrice = candle?.close ?? spec.basePrice;
   const { bid, ask, spread } = getBidAskFromMid(midPrice, sym, session);
@@ -2919,6 +2940,7 @@ export function modifyPositionOrOrder(
     session.replayTimestamp || session.startTimestamp || Math.floor(Date.now() / 1000);
   const candle = getLatest1mCandleAtClock(sym, clockTs, session);
   if (session.marketMode === 'LIVE_PAPER' && !candle) return {ok: false, error: 'Wait for a fresh provider quote before modifying this live paper order.', session};
+  if (session.marketMode !== 'LIVE_PAPER' && hasHistoricalArchive(sym) && !candle) return {ok: false, error: 'No original minute bar at this replay time. Modification is paused across archive gaps.', session};
   const { bid, ask } = getBidAskFromMid(candle?.close ?? target.entryPrice, sym, session);
 
   const entry =
@@ -3148,6 +3170,7 @@ export function closeOrCancelPosition(
     session.replayTimestamp || session.startTimestamp || Math.floor(Date.now() / 1000);
   const candle = getLatest1mCandleAtClock(sym, clockTs, session);
   if (session.marketMode === 'LIVE_PAPER' && !candle && target.status !== 'PENDING') return {ok: false, error: 'Wait for a fresh provider quote before closing this live paper position.', session, closedPnlDelta: 0};
+  if (session.marketMode !== 'LIVE_PAPER' && hasHistoricalArchive(sym) && !candle && target.status !== 'PENDING') return {ok: false, error: 'No original minute bar at this replay time. Closing is paused across archive gaps.', session, closedPnlDelta: 0};
   const { bid, ask } = getBidAskFromMid(candle?.close ?? target.entryPrice, sym, session);
   const currency = session.frozenConfig?.accountCurrency || session.accountCurrency || 'USD';
 

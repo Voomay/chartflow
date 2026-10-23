@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { TradeReactions } from './TradeReactions';
 import { computeForecast } from '../services/forecaster';
 import {
   init,
@@ -26,6 +27,7 @@ import {
   SessionConfig,
   ThemeMode,
   Timeframe,
+  TradingSession,
 } from '../types/trading';
 import { computeEMASeries, computeVWAPSeries } from '../services/goldAnalyzer';
 import {
@@ -57,12 +59,17 @@ import { DRAWING_COLORS } from './LeftToolbar';
 import { CANDLE_PRESETS } from './TopNavigation';
 
 interface TradingChartProps {
+  accountCurrency?: string;
+  reactionScope?: string;
+  reactionSession?: TradingSession;
   marketPrice?: number;
   onGoToPresent?: () => void;
   onReturnToReplay?: () => void;
   feedLabel?: string;
   feedStatus?: string;
   dataMessage?: string;
+  onLoadOlderHistory?: (timeframe:Timeframe,before:number)=>Promise<boolean>;
+  onGoToNextAvailableBar?: () => void;
   symbol: InstrumentSymbol;
   candles: Candle[];
   totalCandlesCount: number;
@@ -228,6 +235,8 @@ function mapTimeframeToPeriod(tf: Timeframe): Period {
       return { type: 'day', span: 1 };
     case '1W':
       return { type: 'week', span: 1 };
+    case '1M':
+      return { type: 'month', span: 1 };
   }
 }
 
@@ -296,6 +305,9 @@ function distToSegment(
 
 export const TradingChart: React.FC<TradingChartProps> = ({
   symbol,
+  accountCurrency = 'USD',
+  reactionScope = '',
+  reactionSession,
   candles,
   totalCandlesCount,
   timeframe,
@@ -326,6 +338,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   feedLabel,
   feedStatus,
   dataMessage,
+  onLoadOlderHistory,
+  onGoToNextAvailableBar,
   isReplayMode,
   replayIndex,
   drawings,
@@ -350,6 +364,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   mobileAccountSummary,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const reactionAnchorRef = useRef<HTMLDivElement>(null);
+  const olderHistoryLoaderRef = useRef(onLoadOlderHistory);
+  olderHistoryLoaderRef.current = onLoadOlderHistory;
+  const olderHistoryBusy = useRef(false);
+  const olderHistoryBoundary = useRef('');
+  const [manualHistoryBusy,setManualHistoryBusy]=useState(false);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<Chart | null>(null);
   const subscribeBarCallbackRef = useRef<((data: KLineData) => void) | null>(null);
@@ -928,6 +948,26 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       height
     );
 
+    // Keep the small P&L badge beside the current candle during replay, pan, zoom and resize.
+    const reactionAnchor = reactionAnchorRef.current;
+    const latest = currCandles[currCandles.length - 1];
+    if (reactionAnchor) {
+      const x = latest ? resolveTimeToX(latest.time, currCandles, chart) : null;
+      const y = latest ? priceToY(latest.close, chart) : null;
+      const visible = x !== null && y !== null && x >= 0 && x <= chartPlotWidth && y >= 0 && y <= chartPlotHeight;
+      reactionAnchor.style.opacity = visible ? '1' : '0';
+      reactionAnchor.style.pointerEvents = visible ? 'auto' : 'none';
+      if (visible) {
+        const badgeWidth = reactionAnchor.offsetWidth || 120;
+        const badgeHeight = reactionAnchor.offsetHeight || 30;
+        const left = Math.max(4, Math.min(chartPlotWidth - badgeWidth - 4, x! + 12));
+        const maxTop = Math.max(4, chartPlotHeight - badgeHeight - 4);
+        const preferredTop = y! - badgeHeight - 10 < 130 ? y! + 12 : y! - badgeHeight - 10;
+        const top = Math.max(Math.min(130, maxTop), Math.min(maxTop, preferredTop));
+        reactionAnchor.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+      }
+    }
+
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, chartPlotWidth, chartPlotHeight);
@@ -1253,43 +1293,35 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
       ctx.font = 'bold 9.5px JetBrains Mono, monospace';
 
-      // Always draw on-line price tags (TP, Entry/Limit, SL) on the box
-      // 1. TP line tag
-      const tpTag = `TP ${takeProfit.toFixed(decimals)} (+${tpDist.toFixed(decimals)})`;
-      const tpTagW = ctx.measureText(tpTag).width + 8;
-      const tpTagY = side === 'LONG' ? Math.max(16, yTP - 18) : Math.min(chartPlotHeight - 20, yTP + 3);
-      ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
-      ctx.fillRect(left + 6, tpTagY, tpTagW, 15);
-      ctx.strokeStyle = '#089981';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(left + 6, tpTagY, tpTagW, 15);
-      ctx.fillStyle = '#089981';
-      ctx.fillText(tpTag, left + 10, tpTagY + 11);
+      // Reference lines stop at the tool's left edge; labels sit on the line
+      // immediately before the price scale, even when the tool is deselected.
+      const entryColor = boxMode === 'PENDING' ? '#f59e0b' : '#2962ff';
+      const levels = [
+        { y: yTP, text: `TP ${takeProfit.toFixed(decimals)}`, color: '#089981' },
+        { y: yEntry, text: `${boxMode === 'PENDING' ? 'LIMIT' : 'ENTRY'} ${entryPrice.toFixed(decimals)}`, color: entryColor },
+        { y: ySL, text: `SL ${stopLoss.toFixed(decimals)}`, color: '#f23645' },
+      ];
+      for (const level of levels) {
+        if (level.y < 8 || level.y > chartPlotHeight - 8) continue;
+        ctx.strokeStyle = level.color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(Math.max(0, left), level.y);
+        ctx.lineTo(chartPlotWidth, level.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
 
-      // 2. SL line tag
-      const slTag = `SL ${stopLoss.toFixed(decimals)} (-${slDist.toFixed(decimals)})`;
-      const slTagW = ctx.measureText(slTag).width + 8;
-      const slTagY = side === 'LONG' ? Math.min(chartPlotHeight - 20, ySL + 3) : Math.max(16, ySL - 18);
-      ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
-      ctx.fillRect(left + 6, slTagY, slTagW, 15);
-      ctx.strokeStyle = '#f23645';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(left + 6, slTagY, slTagW, 15);
-      ctx.fillStyle = '#f23645';
-      ctx.fillText(slTag, left + 10, slTagY + 11);
-
-      // 3. Entry line tag
-      const entryLabel = boxMode === 'PENDING' ? 'LIMIT' : 'ENTRY';
-      const entryTag = `${entryLabel} ${entryPrice.toFixed(decimals)}`;
-      const entryTagW = ctx.measureText(entryTag).width + 8;
-      const entryTagY = yEntry - 7.5;
-      ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
-      ctx.fillRect(left + 6, entryTagY, entryTagW, 15);
-      ctx.strokeStyle = boxMode === 'PENDING' ? '#f59e0b' : '#2962ff';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(left + 6, entryTagY, entryTagW, 15);
-      ctx.fillStyle = boxMode === 'PENDING' ? '#f59e0b' : '#2962ff';
-      ctx.fillText(entryTag, left + 10, entryTagY + 11);
+        ctx.font = '500 9px JetBrains Mono, monospace';
+        const tagW = ctx.measureText(level.text).width + 10;
+        const tagX = Math.max(0, chartPlotWidth - tagW - 5);
+        ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
+        ctx.beginPath();
+        ctx.roundRect(tagX, level.y - 7, tagW, 14, 2);
+        ctx.fill();
+        ctx.fillStyle = level.color;
+        ctx.fillText(level.text, tagX + 5, level.y + 3);
+      }
 
       if (!showDetails) return;
 
@@ -1361,75 +1393,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       ctx.fillStyle = '#ffffff';
       ctx.fillText(pnlLine1, centerPillX + (centerPillW - w1) / 2, centerPillY + 11.5);
       ctx.fillText(pnlLine2, centerPillX + (centerPillW - w2) / 2, centerPillY + 23);
-
-      // Extended thin reference lines to chart right edge
-      const lineRightX = chartPlotWidth;
-      ctx.lineWidth = 1;
-
-      // Take Profit thin line (Emerald #089981)
-      ctx.strokeStyle = 'rgba(8, 153, 129, 0.75)';
-      ctx.setLineDash([4, 3]);
-      ctx.beginPath();
-      ctx.moveTo(right, yTP);
-      ctx.lineTo(lineRightX, yTP);
-      ctx.stroke();
-
-      // Stop Loss thin line (Soft Red #f23645)
-      ctx.strokeStyle = 'rgba(242, 54, 69, 0.75)';
-      ctx.setLineDash([4, 3]);
-      ctx.beginPath();
-      ctx.moveTo(right, ySL);
-      ctx.lineTo(lineRightX, ySL);
-      ctx.stroke();
-
-      // Entry thin line
-      ctx.strokeStyle = boxMode === 'PENDING' ? 'rgba(245, 158, 11, 0.75)' : 'rgba(41, 98, 255, 0.75)';
-      ctx.setLineDash([4, 3]);
-      ctx.beginPath();
-      ctx.moveTo(right, yEntry);
-      ctx.lineTo(lineRightX, yEntry);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Price Badges on the right price scale for TP, Entry, and SL
-      if (priceScaleWidth > 30) {
-        const badgeX = chartPlotWidth + 2;
-        const badgeW = Math.max(38, priceScaleWidth - 4);
-        const badgeH = 15;
-
-        // TP Price Badge (Emerald)
-        if (yTP >= 8 && yTP <= chartPlotHeight - 8) {
-          ctx.fillStyle = '#089981';
-          ctx.beginPath();
-          ctx.roundRect(badgeX, yTP - 7.5, badgeW, badgeH, 2);
-          ctx.fill();
-          ctx.font = 'bold 9px JetBrains Mono, monospace';
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText(takeProfit.toFixed(decimals), badgeX + 4, yTP + 3.5);
-        }
-
-        // SL Price Badge (Red)
-        if (ySL >= 8 && ySL <= chartPlotHeight - 8) {
-          ctx.fillStyle = '#f23645';
-          ctx.beginPath();
-          ctx.roundRect(badgeX, ySL - 7.5, badgeW, badgeH, 2);
-          ctx.fill();
-          ctx.font = 'bold 9px JetBrains Mono, monospace';
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText(stopLoss.toFixed(decimals), badgeX + 4, ySL + 3.5);
-        }
-
-        // Entry Price Badge (Blue or Amber for pending)
-        if (yEntry >= 8 && yEntry <= chartPlotHeight - 8) {
-          ctx.fillStyle = boxMode === 'PENDING' ? '#f59e0b' : '#2962ff';
-          ctx.beginPath();
-          ctx.roundRect(badgeX, yEntry - 7.5, badgeW, badgeH, 2);
-          ctx.fill();
-          ctx.font = 'bold 9px JetBrains Mono, monospace';
-          ctx.fillStyle = boxMode === 'PENDING' ? '#000000' : '#ffffff';
-          ctx.fillText(entryPrice.toFixed(decimals), badgeX + 4, yEntry + 3.5);
-        }
-      }
 
       // 6 Small Handle Dots around the Position Box
       drawSmallDot(ctx, left, yTP);
@@ -2565,6 +2528,14 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
     chart.subscribeAction('onVisibleRangeChange', () => {
       drawOverlay();
+      const state=stateRef.current;
+      const before=state.candles[0]?.time;
+      const boundary=`${state.symbol}:${state.timeframe}:${before}`;
+      if(before && chart.getVisibleRange().from<=30 && !olderHistoryBusy.current && olderHistoryBoundary.current!==boundary && olderHistoryLoaderRef.current) {
+        olderHistoryBusy.current=true;
+        olderHistoryBoundary.current=boundary;
+        void olderHistoryLoaderRef.current(state.timeframe,before).finally(()=>{olderHistoryBusy.current=false;});
+      }
     });
     chart.subscribeAction('onScroll', () => {
       drawOverlay();
@@ -3737,7 +3708,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     drawOverlay();
   }, [focusedSessionTime, candles, drawOverlay]);
 
-  const activeCandle = hoveredCandle || candles[candles.length - 1];
+  const activeCandle = (hoveredCandle && candles.find(c => c.time === hoveredCandle.time)) || candles[candles.length - 1];
   const latestClose = marketPrice ?? candles[candles.length - 1]?.close ?? instConfig.basePrice;
   const halfSpread = instConfig.defaultSpread / 2;
   const sellBid = Number((latestClose - halfSpread).toFixed(instConfig.decimals));
@@ -3810,8 +3781,16 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         className="absolute inset-0 w-full h-full pointer-events-none z-10"
       />
 
-      {dataMessage && <div role="status" className="absolute inset-x-6 top-1/3 z-20 mx-auto max-w-lg rounded-lg border border-amber-500/40 bg-[#131722]/95 p-5 text-center text-sm text-amber-200">{dataMessage}</div>}
-      <div title={feedLabel} className="absolute bottom-0 inset-x-0 h-5 z-20 bg-inherit px-2 text-[9px] flex items-center gap-2 whitespace-nowrap overflow-hidden pointer-events-none"><strong className="shrink-0">{isReplayMode ? 'REPLAY' : 'LIVE PAPER'} · UTC · {symbol}</strong>{!isReplayMode && feedStatus && <span className="shrink-0">{feedStatus}</span>}<span className="truncate">{feedLabel}{candles.length > 0 ? ' · Candle opens ' + new Date(candles[candles.length - 1].time * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : ''}</span></div>
+      <div title={[feedLabel,dataMessage].filter(Boolean).join(' · ')} className="absolute bottom-0 inset-x-0 h-5 z-20 bg-inherit px-2 text-[9px] flex items-center gap-2 whitespace-nowrap overflow-hidden pointer-events-none">
+        <strong className="shrink-0">{isReplayMode ? 'REPLAY' : 'LIVE PAPER'} · UTC · {symbol}</strong>
+        {!isReplayMode && feedStatus && <span className="shrink-0">{feedStatus}</span>}
+        {onLoadOlderHistory && candles.length>0 && <button type="button" aria-label="Load older chart history" title="Load earlier history; scrolling to the left edge also loads older bars" disabled={manualHistoryBusy} onClick={async()=>{setManualHistoryBusy(true);try{await onLoadOlderHistory(timeframe,candles[0].time);}finally{setManualHistoryBusy(false);}}} className="pointer-events-auto shrink-0 rounded px-1 text-slate-400 hover:bg-white/10 hover:text-emerald-400 disabled:opacity-40">‹</button>}
+        {candles.length>0 && <span aria-label="Loaded chart history" className="shrink-0 text-slate-400">{new Date(candles[0].time*1000).toISOString().slice(0,10)} → {new Date(candles[candles.length-1].time*1000).toISOString().slice(0,10)}</span>}
+        <span className="truncate">{dataMessage || feedLabel}{candles.length > 0 ? ' · Candle opens ' + new Date(candles[candles.length - 1].time * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : ''}</span>
+        {dataMessage && onGoToNextAvailableBar && <button type="button" onClick={onGoToNextAvailableBar} className="pointer-events-auto shrink-0 text-amber-400 hover:underline">Next available bar</button>}
+      </div>
+
+      <TradeReactions key={`${reactionScope}:${symbol}`} positions={positions} currency={accountCurrency} isLight={isLight} anchorRef={reactionAnchorRef} midPrice={marketPrice ?? candles[candles.length - 1]?.close} symbol={symbol} session={reactionSession} />
 
       {/* Top-Left TradingView Header + Floating SELL / BUY Buttons */}
       {activeCandle && (
@@ -3839,7 +3818,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               </div>
               <span className="font-bold text-xs sm:text-[13px] tracking-tight whitespace-nowrap">
                 <span className="sm:hidden">{instConfig.name} • {timeframe}</span>
-                <span className="hidden sm:inline">{instConfig.name} • {timeframe} • {feedLabel?.startsWith('biquote') ? 'BROKER SPOT' : instConfig.exchange}</span>
+                <span className="hidden sm:inline">{instConfig.name} • {timeframe} • {feedLabel?.startsWith('Capital.com demo') ? 'CAPITAL DEMO · BID' : feedLabel?.startsWith('biquote') ? 'BROKER SPOT' : feedLabel?.startsWith('HistData') ? 'BID ARCHIVE' : feedLabel?.startsWith('Bitfinex') ? 'BITFINEX' : instConfig.exchange}</span>
               </span>
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
             </div>

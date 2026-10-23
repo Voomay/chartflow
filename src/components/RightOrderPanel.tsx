@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -39,6 +39,8 @@ interface RightOrderPanelProps {
   session: TradingSession;
   symbol: InstrumentSymbol;
   currentMidPrice: number;
+  pricingContext?: string;
+  pricingReady?: boolean;
   atr14: number;
   theme: ThemeMode;
   onExecuteOrder: (req: PlaceOrderInput) => { ok: boolean; error?: string };
@@ -59,6 +61,8 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
   session,
   symbol,
   currentMidPrice,
+  pricingContext,
+  pricingReady = true,
   atr14,
   theme,
   onExecuteOrder,
@@ -101,9 +105,12 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
   const currency =
     session.frozenConfig?.accountCurrency || session.accountCurrency || 'USD';
 
-  // Reset default SL/TP/Entry when symbol changes
+  const initializedPricingContext = useRef<string | null>(null);
+  // Initialize from the requested archive, preserving edits during timeframe reloads.
   useEffect(() => {
-    if (!currentMidPrice || currentMidPrice <= 0) return;
+    const context = `${session.id}:${symbol}:${pricingContext || ''}`;
+    if (!pricingReady || initializedPricingContext.current === context || !currentMidPrice || currentMidPrice <= 0 || activePositionDrawing) return;
+    initializedPricingContext.current = context;
     const defaultDist = Math.max(
       spec.pipSize * 20,
       atr14 > 0 ? atr14 * 1.5 : spec.pipSize * 25
@@ -135,7 +142,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
         Number(pendingPrice.toFixed(spec.decimals)).toFixed(spec.decimals)
       );
     }
-  }, [symbol]);
+  }, [symbol, session.id, pricingContext, pricingReady, activePositionDrawing]);
 
   // Synchronize order ticket inputs with any active Long / Short position tool drawing on the chart
   useEffect(() => {

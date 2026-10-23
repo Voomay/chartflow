@@ -103,6 +103,7 @@ describe('Japanese Candlestick Data Integrity & Accuracy Regression Suite', () =
         '4H',
         '1D',
         '1W',
+        '1M',
       ]);
     }
   });

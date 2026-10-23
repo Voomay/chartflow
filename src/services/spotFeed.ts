@@ -3,9 +3,10 @@ import {Candle, InstrumentSymbol, Timeframe} from '../types/trading';
 export interface SpotQuote { price: number; time: number; receivedAt: number; source: string; maxAgeSeconds: number; marketState: string; }
 const quotes = new Map<InstrumentSymbol, SpotQuote>();
 export function getSpotQuote(symbol: InstrumentSymbol): SpotQuote | undefined { return quotes.get(symbol); }
+export function setBrokerQuote(symbol:InstrumentSymbol, quote:SpotQuote):void { quotes.set(symbol,quote); }
 export function clearSpotQuotes(): void { quotes.clear(); }
 export const SPOT_SYMBOLS = new Set<InstrumentSymbol>(['EURUSD','GBPUSD','USDJPY','USDCHF','AUDUSD','USDCAD','NZDUSD','GBPJPY','EURJPY','EURGBP','AUDJPY','EURAUD','GBPAUD','CADJPY','XAUUSD','XAGUSD']);
-export function spotInterval(timeframe: Timeframe): string { return ({'1H':'1h','4H':'4h','1D':'1d','1W':'1d'} as Partial<Record<Timeframe,string>>)[timeframe] || timeframe; }
+export function spotInterval(timeframe: Timeframe): string { return ({'1H':'1h','4H':'4h','1D':'1d','1W':'1d','1M':'1d'} as Partial<Record<Timeframe,string>>)[timeframe] || timeframe; }
 
 // Reject invalid source OHLC instead of drawing repaired or manufactured wicks.
 export function parseSpotBars(rows: unknown, now = Date.now()): Candle[] {

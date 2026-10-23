@@ -1,3 +1,4 @@
+import { SessionScheduleFields } from './SessionScheduleFields';
 import React, { useMemo, useState } from 'react';
 import {
   AccountCurrency,
@@ -186,38 +187,24 @@ const POPULAR_MARKETS: InstrumentSymbol[] = [
   'XAGUSD',
 ];
 
-const DATE_RANGE_PRESETS = [
-  {
-    id: '1Y',
-    label: '1 Year Ago → Now',
-    startDate: '2025-10-20',
-    endDate: '2026-10-20',
-  },
-  {
-    id: '6M',
-    label: '6 Months Ago → Now',
-    startDate: '2026-04-20',
-    endDate: '2026-10-20',
-  },
-  {
-    id: '3M',
-    label: '3 Months Ago → Now',
-    startDate: '2026-07-20',
-    endDate: '2026-10-20',
-  },
-  {
-    id: '1M',
-    label: '1 Month Ago → Now',
-    startDate: '2026-09-20',
-    endDate: '2026-10-20',
-  },
-  {
-    id: '7D',
-    label: 'Last 7 Days',
-    startDate: '2026-10-13',
-    endDate: '2026-10-20',
-  },
-];
+function getDateRangePresets() {
+  const now = new Date();
+  const endDate = now.toLocaleDateString('en-CA');
+  const monthsAgo = (count: number) => {
+    const first = new Date(now.getFullYear(), now.getMonth() - count, 1);
+    const lastDay = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    first.setDate(Math.min(now.getDate(), lastDay));
+    return first.toLocaleDateString('en-CA');
+  };
+  const week = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+  return [
+    {id:'1Y',label:'1 Year Ago → Now',startDate:monthsAgo(12),endDate},
+    {id:'6M',label:'6 Months Ago → Now',startDate:monthsAgo(6),endDate},
+    {id:'3M',label:'3 Months Ago → Now',startDate:monthsAgo(3),endDate},
+    {id:'1M',label:'1 Month Ago → Now',startDate:monthsAgo(1),endDate},
+    {id:'7D',label:'Last 7 Days',startDate:week.toLocaleDateString('en-CA'),endDate},
+  ];
+}
 
 const START_TIME_PRESETS = [
   { label: '00:00 Asia', value: '00:00' },
@@ -277,9 +264,12 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   const [assetCategory, setAssetCategory] = useState<InstrumentCategory>('ALL');
 
   // Historical Date & Time Range State (Defaults to 1 Year Ago -> Now so users have full history ready immediately)
-  const [startDate, setStartDate] = useState<string>('2025-10-20');
-  const [endDate, setEndDate] = useState<string>('2026-10-20');
+  const DATE_RANGE_PRESETS = useMemo(() => getDateRangePresets(), [isOpen]);
+  const [startDate, setStartDate] = useState<string>(() => getDateRangePresets()[0].startDate);
+  const [endDate, setEndDate] = useState<string>(() => getDateRangePresets()[0].endDate);
   const [replayStartTime, setReplayStartTime] = useState<string>('08:00');
+  const [selectedQuickStart, setSelectedQuickStart] = useState<string | null>(null);
+  const [customStartTime, setCustomStartTime] = useState('08:00');
   const [displayTimezone, setDisplayTimezone] = useState<DisplayTimezone>('UTC');
   const [chartLayout, setChartLayout] = useState<'SINGLE' | 'SPLIT_2'>('SINGLE');
   const [smoothCandles, setSmoothCandles] = useState<boolean>(false);
@@ -923,81 +913,37 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                   </div>
                 </div>
 
-                {/* Date & Time Inputs Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-[#9ca3af] mb-1">
-                      Trade From Date
-                    </label>
-                    <input
-                      type="date"
-                      value={startDate}
-                      min="2018-01-01"
-                      max="2030-12-30"
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-[#101216] border border-[#282c35] text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-[#9ca3af] mb-1">
-                      Start Time (HH:MM)
-                    </label>
-                    <input
-                      type="time"
-                      value={replayStartTime}
-                      onChange={(e) => setReplayStartTime(e.target.value || '08:00')}
-                      className="w-full px-3 py-2 rounded-lg bg-[#101216] border border-[#282c35] text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-[#9ca3af] mb-1">
-                      Until Date (End)
-                    </label>
-                    <input
-                      type="date"
-                      value={endDate}
-                      min={startDate}
-                      max="2030-12-31"
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-[#101216] border border-[#282c35] text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-[#9ca3af] mb-1">
-                      Chart Timezone
-                    </label>
-                    <select
-                      value={displayTimezone}
-                      onChange={(e) =>
-                        setDisplayTimezone(e.target.value as DisplayTimezone)
-                      }
-                      className="w-full px-2.5 py-2 rounded-lg bg-[#101216] border border-[#282c35] text-xs text-white focus:outline-none focus:border-emerald-500"
-                    >
-                      {TIMEZONE_OPTIONS.map((tz) => (
-                        <option key={tz.value} value={tz.value}>
-                          {tz.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                <SessionScheduleFields
+                  start={startDate} end={endDate} time={replayStartTime} timezone={displayTimezone} zones={TIMEZONE_OPTIONS}
+                  onStart={value => {setStartDate(value); if (endDate < value) setEndDate(value);}}
+                  onEnd={setEndDate}
+                  onTime={value => {setReplayStartTime(value); setCustomStartTime(value); setSelectedQuickStart(null);}}
+                  onTimezone={setDisplayTimezone}
+                />
 
                 {/* Session Start Time Quick Pills + Live Historical Data Confirmation */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-[11px] text-[#8b92a5] flex items-center gap-1 mr-1">
-                      <Clock className="w-3 h-3" /> Quick Start Time:
+                      <Clock className="w-3 h-3" /> Optional session presets:
                     </span>
                     {START_TIME_PRESETS.map((t) => (
                       <button
                         key={t.value}
                         type="button"
-                        onClick={() => setReplayStartTime(t.value)}
+                        aria-pressed={selectedQuickStart === t.value}
+                        onClick={() => {
+                          if (selectedQuickStart === t.value) {
+                            setSelectedQuickStart(null);
+                            setReplayStartTime(customStartTime);
+                          } else {
+                            if (!selectedQuickStart) setCustomStartTime(replayStartTime);
+                            setSelectedQuickStart(t.value);
+                            setReplayStartTime(t.value);
+                          }
+                        }}
                         className={`px-2 py-0.5 rounded text-[11px] font-mono border transition ${
-                          replayStartTime === t.value
+                          selectedQuickStart === t.value
                             ? 'bg-[#22262f] border-emerald-500/60 text-white font-bold'
                             : 'bg-[#101216] border-[#24272f] text-[#8b92a5] hover:text-white'
                         }`}
@@ -1011,7 +957,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                     <div className="text-[11px] text-emerald-400 flex items-center gap-1.5 font-medium">
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                       <span>
-                        Chart data ready: <strong>{totalRangeDays} days</strong> (starts{' '}
+                        Selected range: <strong>{totalRangeDays} days</strong> · source coverage checked on chart (starts{' '}
                         <span className="font-mono">{startDate} {replayStartTime}</span>)
                       </span>
                     </div>

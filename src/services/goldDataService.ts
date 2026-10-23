@@ -1,3 +1,4 @@
+import {INDEX_CFD_SYMBOLS,fetchIndexCandles} from './indexFeed';
 import {SPOT_SYMBOLS, fetchSpotCandles, clearSpotQuotes, getSpotQuote} from './spotFeed';
 import {
   Candle,
@@ -91,6 +92,11 @@ export const TIMEFRAME_CONFIG: Record<
     yahooRange: '5y',
     seconds: 604800,
     description: 'Weekly Institutional Structure',
+  },
+  '1M': {
+    label: '1M', binanceInterval: '1M', krakenInterval: 1440,
+    yahooInterval: '1mo', yahooRange: 'max', seconds: 2678400,
+    description: 'Monthly Calendar Structure',
   },
 };
 
@@ -580,7 +586,7 @@ export const YAHOO_SYMBOL_MAP: Record<
   ETHUSD: { primary: 'ETH-USD', binanceSymbol: 'ETHUSDT' },
 };
 
-const ALL_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W'];
+const ALL_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M'];
 
 /**
  * Verified Symbol Catalogue covering all 25 supported platform instruments across
@@ -1311,6 +1317,23 @@ export function isWeekendClosedTimestamp(timestampSec: number, symbol: Instrumen
   return false;
 }
 
+/** Forward replay treats weekend sessions as a break and resumes on a UTC Monday.
+ * FX closes at 17:00 New York; the UTC Friday cutoff follows daylight saving. */
+export function getReplayWeekdayTarget(symbol: InstrumentSymbol, timestamp: number): number {
+  if (getInstrumentConfig(symbol).category === 'CRYPTO') return timestamp;
+  const date = new Date(timestamp * 1000);
+  const day = date.getUTCDay();
+  let days = day === 6 ? 2 : day === 0 ? 1 : 0;
+  if (day === 5) {
+    const hour = new Intl.DateTimeFormat('en-US', {timeZone:'America/New_York', hour:'2-digit', hourCycle:'h23'}).formatToParts(date).find(part => part.type === 'hour')?.value;
+    if (Number(hour) >= 17) days = 3;
+  }
+  if (!days) return timestamp;
+  date.setUTCDate(date.getUTCDate() + days);
+  date.setUTCHours(0, 0, 0, 0);
+  return date.getTime() / 1000;
+}
+
 /**
  * Computes the canonical bucket start timestamp (in seconds UTC) for a given bar timestamp and timeframe.
  * - For intraday timeframes (`1m`..`4H`), aligns to exact multiples of `stepSec`.
@@ -1329,6 +1352,11 @@ export function getCanonicalBucketTime(
   // Auto-detect milliseconds vs seconds
   const timeSec = rawTimeSec > 1e11 ? Math.floor(rawTimeSec / 1000) : Math.floor(rawTimeSec);
   const stepSec = TIMEFRAME_CONFIG[timeframe].seconds;
+
+  if (timeframe === '1M') {
+    const d = new Date(timeSec * 1000);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000;
+  }
 
   if (timeframe === '1D') {
     const mapEntry = YAHOO_SYMBOL_MAP[symbol];
@@ -1358,6 +1386,23 @@ export function getCanonicalBucketTime(
   }
 
   return Math.floor(timeSec / stepSec) * stepSec;
+}
+
+export function shiftTimeframeClock(time: number, timeframe: Timeframe, bars: number): number {
+  if (timeframe !== '1M') return time + bars * TIMEFRAME_CONFIG[timeframe].seconds;
+  const d = new Date(time * 1000);
+  const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + bars, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  return Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), Math.min(d.getUTCDate(), lastDay), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()) / 1000;
+}
+
+// Calendar months vary in length; never close February with a fixed 30-day offset.
+export function getTimeframeEndTime(time: number, timeframe: Timeframe): number {
+  if (timeframe === '1M') {
+    const d = new Date(time * 1000);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) / 1000;
+  }
+  return time + TIMEFRAME_CONFIG[timeframe].seconds;
 }
 
 /**
@@ -1409,7 +1454,7 @@ export function sanitizeAndValidateCandles(
     })
     .filter((c) => {
       // Filter out stray weekend maintenance ticks on intraday timeframes for 24/5 instruments
-      if (timeframe !== '1D' && timeframe !== '1W') {
+      if (timeframe !== '1D' && timeframe !== '1W' && timeframe !== '1M') {
         if (isWeekendClosedTimestamp(c.time, symbol)) return false;
       } else if (timeframe === '1D' && cfg.category !== 'CRYPTO') {
         // Filter out Saturday UTC daily bars on non-crypto instruments
@@ -1507,8 +1552,71 @@ export function aggregateCandlesToTimeframe(
 
 const realCandleSeriesCache = new Map<string, Candle[]>();
 const marketFeedLabels = new Map<string, string>();
-export function getMarketFeedLabel(symbol: InstrumentSymbol, timeframe: Timeframe): string {
-  return marketFeedLabels.get(`${symbol}_${timeframe}`) || 'Provider history unavailable';
+const historicalSeries = new Map<string, Candle[]>();
+const historicalLabels = new Map<InstrumentSymbol,string>();
+const historicalStarts = new Map<InstrumentSymbol,number>();
+const historicalEnds = new Map<InstrumentSymbol,number>();
+const liveHistorySeries = new Map<string,Candle[]>();
+const liveHistoryLabels = new Map<InstrumentSymbol,string>();
+function mergeSourceBars(previous:Candle[], next:Candle[]):Candle[] {
+  const rows=new Map(previous.map(bar=>[bar.time,bar]));
+  for(const bar of next)rows.set(bar.time,bar);
+  return [...rows.values()].sort((a,b)=>a.time-b.time);
+}
+export function extendHistoricalCandles(symbol:InstrumentSymbol,series:Record<string,Candle[]>):void {
+  for(const [tf,bars] of Object.entries(series))historicalSeries.set(`${symbol}_${tf}`,mergeSourceBars(historicalSeries.get(`${symbol}_${tf}`)||[],bars));
+}
+export function setLiveHistoricalCandles(symbol:InstrumentSymbol,series:Record<string,Candle[]>,label:string):void {
+  for(const [tf,bars] of Object.entries(series))liveHistorySeries.set(`${symbol}_${tf}`,mergeSourceBars(liveHistorySeries.get(`${symbol}_${tf}`)||[],bars));
+  liveHistoryLabels.set(symbol,label);
+}
+export function getLiveChartCandles(symbol:InstrumentSymbol,timeframe:Timeframe):Candle[] {
+  const live=isQuoteOnlyChart(symbol,timeframe)?[]:getCachedRealCandles(timeframe,symbol)||[];
+  const sourceCompatible=!INDEX_CFD_SYMBOLS.has(symbol) || (liveHistoryLabels.get(symbol)?.startsWith('Capital.com demo') && marketFeedLabels.get(`${symbol}_${timeframe}`)?.startsWith('Capital.com demo'));
+  const archive=sourceCompatible ? liveHistorySeries.get(`${symbol}_${timeframe}`)||[] : [];
+  // Preserve original prices and source boundaries. Never synthesize the gap between feeds.
+  const older=live.length?archive.filter(bar=>getTimeframeEndTime(bar.time,timeframe)<=live[0].time):archive;
+  return [...older,...live];
+}
+
+export function setHistoricalCandles(symbol:InstrumentSymbol, series:Record<string,Candle[]>, label:string, first?:number, last?:number):void {
+  for(const [tf,bars] of Object.entries(series)) historicalSeries.set(`${symbol}_${tf}`,bars);
+  historicalLabels.set(symbol,label);
+  if(Number.isFinite(first))historicalStarts.set(symbol,first!);
+  if(Number.isFinite(last))historicalEnds.set(symbol,last!);
+}
+export function hasHistoricalArchive(symbol:InstrumentSymbol):boolean { return historicalLabels.has(symbol); }
+export interface HistoricalReplayAvailability {
+  kind: 'READY' | 'WEEKEND' | 'GAP' | 'BEFORE' | 'AFTER';
+  message?: string;
+  nextTime?: number;
+}
+export function getHistoricalReplayAvailability(symbol:InstrumentSymbol,clock:number):HistoricalReplayAvailability | undefined {
+  if(!hasHistoricalArchive(symbol))return undefined;
+  const minute=Math.floor(clock/60)*60;
+  const bars=getHistoricalCandles('1m',symbol)||[];
+  if(bars.some(c=>c.time===minute))return {kind:'READY'};
+  const first=historicalStarts.get(symbol) ?? bars[0]?.time;
+  const last=historicalEnds.get(symbol);
+  const nextTime=bars.find(c=>c.time>minute)?.time;
+  const utc=(time:number)=>new Date(time*1000).toISOString().slice(0,16).replace('T',' ')+' UTC';
+  if(first!==undefined && minute<first)return {kind:'BEFORE',nextTime,message:`This archive starts ${utc(first)}. Trading is paused.`};
+  if(last!==undefined && minute>last)return {kind:'AFTER',message:`This archive ends ${utc(last)}. Choose an earlier replay date or Present Time.`};
+  if(isWeekendClosedTimestamp(minute,symbol))return {kind:'WEEKEND',nextTime,message:`Market closed for the weekend. Trading is paused.${nextTime ? ` Next available bar: ${utc(nextTime)}.` : ''}`};
+  return {kind:'GAP',nextTime,message:`No source quote for this minute: a market break, holiday or data gap. Trading is paused.${nextTime ? ` Next available bar: ${utc(nextTime)}.` : ' Choose another replay date.'}`};
+}
+export function getHistoricalGapMessage(symbol:InstrumentSymbol,clock:number):string | undefined {
+  return getHistoricalReplayAvailability(symbol,clock)?.message;
+}
+
+export function getHistoricalCandles(timeframe:Timeframe,symbol:InstrumentSymbol):Candle[] | null { return historicalSeries.get(`${symbol}_${timeframe}`) || null; }
+
+export function getMarketFeedLabel(symbol: InstrumentSymbol, timeframe: Timeframe, replay = false): string {
+  if(replay && historicalLabels.has(symbol)) return historicalLabels.get(symbol)!;
+  const current=marketFeedLabels.get(`${symbol}_${timeframe}`) || 'Provider history unavailable';
+  const storedOlder=liveHistoryLabels.get(symbol);
+  const older=INDEX_CFD_SYMBOLS.has(symbol) && !(current.startsWith('Capital.com demo') && storedOlder?.startsWith('Capital.com demo')) ? undefined : storedOlder;
+  return older ? `${current} · older history: ${older} · source gaps retained` : current;
 }
 
 // Refresh snapshots replace the same timestamp; volumes must never be summed twice.
@@ -1529,34 +1637,42 @@ export function isQuoteOnlyChart(symbol: InstrumentSymbol, timeframe: Timeframe)
 // The visible chart uses observed prices only, never generated replay paths.
 // Replay clocks refer to the opening time of the last revealed bar.
 export function getProviderChartCandles(symbol: InstrumentSymbol, timeframe: Timeframe, clock: number, present = false): Candle[] {
-  const bars = getCachedRealCandles(timeframe, symbol);
-  if (!bars?.length || clock < bars[0].time || isQuoteOnlyChart(symbol, timeframe)) return [];
-  const bucket = timeframe === '1D' && SPOT_SYMBOLS.has(symbol) ? Math.floor(clock / 86400) * 86400 : getCanonicalBucketTime(clock, timeframe, symbol);
+  const archive = !present && hasHistoricalArchive(symbol);
+  const readSeries = (tf:Timeframe) => archive ? getHistoricalCandles(tf,symbol) : present ? getLiveChartCandles(symbol,tf) : getCachedRealCandles(tf,symbol);
+  const bars = readSeries(timeframe);
+  if (!bars?.length || clock < bars[0].time || (!archive && isQuoteOnlyChart(symbol, timeframe) && !(present && liveHistorySeries.get(`${symbol}_${timeframe}`)?.length))) return [];
+  const utcWeekDay = (new Date(clock*1000).getUTCDay()+6)%7;
+  const bucket = archive && timeframe==='1W' ? (Math.floor(clock/86400)-utcWeekDay)*86400 : (archive || SPOT_SYMBOLS.has(symbol)) && timeframe==='1D' ? Math.floor(clock/86400)*86400 : getCanonicalBucketTime(clock,timeframe,symbol);
   if (present) {
     const visible = bars.filter(c => c.time <= clock);
     const quote = SPOT_SYMBOLS.has(symbol) ? getSpotQuote(symbol) : undefined;
     const last = visible[visible.length - 1];
     // Apply a newly observed quote only inside the existing current candle.
     // Native provider OHLC supplies history and the true open; never invent a missing bar.
-    if (quote && last && quote.time >= last.time && quote.time < last.time + TIMEFRAME_CONFIG[timeframe].seconds && quote.time <= clock && clock - quote.time <= 60) {
+    if (quote && last && quote.time >= last.time && quote.time < getTimeframeEndTime(last.time, timeframe) && quote.time <= clock && clock - quote.time <= 60) {
       const close = Number(quote.price.toFixed(getInstrumentConfig(symbol).decimals));
       return [...visible.slice(0,-1), {...last, close, high: Math.max(last.high,close), low: Math.min(last.low,close)}];
     }
     return visible;
   }
-  const completed = bars.filter(c => c.time + TIMEFRAME_CONFIG[timeframe].seconds <= clock);
+  const completed = bars.filter(c => getTimeframeEndTime(c.time, timeframe) <= clock);
   const exact = bars.find(c => c.time === bucket);
   // Never expose the final OHLC of an unfinished historical bar. Build it from
   // completed lower bars (and the known open at the replay clock).
   const lowerTfs: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D'];
   for (const lower of lowerTfs) {
     if (TIMEFRAME_CONFIG[lower].seconds >= TIMEFRAME_CONFIG[timeframe].seconds) break;
-    if (getMarketFeedLabel(symbol, lower) !== getMarketFeedLabel(symbol, timeframe)) continue;
-    const lowerBars = getCachedRealCandles(lower, symbol) || [];
-    const inside = lowerBars.filter(c => c.time >= bucket && c.time + TIMEFRAME_CONFIG[lower].seconds <= clock);
-    if (!inside.length || inside[0].time !== bucket) continue;
-    const partial = aggregateCandlesToTimeframe(inside, timeframe, symbol)[0];
-    if (partial) return [...completed, partial];
+    if (getMarketFeedLabel(symbol, lower, archive) !== getMarketFeedLabel(symbol, timeframe, archive)) continue;
+    const lowerBars = readSeries(lower) || [];
+    const inside = lowerBars.filter(c => c.time >= bucket && getTimeframeEndTime(c.time, lower) <= clock);
+    const coversMonthStart = (timeframe === '1M' || archive) && lowerBars[0]?.time < bucket && exact && inside[0]?.open === exact.open;
+    const coversArchiveStart = archive && inside[0]?.time === historicalStarts.get(symbol) && exact && inside[0]?.open === exact.open;
+    if (!inside.length || (inside[0].time !== bucket && !coversMonthStart && !coversArchiveStart)) continue;
+    const partial = archive ? {time:bucket,open:inside[0].open,high:Math.max(...inside.map(c=>c.high)),low:Math.min(...inside.map(c=>c.low)),close:inside[inside.length-1].close,volume:inside.reduce((sum,c)=>sum+c.volume,0)} : aggregateCandlesToTimeframe(inside, timeframe, symbol)[0];
+    if (partial) {
+      const opening = archive ? (readSeries('1m')||[]).find(c=>c.time===Math.floor(clock/60)*60 && c.time>=bucket) : undefined;
+      return [...completed, opening ? {...partial,close:opening.open,high:Math.max(partial.high,opening.open),low:Math.min(partial.low,opening.open)} : partial];
+    }
   }
   if (exact && clock >= bucket) return [...completed, {time: bucket, open: exact.open, high: exact.open, low: exact.open, close: exact.open, volume: 0}];
   return completed;
@@ -1582,6 +1698,12 @@ export function setCachedRealCandles(
 
 export function clearRealCandleCache(): void {
   realCandleSeriesCache.clear();
+  historicalSeries.clear();
+  historicalLabels.clear();
+  historicalStarts.clear();
+  historicalEnds.clear();
+  liveHistorySeries.clear();
+  liveHistoryLabels.clear();
   clearSpotQuotes();
   marketFeedLabels.clear();
 }
@@ -1803,17 +1925,41 @@ async function fetchBinanceSpotCryptoCandles(
  * 3. For `EURUSD`, `GBPUSD`, `AUDUSD` on `1m`, where Yahoo's `1m` feed reports flat `O=H=L=C` ticks, we use Kraken's
  *    genuine Spot FX `1m` OHLC feed first, falling back to Yahoo `1m` without ever dividing by `JPY=X`.
  */
+function aggregateBrokerCalendarBars(source:Candle[], timeframe:'1W'|'1M'):Candle[] {
+  const groups=new Map<number,Candle>();
+  for(const bar of source){
+    const date=new Date(bar.time*1000);date.setUTCHours(0,0,0,0);
+    if(timeframe==='1M')date.setUTCDate(1);else date.setUTCDate(date.getUTCDate()-(date.getUTCDay()+6)%7);
+    const time=date.getTime()/1000,previous=groups.get(time);
+    groups.set(time,previous?{...previous,high:Math.max(previous.high,bar.high),low:Math.min(previous.low,bar.low),close:bar.close,volume:previous.volume+bar.volume}:{...bar,time});
+  }
+  return [...groups.values()].filter(bar=>bar.time>=source[0]?.time);
+}
 export async function fetchRealYahooInstrumentCandles(
   symbol: InstrumentSymbol,
   timeframe: Timeframe,
   limit = 1000,
   recentOnly = false
 ): Promise<Candle[] | null> {
+  if (INDEX_CFD_SYMBOLS.has(symbol)) {
+    const index=await fetchIndexCandles(symbol,timeframe,limit);
+    if(index.configured){
+      marketFeedLabels.set(`${symbol}_${timeframe}`, 'Capital.com demo · index CFD · bid · UTC');
+      if(!index.bars?.length)return null;
+      const bars=timeframe==='1W'||timeframe==='1M'?aggregateBrokerCalendarBars(index.bars,timeframe):index.bars;
+      if(timeframe==='1M' && bars.length && index.bars[0].time>bars[0].time)bars.shift();
+      return bars.slice(-limit);
+    }
+  }
   if (SPOT_SYMBOLS.has(symbol)) {
     const spot = await fetchSpotCandles(symbol, timeframe, Math.max(30,limit));
     if (!spot?.length) return null;
     marketFeedLabels.set(`${symbol}_${timeframe}`, 'biquote · MT5 broker spot (provisional)');
-    return (timeframe === '1W' ? aggregateCandlesToTimeframe(spot, '1W', symbol) : spot).slice(-limit);
+    const sourceBars = timeframe === '1W' || timeframe === '1M' ? aggregateCandlesToTimeframe(spot, timeframe, symbol) : spot;
+    // A bounded daily response may begin partway through its first month.
+    // Omit that uncertain month rather than claiming its partial open is genuine.
+    if (timeframe === '1M' && sourceBars.length && spot[0].time > sourceBars[0].time) sourceBars.shift();
+    return sourceBars.slice(-limit);
   }
   const tfCfg = TIMEFRAME_CONFIG[timeframe];
   const mapEntry = YAHOO_SYMBOL_MAP[symbol];
@@ -1849,7 +1995,7 @@ export async function fetchRealYahooInstrumentCandles(
     return null;
   }
 
-  const yahooLabel = `Yahoo · ${mapEntry.primary}${symbol === 'XAUUSD' || symbol === 'XAGUSD' ? ' (futures proxy)' : ''}`;
+  const yahooLabel = `Yahoo · ${mapEntry.primary}${INDEX_CFD_SYMBOLS.has(symbol) ? ' · CASH INDEX · broker CFD not connected' : ''}${symbol === 'XAUUSD' || symbol === 'XAGUSD' ? ' (futures proxy)' : ''}`;
 
   // 3. FX Daily ('1D') timeframe: Reconstruct from authoritative 60m bars to fix Yahoo's FX 1d (O === C) bug
   if (timeframe === '1D' && mapEntry.isForex) {
@@ -1877,7 +2023,7 @@ export async function fetchRealYahooInstrumentCandles(
   }
 
   // 4. Standard Authoritative Yahoo Finance Feed
-  const range = recentOnly ? (timeframe === '1D' || timeframe === '1W' ? '5d' : '1d') : tfCfg.yahooRange;
+  const range = recentOnly ? (timeframe === '1D' || timeframe === '1W' || timeframe === '1M' ? '5d' : '1d') : tfCfg.yahooRange;
   const rawData = await fetchYahooChartRaw(mapEntry.primary, tfCfg.yahooInterval, range);
   if (!rawData || rawData.bars.length === 0) return null;
   marketFeedLabels.set(`${symbol}_${timeframe}`, yahooLabel);
@@ -1944,7 +2090,7 @@ export function generateSyntheticGoldCandles(
   for (let idx = 0; idx < count; idx++) {
     const iFromEnd = count - 1 - idx;
     const time = nowSec - iFromEnd * stepSec;
-    if (timeframe !== '1D' && timeframe !== '1W' && isWeekendClosedTimestamp(time, symbol)) {
+    if (timeframe !== '1D' && timeframe !== '1W' && timeframe !== '1M' && isWeekendClosedTimestamp(time, symbol)) {
       continue;
     }
 
@@ -2070,7 +2216,7 @@ export function computeSessionBoxes(
   timeframe: Timeframe,
   decimals = 2
 ): SessionBox[] {
-  if (timeframe === '1D' || timeframe === '1W' || candles.length === 0) {
+  if (timeframe === '1D' || timeframe === '1W' || timeframe === '1M' || candles.length === 0) {
     return [];
   }
 

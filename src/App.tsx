@@ -1,6 +1,12 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { MotivationWelcome } from './components/MotivationWelcome';
+import { resetMotivationVisit } from './services/motivation';
+import { getReplayWeekdayTarget, getHistoricalCandles, hasHistoricalArchive, getHistoricalReplayAvailability } from './services/goldDataService';
+import { hydrateHistoricalArchive, hydrateLiveHistoricalArchive } from './services/historicalFeed';
+import { shiftTimeframeClock } from './services/goldDataService';
 import {getSpotQuote, getSpotFeedStatus, SPOT_SYMBOLS} from './services/spotFeed';
 import {createLivePaperSession} from './services/livePaperTrading';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   BacktestSessionMode,
   CandleColorStyle,
@@ -273,15 +279,22 @@ export function App() {
   // Hydrate real provider market data (Yahoo Finance / Kraken / Binance Spot) for the active symbol & timeframe
   const [marketDataVersion, setMarketDataVersion] = useState<number>(0);
   const [isMarketDataLoading, setIsMarketDataLoading] = useState<boolean>(false);
+  const marketDataRequestKey = `${symbol}:${isPresentTime ? 'present' : Math.floor(authoritativeClockTs / 86400)}`;
+  const [loadedMarketDataKey, setLoadedMarketDataKey] = useState<string | null>(null);
+  const historicalAvailability = !isPresentTime && !isMarketDataLoading ? getHistoricalReplayAvailability(symbol,authoritativeClockTs) : undefined;
 
   useEffect(() => {
     let cancelled = false;
     setIsMarketDataLoading(true);
-    hydrateRealMarketDataForSymbol(symbol, timeframe)
+    if(isPresentTime)void hydrateLiveHistoricalArchive(symbol,authoritativeClockTs).then(loaded=>{
+      if(loaded && !cancelled)setMarketDataVersion(value=>value+1);
+    });
+    (isPresentTime ? hydrateRealMarketDataForSymbol(symbol,timeframe) : hydrateHistoricalArchive(symbol,authoritativeClockTs).then(found=>found || hydrateRealMarketDataForSymbol(symbol,timeframe)))
       .then((loaded) => {
         if (!cancelled) {
           setIsMarketDataLoading(false);
           if (loaded) {
+            setLoadedMarketDataKey(marketDataRequestKey);
             setMarketDataVersion((v) => v + 1);
           }
         }
@@ -292,7 +305,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, isPresentTime, Math.floor(authoritativeClockTs / 86400)]);
 
   useEffect(() => {
     if (!isPresentTime) return;
@@ -301,13 +314,11 @@ export function App() {
     const refresh = async () => {
       if (refreshing) return;
       refreshing = true;
-      setIsMarketDataLoading(true);
       try {
         await Promise.all(Array.from(new Set(activeSession.chartLayout === 'SPLIT_2' ? [timeframe, secondaryTimeframe] : [timeframe])).map(tf => refreshMarketCandles(symbol, tf)));
         if (!cancelled) setMarketDataVersion(v => v + 1);
       } finally {
         refreshing = false;
-        if (!cancelled) setIsMarketDataLoading(false);
       }
     };
     setPresentClockTs(Math.floor(Date.now() / 1000));
@@ -322,6 +333,17 @@ export function App() {
   const secondaryVisibleCandles = useMemo(() => activeSession.chartLayout === 'SPLIT_2'
     ? getProviderChartCandles(symbol, secondaryTimeframe, authoritativeClockTs, isPresentTime) : [],
     [symbol, secondaryTimeframe, authoritativeClockTs, isPresentTime, marketDataVersion, activeSession.chartLayout]);
+  const olderHistoryAttempts = useRef(new Set<string>());
+  const loadOlderChartHistory = useCallback(async (tf:Timeframe,before:number):Promise<boolean> => {
+    const key=`${symbol}:${tf}:${before}:${isPresentTime?'live':'replay'}`;
+    if(olderHistoryAttempts.current.has(key))return false;
+    olderHistoryAttempts.current.add(key);
+    const loaded=await hydrateHistoricalArchive(symbol,before-1,isPresentTime?'live':'extend');
+    if(!loaded)return false;
+    const older=getProviderChartCandles(symbol,tf,authoritativeClockTs,isPresentTime)[0]?.time;
+    setMarketDataVersion(value=>value+1);
+    return older!==undefined && older<before;
+  },[symbol,isPresentTime,authoritativeClockTs]);
   const handleGoToPresent = () => {
     setIsPlaying(false);
     const existing = tradingSessions.find(s => s.marketMode === 'LIVE_PAPER');
@@ -508,6 +530,7 @@ export function App() {
 
   // Guided product tour (spotlight coach-marks)
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
+  const [motivationOpen, setMotivationOpen] = useState(false);
 
   const handleStartTour = useCallback(() => {
     if (!detectMobile()) setShowRightWidget(true);
@@ -531,7 +554,7 @@ export function App() {
   // Auto-start the tour once, the first time the trading workspace is opened.
   useEffect(() => {
     if (activeView !== 'terminal' || !currentUser) return;
-    if (isTourOpen || isCreateSessionModalOpen || challengeAlertModal) return;
+    if (isTourOpen || motivationOpen || isCreateSessionModalOpen || challengeAlertModal) return;
     if (hasSeenTour() || detectMobile()) return;
     const t = setTimeout(() => handleStartTour(), 900);
     return () => clearTimeout(t);
@@ -539,6 +562,7 @@ export function App() {
     activeView,
     currentUser,
     isTourOpen,
+    motivationOpen,
     isCreateSessionModalOpen,
     challengeAlertModal,
     handleStartTour,
@@ -709,6 +733,10 @@ export function App() {
     }));
   }, [symbol, updateActiveSession]);
 
+  const replayStepBusy = useRef(false);
+  const replayStepContext = useRef('');
+  replayStepContext.current = `${activeSession.id}:${authoritativeClockTs}`;
+
   // 10. Replay Step & Skip Engine Handlers
   const handleAdvanceOrRewindToTimestamp = useCallback(
     (targetTs: number): { ok: boolean; error?: string } => {
@@ -763,13 +791,38 @@ export function App() {
   );
 
   const handleStepBar = useCallback(
-    (deltaBars: number) => {
-      const stepSeconds = TIMEFRAME_CONFIG[timeframe]?.seconds || 60;
+    async (deltaBars: number) => {
+      if (replayStepBusy.current) return;
       const replayClock = activeSession.replayTimestamp || activeSession.startTimestamp || authoritativeClockTs;
-      const targetTs = (isPresentTime ? replayClock : authoritativeClockTs) + deltaBars * stepSeconds;
-      handleAdvanceOrRewindToTimestamp(targetTs);
+      const requested = shiftTimeframeClock(isPresentTime ? replayClock : authoritativeClockTs, timeframe, deltaBars);
+      const weekday = deltaBars > 0 && !isPresentTime ? getReplayWeekdayTarget(symbol, requested) : requested;
+      if (weekday === requested) { handleAdvanceOrRewindToTimestamp(requested); return; }
+      replayStepBusy.current = true;
+      const context = replayStepContext.current;
+      try {
+        const findNext = () => (hasHistoricalArchive(symbol) ? getHistoricalCandles('1m', symbol) : getCachedRealCandles('1m',symbol))?.find(c => c.time >= weekday && getReplayWeekdayTarget(symbol,c.time) === c.time)?.time;
+        let next = findNext();
+        if (next === undefined) {
+          setIsMarketDataLoading(true);
+          await hydrateHistoricalArchive(symbol, weekday);
+          if (replayStepContext.current !== context) return;
+          setMarketDataVersion(value => value + 1);
+          next = findNext();
+        }
+        if (next === undefined || (activeSession.endTimestamp && next > activeSession.endTimestamp)) {
+          setIsPlaying(false);
+          showToast('Weekend closed. No next weekday quote is available within this session. Extend the end date or choose another date.', 'info');
+          return;
+        }
+        const outcome = handleAdvanceOrRewindToTimestamp(next);
+        if (outcome.ok) showToast(`Weekend closed — skipped to ${new Date(next * 1000).toISOString().slice(0,16).replace('T',' ')} UTC.`, 'info');
+        else setIsPlaying(false);
+      } finally {
+        replayStepBusy.current = false;
+        if (replayStepContext.current === context) setIsMarketDataLoading(false);
+      }
     },
-    [activeSession, isPresentTime, authoritativeClockTs, timeframe, handleAdvanceOrRewindToTimestamp]
+    [activeSession, isPresentTime, authoritativeClockTs, timeframe, symbol, handleAdvanceOrRewindToTimestamp, showToast]
   );
 
   useEffect(() => {
@@ -1161,6 +1214,7 @@ export function App() {
       <LoginPage
         initialMode={loginInitialMode}
         onSuccessAuth={(user: ChartFlowUser) => {
+          resetMotivationVisit(user.email);
           setCurrentUser(user);
           // Fresh sign-in: re-arm the bottom workspace panel expand hint
           try {
@@ -1480,13 +1534,18 @@ export function App() {
         <div className="flex-1 flex min-w-0 min-h-0 relative">
           <div className="flex-1 min-w-0 min-h-0 flex" data-tour="chart-area">
             <TradingChart
+              accountCurrency={activeSession.accountCurrency}
+              reactionScope={activeSession.id}
+              reactionSession={activeSession}
+              onLoadOlderHistory={loadOlderChartHistory}
               symbol={symbol}
               marketPrice={isPresentTime ? currentMidPrice : undefined}
               onGoToPresent={handleGoToPresent}
               onReturnToReplay={handleReturnToReplay}
-              feedLabel={getMarketFeedLabel(symbol, timeframe)}
-              feedStatus={isPresentTime && SPOT_SYMBOLS.has(symbol) ? getSpotFeedStatus(symbol, presentClockTs) : undefined}
-              dataMessage={!visibleCandles.length ? (isMarketDataLoading ? 'Loading provider candles…' : isQuoteOnlyChart(symbol, timeframe) ? 'This feed supplies quote-only bars here; genuine candle OHLC is unavailable. Try the five-minute chart.' : 'No provider history for this date and timeframe. Select Present Time or choose a date within the available history.') : undefined}
+              feedLabel={getMarketFeedLabel(symbol, timeframe, !isPresentTime)}
+              feedStatus={isPresentTime && (SPOT_SYMBOLS.has(symbol) || getSpotQuote(symbol)?.source.startsWith('Capital.com')) ? getSpotFeedStatus(symbol, presentClockTs) : undefined}
+              dataMessage={isMarketDataLoading ? undefined : historicalAvailability?.message || (!visibleCandles.length ? (isQuoteOnlyChart(symbol, timeframe) ? 'This feed supplies quote-only bars here; genuine candle OHLC is unavailable. Try the five-minute chart.' : 'No provider history for this date and timeframe. Select Present Time or choose a date within the available history.') : undefined)}
+              onGoToNextAvailableBar={historicalAvailability?.nextTime && (!activeSession.endTimestamp || historicalAvailability.nextTime <= activeSession.endTimestamp) ? () => { setIsPlaying(false); handleAdvanceOrRewindToTimestamp(historicalAvailability.nextTime!); } : undefined}
               candles={visibleCandles}
               totalCandlesCount={visibleCandles.length}
               timeframe={timeframe}
@@ -1710,7 +1769,7 @@ export function App() {
                   HTF Sync Chart ({symbol} · {secondaryTimeframe})
                 </span>
                 <div className="flex items-center gap-1">
-                  {(['15m', '1H', '4H', '1D', '1W'] as Timeframe[]).map((tf) => (
+                  {(['15m', '1H', '4H', '1D', '1W', '1M'] as Timeframe[]).map((tf) => (
                     <button
                       key={tf}
                       onClick={() => setSecondaryTimeframe(tf)}
@@ -1727,13 +1786,18 @@ export function App() {
               </div>
               <div className="flex-1 min-h-0 flex">
                 <TradingChart
+                  accountCurrency={activeSession.accountCurrency}
+                  reactionScope={activeSession.id}
+              reactionSession={activeSession}
+              onLoadOlderHistory={loadOlderChartHistory}
                   symbol={symbol}
                   marketPrice={isPresentTime ? currentMidPrice : undefined}
               onGoToPresent={handleGoToPresent}
               onReturnToReplay={handleReturnToReplay}
-                  feedLabel={getMarketFeedLabel(symbol, secondaryTimeframe)}
-                  feedStatus={isPresentTime && SPOT_SYMBOLS.has(symbol) ? getSpotFeedStatus(symbol, presentClockTs) : undefined}
-                  dataMessage={!secondaryVisibleCandles.length ? 'No provider history for this date and timeframe.' : undefined}
+                  feedLabel={getMarketFeedLabel(symbol, secondaryTimeframe, !isPresentTime)}
+                  feedStatus={isPresentTime && (SPOT_SYMBOLS.has(symbol) || getSpotQuote(symbol)?.source.startsWith('Capital.com')) ? getSpotFeedStatus(symbol, presentClockTs) : undefined}
+                  dataMessage={isMarketDataLoading ? undefined : historicalAvailability?.message || (!secondaryVisibleCandles.length ? 'No provider history for this date and timeframe.' : undefined)}
+                  onGoToNextAvailableBar={historicalAvailability?.nextTime && (!activeSession.endTimestamp || historicalAvailability.nextTime <= activeSession.endTimestamp) ? () => { setIsPlaying(false); handleAdvanceOrRewindToTimestamp(historicalAvailability.nextTime!); } : undefined}
                   candles={secondaryVisibleCandles}
                   totalCandlesCount={secondaryVisibleCandles.length}
                   timeframe={secondaryTimeframe}
@@ -1801,9 +1865,20 @@ export function App() {
           )}
         </div>
 
+        {!isChartWideMode && (!isMobile || !showRightWidget) && <button
+          type="button"
+          aria-label={showRightWidget ? 'Collapse order panel' : 'Expand order panel'}
+          aria-expanded={showRightWidget}
+          aria-controls="chart-order-panel"
+          onClick={() => setShowRightWidget(value => !value)}
+          title={showRightWidget ? 'Collapse order panel' : 'Expand order panel'}
+          style={{right: showRightWidget && !isMobile ? 320 : 0}}
+          className={`absolute top-1/2 z-40 -translate-y-1/2 rounded-l-lg border border-r-0 px-0.5 py-3 shadow-md transition-colors ${theme === 'light' ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100' : 'border-[#303642] bg-[#1a1f28] text-slate-400 hover:text-white hover:bg-[#252c38]'}`}
+        >{showRightWidget ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}</button>}
+
         {/* Right Panel */}
         {showRightWidget && !isChartWideMode && (
-          <div
+          <div id="chart-order-panel"
             className={
               isMobile
                 ? 'fixed inset-0 z-50 flex flex-col justify-end bg-black/50'
@@ -1824,7 +1899,10 @@ export function App() {
           )}
           <div className={isMobile ? 'max-h-[75vh] flex flex-col [&>aside]:!w-full [&>aside]:border-l-0 [&>aside]:border-t [&>aside]:rounded-t-2xl' : 'contents'}>
           <RightOrderPanel
-            key={activeSession.id}            session={activeSession}
+            key={activeSession.id}
+            session={activeSession}
+            pricingContext={`${getMarketFeedLabel(symbol,timeframe,!isPresentTime)}:${marketDataRequestKey}`}
+            pricingReady={!isMarketDataLoading && loadedMarketDataKey === marketDataRequestKey}
             symbol={symbol}
             currentMidPrice={currentMidPrice}
             atr14={atr14}
@@ -1983,6 +2061,17 @@ export function App() {
           setCustomRuleProfiles(next);
           saveUserCustomRuleProfiles(currentUser.email, next);
         }}
+      />
+
+      <MotivationWelcome
+        userKey={currentUser.email}
+        name={currentUser.name}
+        eligible={!isCreateSessionModalOpen && !isTourOpen && !challengeAlertModal}
+        chartStatus={isMarketDataLoading ? 'Preparing your chart…' : visibleCandles.length ? 'Your chart is ready' : 'Your workspace is ready'}
+        loading={isMarketDataLoading}
+        isLight={theme === 'light'}
+        onOpen={() => { setMotivationOpen(true); setIsPlaying(false); }}
+        onDismiss={() => setMotivationOpen(false)}
       />
 
       {/* Guided Product Tour (first trade walkthrough) */}

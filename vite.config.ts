@@ -1,8 +1,13 @@
-import { defineConfig, Plugin } from 'vite';
+import { defineConfig, loadEnv, Plugin } from 'vite';
+import capitalHandler from './api/capital-indices.js';
+// Private broker configuration remains in the Node server, never VITE_* client variables.
+const privateEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), 'CAPITAL_');
+for (const [key,value] of Object.entries(privateEnv)) if (process.env[key] === undefined) process.env[key] = value;
 import react from '@vitejs/plugin-react';
 import spotHandler from './api/spot-candles.js';
+import historicalHandler from './api/historical-candles.js';
 function spotPlugin(): Plugin {
-  const use = (server: any) => { server.middlewares.use('/api/spot-candles', spotHandler); };
+  const use = (server: any) => { server.middlewares.use('/api/index-candles', capitalHandler); server.middlewares.use('/api/spot-candles', spotHandler); server.middlewares.use('/api/historical-candles', historicalHandler); };
   return {name: 'spot-market-feed', configureServer: use, configurePreviewServer: use};
 }
 

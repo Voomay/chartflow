@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,writeFile} from 'node:fs/promises';
+import {gzipSync} from 'node:zlib';
+import path from 'node:path';
+import os from 'node:os';
+import handler,{loadHistoricalWindow} from '../api/historical-candles.js';
+import {parseBitfinexRows} from '../api/bitfinex-history.js';
+const root=await mkdtemp(path.join(os.tmpdir(),'chartflow-history-test-'));
+process.env.ARCHIVE_DATA_DIR=root;
+const week=Date.parse('2020-12-28T00:00:00Z')/1000,clock=Date.parse('2021-01-01T00:00:00Z')/1000;
+await writeFile(path.join(root,'manifest.json'),JSON.stringify({provider:'Fixture',symbols:{EURUSD:{priceBasis:'bid',years:{2020:{first:clock-60,last:clock-60,rows:1},2021:{first:clock,last:clock,rows:1}}}}}));
+async function part(tf,key,rows){await mkdir(path.join(root,'EURUSD',tf),{recursive:true});await writeFile(path.join(root,'EURUSD',tf,`${key}.json.gz`),gzipSync(JSON.stringify(rows)));}
+await part('1m','2020-12',[[clock-60,1.1,1.2,1,1.15,0]]);
+await part('1m','2021-01',[[clock,1.15,1.25,1.05,1.2,0]]);
+await part('1W','2020',[[week,1.1,1.2,1,1.15,2]]);
+await part('1W','2021',[[week,1.15,1.25,1.05,1.2,3]]);
+const data=await loadHistoricalWindow('EURUSD',clock);
+assert.deepEqual(data.bars['1W'],[[week,1.1,1.25,1,1.2,5]]);
+assert.deepEqual(data.bars['1m'].map(b=>b[0]),[clock-60,clock]);
+assert.equal(data.coverage.rows,2);
+const response={statusCode:0,setHeader(){},end(body){this.body=body;}};
+await handler({method:'GET',url:'/?symbol=../../private&clock='+clock},response);
+assert.equal(response.statusCode,400);
+assert.deepEqual(parseBitfinexRows([[clock*1000,1.1,1.15,1.2,1,2]]),[[clock,1.1,1.2,1,1.15,2]]);
+assert.throws(()=>parseBitfinexRows([[clock*1000,1.1,1.15,1,1.2,2]]));
+console.log('Historical API checks passed: source-year boundary merge, original minute preservation, request allowlist, Bitfinex OCHL mapping and malformed-data rejection.');

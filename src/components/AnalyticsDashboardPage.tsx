@@ -1,3 +1,4 @@
+import { MotivationPreference } from './MotivationWelcome';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   BacktestPosition,
@@ -2198,6 +2199,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   </button>
                 )}
               </div>
+              <MotivationPreference userKey={currentUser?.email || 'trader@chartflow.io'} />
             </div>
 
             {/* Danger Zone: Delete Account */}

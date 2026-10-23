@@ -1,4 +1,4 @@
-﻿@tailwind base;
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -228,3 +228,27 @@
   .panel-hint-bounce { animation: none; }
   .panel-hint-ring { animation: none; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.45); }
 }
+
+/* Optional simulated-trade reactions; the money tween follows actual P&L updates. */
+@keyframes trade-happy { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-4px) rotate(4deg); } }
+@keyframes trade-worry { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
+@keyframes trade-spark { 0%, 100% { transform: translateY(3px) scale(.85); opacity: .6; } 50% { transform: translateY(-6px) scale(1.15); opacity: 1; } }
+.trade-face-profit, .trade-face-money, .trade-face-won { animation: trade-happy 1.8s ease-in-out infinite; }
+.trade-face-loss, .trade-face-panic, .trade-face-stopped { animation: trade-worry 1.3s ease-in-out infinite; }
+.trade-money-spark { animation: trade-spark 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .trade-face, .trade-money-spark { animation: none; }
+}
+
+/* A single quiet welcome before practice. Native dialog handles focus and Escape. */
+.motivation-dialog { width: min(380px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); }
+.motivation-dialog::backdrop { background: rgb(4 10 13 / 72%); backdrop-filter: blur(7px); }
+@keyframes motivation-arrive { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.motivation-dialog[open] { animation: motivation-arrive .3s ease-out; }
+@media (prefers-reduced-motion: reduce) { .motivation-dialog[open] { animation: none; } }
+
+.trade-reaction-follow { transition: transform 260ms cubic-bezier(.2,.7,.25,1), opacity 150ms ease; will-change: transform; }
+@media (prefers-reduced-motion: reduce) { .trade-reaction-follow { transition: none; } }
+
+.schedule-picker { position: fixed; inset: auto; left: 50%; top: 50%; transform: translate(-50%, -50%); margin: 0; max-height: calc(100dvh - 24px); overflow-y: auto; }
+.schedule-picker::backdrop { background: rgb(4 7 12 / 65%); backdrop-filter: blur(4px); }

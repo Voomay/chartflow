@@ -1,11 +1,42 @@
 import {beforeEach, describe, expect, it, vi, afterEach} from 'vitest';
-import {clearRealCandleCache, setCachedRealCandles, getProviderChartCandles, fetchRealYahooInstrumentCandles, refreshMarketCandles, getCachedRealCandles, INSTRUMENTS, TIMEFRAME_CONFIG, sanitizeAndValidateCandles} from '../goldDataService';
+import {clearRealCandleCache, setLiveHistoricalCandles, setHistoricalCandles, extendHistoricalCandles, getHistoricalCandles, setCachedRealCandles, getProviderChartCandles, fetchRealYahooInstrumentCandles, refreshMarketCandles, getCachedRealCandles, INSTRUMENTS, TIMEFRAME_CONFIG, sanitizeAndValidateCandles} from '../goldDataService';
 import {Candle, Timeframe} from '../../types/trading';
 const t = Date.parse('2026-10-22T08:00:00Z') / 1000;
 const bar = (time: number, open = 1.1): Candle => ({time, open, high: open+.002, low: open-.001, close: open+.001, volume: 12});
 beforeEach(() => clearRealCandleCache());
 afterEach(() => vi.unstubAllGlobals());
 describe('Visible provider candles', () => {
+ it('shows genuine older archive bars behind recent live bars without bridging missing minutes',()=>{
+  const older=[bar(t-600,1.0),bar(t-300,1.02)];const live=[bar(t,1.1),bar(t+60,1.11)];
+  setLiveHistoricalCandles('EURUSD',{'1m':older},'HistData bid');setCachedRealCandles('1m','EURUSD',live);
+  expect(getProviderChartCandles('EURUSD','1m',t+120,true)).toEqual([...older,...live]);
+ });
+ it('gives live-provider bars priority and drops overlapping partial archive buckets',()=>{
+  const old=[bar(t-300),bar(t,8)];const live=[bar(t,1.1)];
+  setLiveHistoricalCandles('EURUSD',{'5m':old},'HistData');setCachedRealCandles('5m','EURUSD',live);
+  expect(getProviderChartCandles('EURUSD','5m',t+300,true)).toEqual([old[0],live[0]]);
+ });
+ it('retains older live-chart history when a provider refresh replaces recent candles',()=>{
+  const old=bar(t-600,1.0);setLiveHistoricalCandles('EURUSD',{'1m':[old]},'HistData');
+  setCachedRealCandles('1m','EURUSD',[bar(t)]);setCachedRealCandles('1m','EURUSD',[bar(t+60,1.2)]);
+  expect(getProviderChartCandles('EURUSD','1m',t+120,true)[0]).toEqual(old);
+ });
+ it('deduplicates older pages and keeps live and replay archive windows separate',()=>{
+  const old=bar(t-600,1.0),next=bar(t-300,1.01);
+  setHistoricalCandles('EURUSD',{'1m':[bar(t,1.3)]},'Replay');
+  setLiveHistoricalCandles('EURUSD',{'1m':[next]},'HistData');
+  setLiveHistoricalCandles('EURUSD',{'1m':[old,next]},'HistData');
+  expect(getProviderChartCandles('EURUSD','1m',t+120,true)).toEqual([old,next]);
+  expect(getHistoricalCandles('1m','EURUSD')![0].open).toBe(1.3);
+  extendHistoricalCandles('EURUSD',{'1m':[old]});
+  expect(getHistoricalCandles('1m','EURUSD')!.map(row=>row.time)).toEqual([old.time,t]);
+ });
+ it('shows valid archive OHLC while refusing quote-only live bars',()=>{
+  const old=bar(t-600);setLiveHistoricalCandles('EURUSD',{'1m':[old]},'HistData');
+  setCachedRealCandles('1m','EURUSD',Array.from({length:40},(_,i)=>({time:t+i*60,open:1.1,high:1.1,low:1.1,close:1.1,volume:0})));
+  expect(getProviderChartCandles('EURUSD','1m',t+3600,true)).toEqual([old]);
+ });
+
  it('does not present a quote-only feed as full OHLC candles', () => {
   const quotes=Array.from({length:120},(_,i)=>({time:t+i*60,open:1.1,high:1.1,low:1.1,close:1.1,volume:0}));
   setCachedRealCandles('1m','NZDUSD',quotes);
@@ -79,5 +110,13 @@ describe('Visible provider candles', () => {
   vi.stubGlobal('fetch',vi.fn(async()=>{throw Error('offline')}));
   expect(await refreshMarketCandles('USDJPY','1m')).toBe(false);
   expect(getCachedRealCandles('1m','USDJPY')).toEqual(source);
+ });
+});
+
+describe('Index CFD source boundaries',()=>{
+ it.each(['US30','NAS100','UK100','GER30'] as const)('never appends bid CFD archives to the %s cash-index live chart',symbol=>{
+   const old=[bar(t-300,40000)],live=[bar(t,41000)];
+   setLiveHistoricalCandles(symbol,{'1m':old},'HistData · bid archive');setCachedRealCandles('1m',symbol,live);
+   expect(getProviderChartCandles(symbol,'1m',t+60,true)).toEqual(live);
  });
 });

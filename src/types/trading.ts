@@ -489,6 +489,7 @@ export interface BacktestPosition {
   entryTime: number;
   triggeredTime?: number;
   endTime?: number; // Right edge of the visual position box
+  hideOnChart?: boolean; // Visual preference only; does not close or cancel the simulated order.
   stopLoss: number;
   initialStopLoss?: number; // Preserved initial SL for accurate R-multiple calculation even after SL is moved to BE
   takeProfit: number;

@@ -1,5 +1,7 @@
+import { DashboardOverview } from './DashboardOverview';
+import { StrategyNotes } from './StrategyNotes';
 import { MotivationPreference } from './MotivationWelcome';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import {
   BacktestPosition,
   CustomRuleProfile,
@@ -30,6 +32,7 @@ import { DrawdownChart, EquityCurveChart, GradientBar } from './analytics/charts
 import {
   BarChart2,
   BookOpen,
+  NotebookPen,
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
@@ -61,6 +64,7 @@ export type HubSidebarSection =
   | 'sessions'
   | 'analytics'
   | 'strategies'
+  | 'notes'
   | 'guide'
   | 'settings';
 
@@ -127,6 +131,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   const [strategySearch, setStrategySearch] = useState('');
   const [sidebarSection, setSidebarSection] =
     useState<HubSidebarSection>(initialSection);
+  const workspaceRef=useRef<HTMLElement>(null);
+  useEffect(()=>{workspaceRef.current?.scrollTo({top:0});},[sidebarSection]);
 
   useEffect(() => {
     setSidebarSection(initialSection);
@@ -299,13 +305,13 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
   const bgMain = isLight
     ? 'bg-[#f4f6fb] text-[#131722]'
-    : 'bg-[#0d0f13] text-[#e2e8f0]';
+    : 'bg-[#0b1017] text-[#e2e8f0]';
   const sidebarBg = isLight
     ? 'bg-white border-[#e0e3eb]'
-    : 'bg-[#12151b] border-[#242832]';
+    : 'bg-[#10161f] border-white/[0.07]';
   const cardBg = isLight
     ? 'bg-white border-[#e0e3eb] shadow-sm'
-    : 'bg-[#14171d] border-[#242832]';
+    : 'bg-[#131922] border-white/[0.08]';
   const subCardBg = isLight
     ? 'bg-[#f8f9fd] border-[#e0e3eb]'
     : 'bg-[#1a1e26] border-[#282d38]';
@@ -332,7 +338,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   }, [dashboardModeTab, normalSessions, propSessions, sessions]);
 
   const renderSidebarContent = () => (
-    <div className="h-full flex flex-col justify-between">
+    <div className="h-full flex flex-col justify-between overflow-y-auto">
       <div className="p-4 space-y-5">
         {/* Brand Header */}
         <div className="flex items-center justify-between">
@@ -396,7 +402,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         )}
 
         {/* Sidebar Navigation Links */}
-        <nav className="space-y-1">
+        <nav aria-label="Workspace navigation" className="space-y-1">
+          <p className="text-[9px] font-bold tracking-[.18em] opacity-40 px-3 mb-3">WORKSPACE</p>
           {(
             [
               { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -413,6 +420,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 icon: Compass,
                 badge: allStrategyOptions.length,
               },
+              { id: 'notes', label: 'Notes', icon: NotebookPen },
               { id: 'guide', label: 'How-To Guide', icon: BookOpen },
               { id: 'settings', label: 'Settings', icon: Settings },
             ] as const
@@ -422,14 +430,15 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             return (
               <button
                 key={item.id}
+                aria-current={active ? 'page' : undefined}
                 onClick={() => {
                   setSidebarSection(item.id);
                   setMobileMenuOpen(false);
                 }}
                 className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition ${
                   active
-                    ? 'bg-[#222731] text-white border border-[#343a47]'
-                    : 'opacity-75 hover:opacity-100 hover:bg-white/5 border border-transparent'
+                    ? isLight ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-emerald-500/10 text-emerald-100 border border-emerald-500/20'
+                    : isLight ? 'text-slate-600 hover:bg-slate-100 border border-transparent' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
                 }`}
               >
                 <span className="flex items-center gap-2.5">
@@ -478,7 +487,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   );
 
   return (
-    <div className={`h-screen w-screen flex overflow-hidden select-none ${bgMain}`}>
+    <div className={`h-screen w-screen flex overflow-hidden hub-modern ${bgMain}`}>
       {/* DESKTOP SIDEBAR */}
       <aside className={`hidden md:flex w-64 border-r flex-col justify-between shrink-0 ${sidebarBg}`}>
         {renderSidebarContent()}
@@ -498,29 +507,31 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
       )}
 
       {/* MAIN WORKSPACE CONTENT */}
-      <main className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
+      <main ref={workspaceRef} className="min-w-0 flex-1 flex flex-col overflow-y-auto custom-scrollbar">
         {/* Top Bar inside Hub */}
         <header
-          className={`min-h-14 py-2 px-3 sm:px-6 border-b flex items-center justify-between gap-2 shrink-0 ${sidebarBg}`}
+          className={`sticky top-0 z-20 min-h-16 py-3 px-4 sm:px-8 border-b backdrop-blur-xl flex items-center justify-between gap-2 shrink-0 ${sidebarBg}`}
         >
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile Hamburger Button */}
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="md:hidden p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white shrink-0"
+              className="md:hidden p-2 rounded-lg border border-gray-500/15 hover:bg-gray-500/10 shrink-0"
               aria-label="Open navigation menu"
             >
               <Menu className="w-5 h-5" />
             </button>
             <h1 className="text-xs sm:text-base font-extrabold tracking-tight capitalize truncate">
               {sidebarSection === 'dashboard'
-                ? 'Account Dashboard & Recent Sessions'
+                ? 'Overview'
                 : sidebarSection === 'sessions'
                 ? 'All Backtesting & Prop Firm Challenge Sessions'
                 : sidebarSection === 'analytics'
                 ? 'Performance Analytics & Audit'
                 : sidebarSection === 'strategies'
                 ? 'Strategy Playbooks & Prop Rule Profiles'
+                : sidebarSection === 'notes'
+                ? 'Your Notebook'
                 : sidebarSection === 'guide'
                 ? 'Step-by-Step Guide'
                 : 'Account & Simulator Preferences'}
@@ -560,103 +571,15 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* SECTION 1 & 2: DASHBOARD & SESSIONS VIEW */}
         {(sidebarSection === 'dashboard' || sidebarSection === 'sessions') && (
-          <div className="px-3 sm:px-6 py-6 space-y-6 max-w-7xl w-full mx-auto">
+          <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
             {sidebarSection === 'dashboard' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div
-                  className={`p-5 rounded-2xl border flex flex-col justify-between ${cardBg}`}
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[#222731] text-emerald-400 border border-[#343a47]">
-                        NORMAL BACKTESTING
-                      </span>
-                      <Zap className="w-5 h-5 text-emerald-400" />
-                    </div>
-                    <h3 className="text-base font-extrabold">
-                      Normal Strategy Backtesting
-                    </h3>
-                    <p className="text-xs opacity-75 leading-relaxed">
-                      Practice a strategy against deterministic 1-minute historical prices, manage simulated trades with full or partial closures, rewind or branch practice sessions, and review analytics.
-                    </p>
-                  </div>
-                  <div className="pt-4 flex items-center justify-between">
-                    <span className="text-xs font-mono opacity-65">
-                      {normalSessions.length} active session(s)
-                    </span>
-                    <button
-                      onClick={() => onOpenCreateSessionModal('BACKTESTING')}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 transition"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> New Normal Session
-                    </button>
-                  </div>
-                </div>
-
-                <div
-                  className={`p-5 rounded-2xl border flex flex-col justify-between ${cardBg}`}
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                        PROP FIRM CHALLENGE
-                      </span>
-                      <Trophy className="w-5 h-5 text-amber-400" />
-                    </div>
-                    <h3 className="text-base font-extrabold">
-                      Prop Firm Evaluation Challenge
-                    </h3>
-                    <p className="text-xs opacity-75 leading-relaxed">
-                      Practice under configurable profit targets, daily loss limits, and static/trailing drawdown rules with automatic floating equity breach enforcement and no-rewind integrity.
-                    </p>
-                  </div>
-                  <div className="pt-4 flex items-center justify-between">
-                    <span className="text-xs font-mono opacity-65">
-                      {propSessions.length} challenge session(s)
-                    </span>
-                    <button
-                      onClick={() => onOpenCreateSessionModal('PROP_FIRM')}
-                      className="px-4 py-2 rounded-xl bg-[#222731] hover:bg-[#2c323f] border border-[#363d4c] text-white text-xs font-extrabold flex items-center gap-1.5 transition"
-                    >
-                      <Plus className="w-3.5 h-3.5 text-amber-400" /> New Prop Challenge
-                    </button>
-                  </div>
-                </div>
-
-                {/* Quick-Start Guide Banner Card */}
-                <div
-                  className={`md:col-span-2 p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${cardBg}`}
-                >
-                  <div className="flex items-start sm:items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#2962ff]/15 border border-[#2962ff]/30 flex items-center justify-center text-[#2962ff] shrink-0">
-                      <BookOpen className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-extrabold">
-                          Quick Start Guide: What Is Where, Session Setup &amp; First Buy/Sell
-                        </span>
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-mono font-bold text-[10px]">
-                          3 EASY STEPS
-                        </span>
-                      </div>
-                      <p className="text-xs opacity-75 mt-0.5">
-                        Learn where every tool is located, how to configure your first session, and how to place your first Buy or Sell trade.
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setSidebarSection('guide')}
-                    className="px-4 py-2 rounded-xl bg-[#2962ff] hover:bg-[#1e53e5] text-white text-xs font-extrabold flex items-center gap-1.5 shrink-0 transition"
-                  >
-                    <BookOpen className="w-3.5 h-3.5" />
-                    <span>Open Step-by-Step Guide</span>
-                  </button>
-                </div>
-              </div>
+              <DashboardOverview name={currentUser?.name} sessions={sessions} strategyCount={strategies.length} isLight={isLight} onResume={onReturnToChart} onCreate={onOpenCreateSessionModal} onNotes={()=>setSidebarSection('notes')} onGuide={()=>setSidebarSection('guide')} />
             )}
+            <div className="flex items-end justify-between gap-3 pt-2">
+              <div><h2 className="text-base font-semibold tracking-tight">{sidebarSection==='dashboard'?'Your sessions':'All sessions'}</h2><p className="text-xs opacity-50 mt-1">Pick up where you left off.</p></div>
+              <span className="text-[10px] uppercase tracking-wider opacity-45">Simulated trading</span>
+            </div>
 
-            {/* Separate Views Tabs for Normal Sessions vs Prop Firm Challenges */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 {(
@@ -695,7 +618,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             </div>
 
             {/* Sessions Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
               {displayedDashboardSessions.map((sess) => {
                 const metrics = computeLiveSessionMetrics(sess);
                 const isProp = sess.mode === 'PROP_FIRM';
@@ -723,7 +646,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 return (
                   <div
                     key={sess.id}
-                    className={`p-4 rounded-2xl border flex flex-col justify-between space-y-4 transition ${
+                    className={`p-4 sm:p-5 rounded-2xl border flex flex-col justify-between space-y-4 transition-colors hover:border-emerald-500/30 ${
                       status === 'FAILED'
                         ? 'border-rose-500/60 ring-1 ring-rose-500/20'
                         : isCurrent
@@ -805,7 +728,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
                       {/* Balance, Net P&L & Return */}
                       <div
-                        className={`grid grid-cols-3 gap-2 p-2.5 rounded-xl border font-mono text-xs ${subCardBg}`}
+                        className={`grid grid-cols-3 gap-3 p-3 rounded-xl border font-mono text-[11px] ${subCardBg}`}
                       >
                         <div>
                           <div className="text-[9px] uppercase opacity-60">Balance</div>
@@ -953,7 +876,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* SECTION 9: ANALYTICS VIEW */}
         {sidebarSection === 'analytics' && (
-          <div className="px-3 sm:px-6 py-6 space-y-6 max-w-7xl w-full mx-auto">
+          <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
             {/* Filters Bar */}
             <div className={`p-4 rounded-2xl border space-y-3 ${cardBg}`}>
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1884,7 +1807,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* STRATEGIES SECTION */}
         {sidebarSection === 'strategies' && (
-          <div className="px-3 sm:px-6 py-6 space-y-6 max-w-7xl w-full mx-auto">
+          <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
             {/* Header & Description */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-500/20 pb-4">
               <div>
@@ -2076,6 +1999,13 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
           </div>
         )}
 
+        {sidebarSection === 'notes' && (
+          <div className="px-4 sm:px-8 py-6 sm:py-8 max-w-5xl w-full mx-auto space-y-6">
+            <div><p className="text-[10px] uppercase tracking-[.18em] font-bold text-emerald-500 mb-2">Personal notebook</p><h2 className="text-2xl sm:text-3xl font-semibold tracking-tight">Make room for your ideas.</h2><p className="text-sm opacity-60 mt-2">Setup reminders, observations, and lessons for your next session.</p></div>
+            <StrategyNotes key={currentUser?.email || 'guest'} userId={currentUser?.email || 'guest'} isLight={isLight} />
+          </div>
+        )}
+
         {/* HOW-TO GUIDE SECTION */}
         {sidebarSection === 'guide' && (
           <div className="px-3 sm:px-6 py-6 max-w-7xl w-full mx-auto">
@@ -2094,7 +2024,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* SETTINGS SECTION */}
         {sidebarSection === 'settings' && (
-          <div className="px-3 sm:px-6 py-6 space-y-6 max-w-7xl w-full mx-auto">
+          <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-500/20 pb-4">
               <div>

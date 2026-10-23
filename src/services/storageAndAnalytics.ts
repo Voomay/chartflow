@@ -478,6 +478,23 @@ export const DEFAULT_USER_STRATEGIES: Array<Omit<StrategyRecord, 'id' | 'userId'
   },
 ];
 
+export function loadUserStrategyNotes(userId: string): {text:string;error:boolean} {
+  try {
+    const raw=localStorage.getItem(`${getUserScopePrefix(userId)}_strategy_notes_v1`);
+    if(raw===null)return {text:'',error:false};
+    const data=JSON.parse(raw);
+    if(typeof data?.text!=='string')return {text:'',error:true};
+    return {text:data.text,error:false};
+  } catch {return {text:'',error:true};}
+}
+
+export function saveUserStrategyNotes(userId:string,text:string):boolean {
+  try {
+    localStorage.setItem(`${getUserScopePrefix(userId)}_strategy_notes_v1`,JSON.stringify({text,updatedAt:new Date().toISOString()}));
+    return true;
+  } catch {return false;}
+}
+
 export function loadUserStrategies(userId: string): StrategyRecord[] {
   const key = `${getUserScopePrefix(userId)}_strategies_v2`;
   try {

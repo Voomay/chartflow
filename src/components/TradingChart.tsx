@@ -126,6 +126,8 @@ interface TradingChartProps {
   magnetMode: boolean;
   atr14: number;
   mobileAccountSummary?: React.ReactNode;
+  mobileTradeControls?: React.ReactNode;
+  onTogglePositionBox?: (id:string,hidden:boolean)=>void;
 }
 
 type BoxHandleType =
@@ -362,6 +364,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   magnetMode,
   atr14,
   mobileAccountSummary,
+  mobileTradeControls,
+  onTogglePositionBox,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const reactionAnchorRef = useRef<HTMLDivElement>(null);
@@ -1890,6 +1894,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       const stepSec = TIMEFRAME_CONFIG[currTf]?.seconds || 900;
 
       for (const pos of currPositions) {
+        if(pos.hideOnChart)continue;
         if (pos.status === 'OPEN' || pos.status === 'PENDING') {
           const xEntryRaw = resolveTimeToX(pos.entryTime, currCandles, chart);
           if (xEntryRaw === null) continue;
@@ -2008,7 +2013,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         hideDrawings: currHide,
       } = stateRef.current;
 
-      if (currLock || currCandles.length === 0) return null;
+      if (currCandles.length === 0) return null;
 
       const decimals = currInst.decimals;
       const rect = overlayCanvasRef.current?.getBoundingClientRect();
@@ -2028,6 +2033,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
       // 1. Check Open & Pending Positions
       for (const pos of currPositions) {
+        if(pos.hideOnChart)continue;
         if (pos.status !== 'OPEN' && pos.status !== 'PENDING') continue;
         const xEntryRaw = resolveTimeToX(pos.entryTime, currCandles, chart);
         if (xEntryRaw === null) continue;
@@ -2778,15 +2784,15 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         if (hit.kind === 'position_handle') {
           e.stopPropagation();
           setSelectedId(hit.posId);
-          chart.setScrollEnabled(false);
-          dragRef.current = hit;
+          if(!currState.lockDrawings){chart.setScrollEnabled(false);
+          dragRef.current = hit;}
           drawOverlay();
           return;
         }
         if (hit.kind === 'drawing_handle') {
           e.stopPropagation();
           setSelectedId(hit.drawingId);
-          if (!hit.origDrawing.locked) {
+          if (!hit.origDrawing.locked && !currState.lockDrawings) {
             chart.setScrollEnabled(false);
             dragRef.current = hit;
           }
@@ -3734,6 +3740,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   };
 
   const selectedDrawing = drawings.find((d) => d.id === selectedId);
+  const selectedPosition=positions.find(position=>position.id===selectedId && !position.hideOnChart);
+  const hiddenPositions=positions.filter(position=>position.hideOnChart);
   const contextDrawing = drawings.find((d) => d.id === contextMenu?.drawingId);
   const contextPosition = positions.find((p) => p.id === contextMenu?.positionId);
 
@@ -3884,11 +3892,13 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             </div>
           </div>
 
+          {mobileTradeControls && <div className="pointer-events-auto">{mobileTradeControls}</div>}
+
           {/* Row 2: TradingView One-Click SELL / BUY Floating Buttons + KLineChart Overlays & Sub-Panes */}
           <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
             <button
               onClick={() => onQuickBuySell('SHORT')}
-              className={`px-3 py-1 rounded border border-[#f23645] transition hidden md:flex flex-col items-center min-w-[88px] shadow-sm ${
+              className={`px-3 py-1 rounded border border-[#f23645] transition ${mobileTradeControls ? 'hidden' : 'hidden md:flex'} flex-col items-center min-w-[88px] shadow-sm ${
                 isLight
                   ? 'bg-white/95 hover:bg-rose-50 text-[#e11d48]'
                   : 'bg-[#131722]/95 hover:bg-[#f23645]/20 text-[#f23645]'
@@ -3916,7 +3926,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
             <button
               onClick={() => onQuickBuySell('LONG')}
-              className={`px-3 py-1 rounded border border-[#2962ff] transition hidden md:flex flex-col items-center min-w-[88px] shadow-sm ${
+              className={`px-3 py-1 rounded border border-[#2962ff] transition ${mobileTradeControls ? 'hidden' : 'hidden md:flex'} flex-col items-center min-w-[88px] shadow-sm ${
                 isLight
                   ? 'bg-white/95 hover:bg-blue-50 text-[#1d4ed8]'
                   : 'bg-[#131722]/95 hover:bg-[#2962ff]/20 text-[#2962ff]'
@@ -4059,6 +4069,23 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           </div>
         </div>
       )}
+
+      {selectedPosition && (
+        <div role="toolbar" aria-label="Selected trade box" className={`absolute z-40 bottom-20 left-2 right-2 sm:right-auto sm:left-4 flex flex-wrap items-center gap-2 rounded-xl border p-2 shadow-xl ${isLight?'bg-white border-slate-200':'bg-[#161d28] border-white/15'}`} onMouseDown={event=>event.stopPropagation()} onTouchStart={event=>event.stopPropagation()}>
+          <span className="text-[11px] font-bold px-1">{selectedPosition.side==='LONG'?'Long':'Short'} · {selectedPosition.status==='PENDING'?'Pending':'Open'}</span>
+          {onTogglePositionBox && <button className="min-h-10 px-3 rounded-lg bg-slate-500/15 text-xs font-semibold" onClick={()=>{onTogglePositionBox(selectedPosition.id,true);setSelectedId(null);}}>Hide box</button>}
+          {onClosePosition && <button className="min-h-10 px-3 rounded-lg bg-rose-500/15 text-rose-500 text-xs font-semibold" onClick={()=>{onClosePosition(selectedPosition.id);setSelectedId(null);}}>{selectedPosition.status==='PENDING'?'Cancel order':'Close trade'}</button>}
+          <button aria-label="Dismiss trade box actions" className="min-h-10 min-w-10 rounded-lg hover:bg-gray-500/15" onClick={()=>setSelectedId(null)}><X className="w-4 h-4 mx-auto" /></button>
+        </div>
+      )}
+      {selectedDrawing && containerW<768 && (
+        <div role="toolbar" aria-label="Selected drawing actions" className={`absolute bottom-20 left-2 right-2 z-40 flex items-center gap-2 rounded-xl border p-2 shadow-xl ${isLight?'bg-white border-slate-200':'bg-[#161d28] border-white/15'}`} onTouchStart={event=>event.stopPropagation()}>
+          <span className="text-xs font-semibold flex-1">{selectedDrawing.type==='long_position'?'Long setup':selectedDrawing.type==='short_position'?'Short setup':'Selected drawing'}</span>
+          <button className="min-h-10 px-3 rounded-lg bg-rose-500/15 text-rose-500 text-xs font-bold" onClick={()=>{onDeleteDrawing(selectedDrawing.id);setSelectedId(null);}}>Delete tool</button>
+          <button aria-label="Dismiss drawing actions" className="min-h-10 min-w-10" onClick={()=>setSelectedId(null)}><X className="w-4 h-4 mx-auto" /></button>
+        </div>
+      )}
+      {hiddenPositions.length>0 && onTogglePositionBox && <button className={`absolute bottom-14 right-3 z-30 rounded-lg border px-2 py-2 text-[10px] font-semibold ${isLight?'bg-white border-slate-200':'bg-[#161d28] border-white/15'}`} onClick={()=>hiddenPositions.forEach(position=>onTogglePositionBox(position.id,false))}>Show trade boxes ({hiddenPositions.length})</button>}
 
       {/* Draggable & Compact Selected Element Floating Bar (Can be moved anywhere on the screen!) */}
       {selectedDrawing && (

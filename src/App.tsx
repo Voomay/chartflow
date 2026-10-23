@@ -1573,6 +1573,7 @@ export function App() {
                   endTime: newEndTime,
                 });
               }}
+              onTogglePositionBox={(id,hidden)=>updateActiveSession(session=>({...session,positions:(session.positions||[]).map(position=>position.id===id?{...position,hideOnChart:hidden}:position)}))}
               onClosePosition={(id) => handleClosePosition(id, 1)}
               onQuickBuySell={(side) => {
                 const spec = getEffectiveInstrumentSpec(symbol, activeSession);
@@ -1732,6 +1733,47 @@ export function App() {
               hideDrawings={hideDrawings}
               magnetMode={magnetMode}
               atr14={atr14}
+              mobileTradeControls={isMobile && !showRightWidget ? (<div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => setShowMobileTools((v) => !v)}
+              className={`h-9 px-2.5 rounded-lg text-white text-[10px] font-bold border border-white/10 transition ${
+                showMobileTools ? 'bg-amber-500 text-slate-950 ring-2 ring-white' : 'bg-[#2962ff]'
+              }`}
+            >
+              Tools
+            </button>
+            {(['LONG', 'SHORT'] as const).map((side) => (
+              <button
+                key={side}
+                onClick={() => {
+                  const spec = getEffectiveInstrumentSpec(symbol, activeSession);
+                  const dist = Math.max(spec.pipSize * 20, atr14 * 1.5);
+                  const entry = Number(currentMidPrice.toFixed(spec.decimals));
+                  const isLong = side === 'LONG';
+                  const sl = Number((isLong ? entry - dist : entry + dist).toFixed(spec.decimals));
+                  const tp = Number((isLong ? entry + dist * 2 : entry - dist * 2).toFixed(spec.decimals));
+                  setActiveTool('cursor');
+                  setShowMobileTools(false);
+                  handleAddOrUpdatePositionDrawingFromTicket(side, entry, sl, tp, 1.0);
+                  showToast(
+                    `${isLong ? 'BUY' : 'SELL'} position tool added — drag to adjust, then tap Place Order`,
+                    isLong ? 'up' : 'down'
+                  );
+                }}
+                className={`min-w-[76px] h-10 px-2 rounded-lg text-white text-[10px] font-bold flex flex-col items-center justify-center active:scale-95 transition ${
+                  side === 'LONG' ? 'bg-emerald-600' : 'bg-rose-600'
+                }`}
+              >
+                <span className="font-mono text-[11px]">{(side==='LONG'?getBidAskFromMid(currentMidPrice,symbol,activeSession).ask:getBidAskFromMid(currentMidPrice,symbol,activeSession).bid).toFixed(getEffectiveInstrumentSpec(symbol,activeSession).decimals)}</span><span>{side === 'LONG' ? 'BUY' : 'SELL'}</span>
+              </button>
+            ))}
+            <button
+              onClick={() => setShowRightWidget(true)}
+              className="h-9 px-2.5 rounded-lg bg-[#161920] border border-emerald-500/40 text-white text-[10px] font-bold flex items-center justify-center gap-1 active:scale-95 transition"
+            >
+              <span>Order</span>
+            </button>
+          </div>) : undefined}
               mobileAccountSummary={
                 isMobile ? (
                   <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border border-[#2a2e39] bg-[#131722]/90 backdrop-blur-md text-[11px] font-mono shadow-sm">
@@ -1825,7 +1867,8 @@ export function App() {
                       endTime: newEndTime,
                     });
                   }}
-                  onClosePosition={(id) => handleClosePosition(id, 1)}
+                  onTogglePositionBox={(id,hidden)=>updateActiveSession(session=>({...session,positions:(session.positions||[]).map(position=>position.id===id?{...position,hideOnChart:hidden}:position)}))}
+              onClosePosition={(id) => handleClosePosition(id, 1)}
                   onQuickBuySell={() => {}}
                   activeTool={activeTool}
                   onSelectTool={setActiveTool}
@@ -1923,51 +1966,7 @@ export function App() {
           </div>
         )}
 
-        {/* Mobile quick actions: tools, Buy/Sell (long/short tool), order ticket */}
-        {isMobile && !isChartWideMode && !showRightWidget && (
-          <div className="absolute right-20 bottom-16 z-30 flex flex-col items-end gap-2">
-            <button
-              onClick={() => setShowMobileTools((v) => !v)}
-              className={`w-12 h-12 rounded-full text-white text-[10px] font-bold shadow-xl transition ${
-                showMobileTools ? 'bg-amber-500 text-slate-950 ring-2 ring-white' : 'bg-[#2962ff]'
-              }`}
-            >
-              Tools
-            </button>
-            {(['LONG', 'SHORT'] as const).map((side) => (
-              <button
-                key={side}
-                onClick={() => {
-                  const spec = getEffectiveInstrumentSpec(symbol, activeSession);
-                  const dist = Math.max(spec.pipSize * 20, atr14 * 1.5);
-                  const entry = Number(currentMidPrice.toFixed(spec.decimals));
-                  const isLong = side === 'LONG';
-                  const sl = Number((isLong ? entry - dist : entry + dist).toFixed(spec.decimals));
-                  const tp = Number((isLong ? entry + dist * 2 : entry - dist * 2).toFixed(spec.decimals));
-                  setActiveTool('cursor');
-                  setShowMobileTools(false);
-                  handleAddOrUpdatePositionDrawingFromTicket(side, entry, sl, tp, 1.0);
-                  showToast(
-                    `${isLong ? 'BUY' : 'SELL'} position tool added — drag to adjust, then tap Place Order`,
-                    isLong ? 'up' : 'down'
-                  );
-                }}
-                className={`w-12 h-12 rounded-full text-white text-[11px] font-extrabold shadow-xl active:scale-95 transition ${
-                  side === 'LONG' ? 'bg-emerald-600' : 'bg-rose-600'
-                }`}
-              >
-                {side === 'LONG' ? 'BUY' : 'SELL'}
-              </button>
-            ))}
-            <button
-              onClick={() => setShowRightWidget(true)}
-              className="w-12 h-12 rounded-full bg-[#161920] border-2 border-emerald-500/70 text-white text-[9px] font-extrabold leading-tight shadow-xl flex flex-col items-center justify-center active:scale-95 transition"
-            >
-              <span>Place</span>
-              <span>Order</span>
-            </button>
-          </div>
-        )}
+
       </div>
 
       {/* Bottom Panel (Always visible on mobile so Play/Pause/Speed/Skip controls are never hidden) */}

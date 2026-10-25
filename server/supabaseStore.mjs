@@ -1,0 +1,378 @@
+import { createHmac } from 'node:crypto';
+import dns from 'node:dns';
+
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // ignore
+}
+
+export function resolveSupabaseConfig(env = process.env) {
+  if (env.SUPABASE_ENABLED === 'false') return null;
+  const rawRestUrl =
+    env.SUPABASE_REST_URL ||
+    env.VITE_SUPABASE_REST_URL ||
+    (env.SUPABASE_URL ? `${env.SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/` : '') ||
+    (env.VITE_SUPABASE_URL ? `${env.VITE_SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/` : '');
+  const apiKey =
+    env.SUPABASE_SERVICE_ROLE_KEY ||
+    env.SUPABASE_ANON_KEY ||
+    env.VITE_SUPABASE_ANON_KEY ||
+    '';
+  if (!rawRestUrl || !apiKey) return null;
+  try {
+    const parsed = new URL(rawRestUrl.endsWith('/') ? rawRestUrl : `${rawRestUrl}/`);
+    if (parsed.protocol !== 'https:') return null;
+    return {
+      restUrl: parsed.toString(),
+      apiKey,
+      projectId: env.SUPABASE_PROJECT_ID || parsed.hostname.split('.')[0] || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function isSupabaseConfigured(env = process.env) {
+  return Boolean(resolveSupabaseConfig(env));
+}
+
+export async function supabaseRestRequest(
+  pathAndQuery,
+  { method = 'GET', body, prefer, env = process.env, request = fetch } = {}
+) {
+  const cfg = resolveSupabaseConfig(env);
+  if (!cfg) {
+    const err = new Error('Supabase is not configured');
+    err.code = 'SUPABASE_NOT_CONFIGURED';
+    throw err;
+  }
+  const targetUrl = new URL(pathAndQuery.replace(/^\/+/, ''), cfg.restUrl);
+  const headers = {
+    apikey: cfg.apiKey,
+    Authorization: `Bearer ${cfg.apiKey}`,
+    Accept: 'application/json',
+  };
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (prefer) {
+    headers['Prefer'] = prefer;
+  }
+
+  const response = await request(targetUrl.toString(), {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+
+  if (!response.ok) {
+    const err = new Error(
+      (data && typeof data === 'object' && data.message) ||
+        `Supabase HTTP ${response.status}`
+    );
+    err.status = response.status;
+    err.code = data && typeof data === 'object' ? data.code : undefined;
+    throw err;
+  }
+
+  return data;
+}
+
+function rowToUser(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    email: String(row.email || '').toLowerCase(),
+    passwordHash: row.password_hash || '',
+    authSource: row.auth_source || 'server',
+    plan: row.plan || 'FREE_FOREVER',
+    joinedAt: row.joined_at || new Date().toISOString(),
+    loginCount: Number(row.login_count ?? 1),
+    lastLoginAt: row.last_login_at || null,
+    lastSeenAt: row.last_seen_at || null,
+    sessionIds: Array.isArray(row.session_ids) ? row.session_ids : [],
+  };
+}
+
+function userToRow(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: String(user.email || '').toLowerCase(),
+    password_hash: user.passwordHash || '',
+    auth_source: user.authSource || 'server',
+    plan: user.plan || 'FREE_FOREVER',
+    joined_at: user.joinedAt || new Date().toISOString(),
+    login_count: Number(user.loginCount ?? 1),
+    last_login_at: user.lastLoginAt || null,
+    last_seen_at: user.lastSeenAt || null,
+    session_ids: Array.isArray(user.sessionIds) ? user.sessionIds : [],
+  };
+}
+
+export function createSupabaseAccountStore({
+  env = process.env,
+  request = fetch,
+  fallbackStore = null,
+} = {}) {
+  const readFromSupabase = async () => {
+    const rows = await supabaseRestRequest(
+      'platform_users?select=*&order=joined_at.desc',
+      { method: 'GET', env, request }
+    );
+    return Array.isArray(rows) ? rows.map(rowToUser) : [];
+  };
+
+  return {
+    get remote() {
+      return isSupabaseConfigured(env);
+    },
+    get scope() {
+      return isSupabaseConfigured(env) ? 'supabase' : 'localhost';
+    },
+    async read() {
+      if (!isSupabaseConfigured(env)) {
+        return fallbackStore ? fallbackStore.read() : [];
+      }
+      try {
+        return await readFromSupabase();
+      } catch (err) {
+        if (fallbackStore && (err.code === 'PGRST205' || err.status === 404)) {
+          return fallbackStore.read();
+        }
+        throw err;
+      }
+    },
+    async change(operation) {
+      if (!isSupabaseConfigured(env)) {
+        if (!fallbackStore) throw new Error('Account store is not configured');
+        return fallbackStore.change(operation);
+      }
+      try {
+        const users = await readFromSupabase();
+        const beforeSnapshot = new Map(
+          users.map((u) => [u.email, JSON.stringify(userToRow(u))])
+        );
+        const result = await operation(users);
+        const changedRows = users
+          .filter((u) => beforeSnapshot.get(u.email) !== JSON.stringify(userToRow(u)))
+          .map(userToRow);
+
+        if (changedRows.length > 0) {
+          await supabaseRestRequest('platform_users?on_conflict=email', {
+            method: 'POST',
+            prefer: 'resolution=merge-duplicates,return=minimal',
+            body: changedRows,
+            env,
+            request,
+          });
+        }
+        return result;
+      } catch (err) {
+        if (fallbackStore && (err.code === 'PGRST205' || err.status === 404)) {
+          return fallbackStore.change(operation);
+        }
+        throw err;
+      }
+    },
+    async recordPresence(visitorId, userId, nowMs = Date.now()) {
+      if (!isSupabaseConfigured(env)) return false;
+      try {
+        await supabaseRestRequest('visitor_presence?on_conflict=visitor_id', {
+          method: 'POST',
+          prefer: 'resolution=merge-duplicates,return=minimal',
+          body: {
+            visitor_id: visitorId,
+            user_id: userId || null,
+            last_seen_at: new Date(nowMs).toISOString(),
+          },
+          env,
+          request,
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async config() {
+      let localCfg = null;
+      if (fallbackStore) {
+        try {
+          localCfg = await fallbackStore.config();
+        } catch {
+          localCfg = null;
+        }
+      }
+      if (localCfg?.email && localCfg?.passwordHash && localCfg?.sessionSecret) {
+        return localCfg;
+      }
+      const cfg = resolveSupabaseConfig(env);
+      if (!cfg) {
+        throw new Error('Administrator configuration not found');
+      }
+      const derivedSecret =
+        env.ADMIN_SESSION_SECRET ||
+        createHmac('sha256', cfg.apiKey)
+          .update(`chart-replay-session:${cfg.projectId}`)
+          .digest('hex');
+      return {
+        email: env.ADMIN_EMAIL || localCfg?.email || '',
+        passwordHash: env.ADMIN_PASSWORD_HASH || localCfg?.passwordHash || '',
+        sessionSecret: derivedSecret,
+        userAuthEnabled: true,
+      };
+    },
+    async readSponsorship() {
+      if (isSupabaseConfigured(env)) {
+        try {
+          const remote = await readSupabaseSponsorship({ env, request });
+          if (remote) return remote;
+        } catch {
+          // Fall back to local store if remote table is not yet initialized
+        }
+      }
+      if (fallbackStore && typeof fallbackStore.readSponsorship === 'function') {
+        return fallbackStore.readSponsorship();
+      }
+      return null;
+    },
+    async saveSponsorship(sponsorship) {
+      let savedRemote = null;
+      if (isSupabaseConfigured(env)) {
+        try {
+          savedRemote = await saveSupabaseSponsorship(sponsorship, {
+            env,
+            request,
+          });
+        } catch (err) {
+          if (
+            !fallbackStore ||
+            typeof fallbackStore.saveSponsorship !== 'function'
+          ) {
+            throw err;
+          }
+        }
+      }
+      if (fallbackStore && typeof fallbackStore.saveSponsorship === 'function') {
+        try {
+          await fallbackStore.saveSponsorship(sponsorship);
+        } catch {
+          // ignore local fallback write error when remote succeeded
+        }
+      }
+      return savedRemote || sponsorship;
+    },
+  };
+}
+
+export async function readSupabaseSponsorship({
+  env = process.env,
+  request = fetch,
+} = {}) {
+  const rows = await supabaseRestRequest(
+    'platform_sponsorship?id=eq.active&select=*&limit=1',
+    { method: 'GET', env, request }
+  );
+  if (!Array.isArray(rows) || rows.length === 0 || !rows[0]) return null;
+  const row = rows[0];
+  return {
+    enabled: typeof row.enabled === 'boolean' ? row.enabled : true,
+    sponsorName: row.sponsor_name || 'XM',
+    badgeText: row.badge_text || 'Official Session Partner',
+    headlinePrefix: row.headline_prefix || "Today's session is sponsored by",
+    subtext: row.subtext || 'Preparing your chart workspace for',
+    footerLeftText: row.footer_left_text || 'Loading candles & analysis tools…',
+    footerRightText: row.footer_right_text || 'Click anywhere to skip',
+    accentColor: row.accent_color || '#e11d24',
+    logoLightUrl: row.logo_light_url || '/xm-logo-light.png',
+    logoDarkUrl: row.logo_dark_url || '/xm-logo-dark.png',
+    updatedBy: row.updated_by || 'admin',
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
+export async function saveSupabaseSponsorship(
+  sponsorship,
+  { env = process.env, request = fetch } = {}
+) {
+  const updatedAt = sponsorship.updatedAt || new Date().toISOString();
+  await supabaseRestRequest('platform_sponsorship?on_conflict=id', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=minimal',
+    body: {
+      id: 'active',
+      enabled: sponsorship.enabled !== false,
+      sponsor_name: sponsorship.sponsorName,
+      badge_text: sponsorship.badgeText,
+      headline_prefix: sponsorship.headlinePrefix,
+      subtext: sponsorship.subtext,
+      footer_left_text: sponsorship.footerLeftText,
+      footer_right_text: sponsorship.footerRightText,
+      accent_color: sponsorship.accentColor,
+      logo_light_url: sponsorship.logoLightUrl,
+      logo_dark_url: sponsorship.logoDarkUrl,
+      updated_by: sponsorship.updatedBy || 'admin',
+      updated_at: updatedAt,
+    },
+    env,
+    request,
+  });
+  return { ...sponsorship, updatedAt };
+}
+
+export async function saveSupabaseWaitlist(
+  entry,
+  { env = process.env, request = fetch } = {}
+) {
+  await supabaseRestRequest('waitlist_entries?on_conflict=email', {
+    method: 'POST',
+    prefer: 'resolution=ignore-duplicates,return=minimal',
+    body: {
+      email: entry.email,
+      name: entry.name,
+      consent: entry.consent === true,
+      consent_version: entry.consentVersion || 'launch-updates-v1',
+      source: entry.source || 'coming-soon',
+      joined_at: entry.joinedAt || new Date().toISOString(),
+    },
+    env,
+    request,
+  });
+}
+
+export async function readSupabaseWaitlist({
+  env = process.env,
+  request = fetch,
+} = {}) {
+  const rows = await supabaseRestRequest(
+    'waitlist_entries?select=name,email,joined_at,consent,consent_version,source&order=joined_at.desc',
+    { method: 'GET', env, request }
+  );
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter(
+      (row) =>
+        row &&
+        typeof row.email === 'string' &&
+        Number.isFinite(Date.parse(row.joined_at))
+    )
+    .map((row) => ({
+      name: typeof row.name === 'string' ? row.name : '',
+      email: row.email,
+      joinedAt: row.joined_at,
+      consent: row.consent === true,
+      consentVersion: row.consent_version || null,
+    }));
+}

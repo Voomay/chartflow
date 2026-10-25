@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import {
   BacktestPosition,
   Candle,
@@ -56,6 +56,8 @@ interface ReplayAndSessionsDockProps {
   replayIndex: number;
   isReplayMode: boolean;
   isPlaying: boolean;
+  replayStepTimeframe:Timeframe;
+  onSetReplayStepTimeframe:(timeframe:Timeframe)=>void;
   playbackSpeedMs: number;
   onSetPlaybackSpeedMs: (ms: number) => void;
   onTogglePlay: () => void;
@@ -149,6 +151,8 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   candles,
   isReplayMode,
   isPlaying,
+  replayStepTimeframe,
+  onSetReplayStepTimeframe,
   playbackSpeedMs,
   onSetPlaybackSpeedMs,
   onTogglePlay,
@@ -173,6 +177,8 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   const isLight = theme === 'light';
   // Bottom content starts collapsed (control bar stays visible); expand chevron nudges until first click
   const [isCollapsed, setIsCollapsed] = useState(true);
+  const dockBodyRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{if(dockBodyRef.current)dockBodyRef.current.inert=isCollapsed;},[isCollapsed]);
   const [dockHintActive, setDockHintActive] = useState<boolean>(() => {
     try {
       return localStorage.getItem('chart_replay_dock_hint_dismissed_v1') !== '1';
@@ -511,7 +517,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             title={
               isPropChallenge
                 ? 'Rewind disabled in Prop Firm Challenge'
-                : `Rewind 1 ${timeframe} bar (Restores checkpoint state)`
+                : `Rewind by ${replayStepTimeframe} (Restores checkpoint state)`
             }
           >
             <SkipBack className="w-3.5 h-3.5" />
@@ -546,11 +552,13 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             disabled={isLocked}
             onClick={() => onStepBar(1)}
             className={`flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-mono font-bold transition ${cardBg} hover:border-emerald-500/60`}
-            title={`Advance 1 ${timeframe} bar (${TIMEFRAME_CONFIG[timeframe].label})`}
+            title={`Advance by ${replayStepTimeframe}`}
           >
             <SkipForward className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden sm:inline">+1 {timeframe}</span>
+            <span className="hidden sm:inline">+{replayStepTimeframe}</span>
           </button>
+
+          <label className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] ${cardBg}`} title="Replay step is independent of the chart timeframe"><span className="opacity-60">Step</span><select aria-label="Replay step" value={replayStepTimeframe} disabled={isLocked||!isReplayMode} onChange={event=>onSetReplayStepTimeframe(event.target.value as Timeframe)} className="min-w-0 bg-transparent font-mono font-bold outline-none">{(['1m','5m','15m','30m','1H'] as Timeframe[]).map(step=><option key={step} value={step} className={isLight?'bg-white text-slate-900':'bg-[#131722] text-slate-200'}>{TIMEFRAME_CONFIG[step].label}</option>)}</select></label>
 
           {/* Speed Selector */}
           <select
@@ -665,6 +673,8 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               ? 'Expand Bottom Workspace Panel'
               : 'Collapse Bottom Workspace Panel'
           }
+          aria-expanded={!isCollapsed}
+          aria-controls="replay-workspace-content"
           aria-label={isCollapsed ? 'Expand bottom workspace panel' : 'Collapse bottom workspace panel'}
         >
           {dockHintActive && isCollapsed && (
@@ -687,7 +697,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
       </div>
 
       {/* BOTTOM PANEL CONTENT */}
-      {!isCollapsed && (
+      <div ref={dockBodyRef} id="replay-workspace-content" className="workspace-panel-collapse" data-open={!isCollapsed} aria-hidden={isCollapsed}><div className="min-h-0 overflow-hidden">
         <div className="h-44 sm:h-56 overflow-y-auto p-2 sm:p-3 custom-scrollbar text-xs">
           {/* TAB 1: OPEN POSITIONS */}
           {activeTab === 'open_positions' && (
@@ -772,7 +782,29 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                                   className="w-24 px-1.5 py-0.5 rounded bg-black/40 border border-rose-500/40 text-rose-300"
                                 />
                               ) : pos.stopLoss > 0 ? (
-                                pos.stopLoss.toFixed(posSpec.decimals)
+                                (() => {
+                                  const isBe =
+                                    Math.abs(pos.stopLoss - pos.entryPrice) <=
+                                    (posSpec.minMove || 1e-5) * 0.5;
+                                  const isProfitSl =
+                                    !isBe &&
+                                    ((pos.side === 'LONG' && pos.stopLoss > pos.entryPrice) ||
+                                      (pos.side === 'SHORT' && pos.stopLoss < pos.entryPrice));
+                                  return (
+                                    <span
+                                      className={
+                                        isProfitSl
+                                          ? 'text-emerald-400 font-bold'
+                                          : isBe
+                                          ? 'text-sky-400 font-bold'
+                                          : 'text-rose-400'
+                                      }
+                                    >
+                                      {pos.stopLoss.toFixed(posSpec.decimals)}
+                                      {isProfitSl ? ' (+SL)' : isBe ? ' (BE)' : ''}
+                                    </span>
+                                  );
+                                })()
                               ) : (
                                 'None'
                               )}
@@ -832,6 +864,29 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                                     >
                                       BE
                                     </button>
+                                    {((pos.side === 'LONG' &&
+                                      markPrice > pos.entryPrice + posSpec.minMove * 2) ||
+                                      (pos.side === 'SHORT' &&
+                                        markPrice < pos.entryPrice - posSpec.minMove * 2)) && (
+                                      <button
+                                        onClick={() => {
+                                          const lockPrice = Number(
+                                            (
+                                              pos.entryPrice +
+                                              (markPrice - pos.entryPrice) * 0.5
+                                            ).toFixed(posSpec.decimals)
+                                          );
+                                          onModifyPositionOrOrder(pos.id, {
+                                            stopLoss: lockPrice,
+                                            takeProfit: pos.takeProfit,
+                                          });
+                                        }}
+                                        className="px-1.5 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold"
+                                        title="Move Stop Loss beyond Entry to lock in 50% of current floating profit"
+                                      >
+                                        +50% SL
+                                      </button>
+                                    )}
                                     {[0.25, 0.5, 0.75].map((pct) => (
                                       <button
                                         key={pct}
@@ -1509,7 +1564,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             </div>
           )}
         </div>
-      )}
+      </div></div>
 
       {/* Skip To Modal Popup */}
       {isSkipModalOpen && (

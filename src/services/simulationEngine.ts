@@ -1105,9 +1105,31 @@ export interface LiveSessionMetrics {
   drawdownType: 'STATIC' | 'TRAILING';
 }
 
+export function computeAuthoritativeRealizedPnl(session: TradingSession): number {
+  const positions = session.positions ?? [];
+  if (positions.length === 0) {
+    return Number((session.realizedPnL ?? 0).toFixed(2));
+  }
+  let total = 0;
+  for (const p of positions) {
+    if (
+      p.status === 'CLOSED_TP' ||
+      p.status === 'CLOSED_SL' ||
+      p.status === 'CLOSED_MANUAL' ||
+      p.status === 'CLOSED_BREACH' ||
+      p.status.startsWith('CLOSED_')
+    ) {
+      total += p.pnl ?? 0;
+    } else if (p.status === 'OPEN') {
+      total += (p.bankedPartialPnl ?? 0) - (p.commissionPaid ?? 0);
+    }
+  }
+  return Number(total.toFixed(2));
+}
+
 export function computeLiveSessionMetrics(session: TradingSession): LiveSessionMetrics {
-  const startingBalance = session.startingBalance;
-  const realizedPnL = session.realizedPnL ?? 0;
+  const startingBalance = session.frozenConfig?.startingBalance ?? session.startingBalance;
+  const realizedPnL = computeAuthoritativeRealizedPnl(session);
   const currentBalance = Number((startingBalance + realizedPnL).toFixed(2));
   const positions = session.positions ?? [];
   const openPositions = positions.filter((p) => p.status === 'OPEN');
@@ -1285,8 +1307,8 @@ export function evaluateChallengeRulesAtStep(
     return { updatedSession: session, breachedNow: null, passedNow: null };
   }
 
-  const startingBalance = session.startingBalance;
-  const realizedPnL = session.realizedPnL ?? 0;
+  const startingBalance = session.frozenConfig?.startingBalance ?? session.startingBalance;
+  const realizedPnL = computeAuthoritativeRealizedPnl(session);
   const currentBalance = Number((startingBalance + realizedPnL).toFixed(2));
   const positions = session.positions ?? [];
   const openPositions = positions.filter((p) => p.status === 'OPEN');
@@ -1525,7 +1547,11 @@ export function evaluateChallengeRulesAtStep(
       ...session,
       status: 'FAILED',
       failReason: breach.explanation,
-      realizedPnL: nextRealizedPnL,
+      realizedPnL: computeAuthoritativeRealizedPnl({
+        ...session,
+        positions: nextPositions,
+        realizedPnL: nextRealizedPnL,
+      }),
       positions: nextPositions,
       tradeEvents: nextTradeEvents,
       challengeState: cs,
@@ -1964,7 +1990,13 @@ export function evaluateSessionAt1mTimestamp(
           symbol: sym,
           timestamp: timestampSec,
           type: 'POSITION_CLOSED_SL',
-          description: `Stop Loss triggered @ ${exitPrice.toFixed(dec)} (${formatMoney(
+          description: `${
+            closeLegPnl > 0
+              ? 'Profit-Locked Stop Loss'
+              : Math.abs(exitPrice - activePos.entryPrice) <= (spec.minMove || 1e-5) * 0.5
+              ? 'Break-Even Stop Loss'
+              : 'Stop Loss'
+          } triggered @ ${exitPrice.toFixed(dec)} (${formatMoney(
             totalNetPnl,
             currency,
             true
@@ -2132,7 +2164,13 @@ export function evaluateSessionAt1mTimestamp(
           symbol: sym,
           timestamp: timestampSec,
           type: 'POSITION_CLOSED_SL',
-          description: `Stop Loss triggered @ ${exitPrice.toFixed(dec)} (${formatMoney(
+          description: `${
+            closeLegPnl > 0
+              ? 'Profit-Locked Stop Loss'
+              : Math.abs(exitPrice - activePos.entryPrice) <= (spec.minMove || 1e-5) * 0.5
+              ? 'Break-Even Stop Loss'
+              : 'Stop Loss'
+          } triggered @ ${exitPrice.toFixed(dec)} (${formatMoney(
             totalNetPnl,
             currency,
             true
@@ -2228,8 +2266,15 @@ export function evaluateSessionAt1mTimestamp(
     }
   });
 
+  const authoritativeRealizedAfterBar = computeAuthoritativeRealizedPnl({
+    ...session,
+    positions: updatedPositions,
+    realizedPnL: nextRealizedPnL,
+  });
+  const effectiveStartingBalance =
+    session.frozenConfig?.startingBalance ?? session.startingBalance;
   const currentBalanceAfterBar = Number(
-    (session.startingBalance + nextRealizedPnL).toFixed(2)
+    (effectiveStartingBalance + authoritativeRealizedAfterBar).toFixed(2)
   );
   const worstCaseIntrabarEquity = Number(
     (currentBalanceAfterBar + worstIntrabarUnrealizedPnl).toFixed(2)
@@ -2238,7 +2283,7 @@ export function evaluateSessionAt1mTimestamp(
   let nextSession: TradingSession = {
     ...session,
     replayTimestamp: timestampSec,
-    realizedPnL: nextRealizedPnL,
+    realizedPnL: authoritativeRealizedAfterBar,
     positions: updatedPositions,
     fills: nextFills,
     tradeEvents: nextTradeEvents,
@@ -2248,6 +2293,9 @@ export function evaluateSessionAt1mTimestamp(
           tradedDays: Array.from(nextTradedDays),
         }
       : undefined,
+    ...(triggeredOrders.length > 0 || closedTrades.length > 0
+      ? { updatedAt: new Date().toISOString() }
+      : {}),
   };
 
   // Evaluate Prop Firm Challenge Rules at this step
@@ -2453,6 +2501,11 @@ export function advanceOrRewindSessionToTimestamp(
       workingSession.replayCheckpoints = [...existingCps.slice(-39), cp];
     }
   }
+
+  workingSession = {
+    ...workingSession,
+    updatedAt: new Date().toISOString(),
+  };
 
   return {
     session: workingSession,
@@ -2876,12 +2929,17 @@ export function validateAndPlaceOrder(
     nextTradedDays.add(getTradingDayKeyAtTimestamp(clockTs, tz, resetTime));
   }
 
+  const nextPositions = [newPos, ...(session.positions ?? [])];
   let nextSession: TradingSession = {
     ...session,
-    realizedPnL: isMarket
-      ? Number(((session.realizedPnL ?? 0) - commAcc).toFixed(2))
-      : session.realizedPnL ?? 0,
-    positions: [newPos, ...(session.positions ?? [])],
+    realizedPnL: computeAuthoritativeRealizedPnl({
+      ...session,
+      positions: nextPositions,
+      realizedPnL: isMarket
+        ? Number(((session.realizedPnL ?? 0) - commAcc).toFixed(2))
+        : session.realizedPnL ?? 0,
+    }),
+    positions: nextPositions,
     orders: [newOrder, ...(session.orders ?? [])],
     fills: nextFills,
     tradeEvents: nextTradeEvents,
@@ -2973,23 +3031,67 @@ export function modifyPositionOrOrder(
   }
 
   if (sl > 0) {
-    if (target.side === 'LONG' && sl >= entry) {
-      return {
-        ok: false,
-        error: `Invalid Stop Loss (${sl.toFixed(dec)}): Must be below Entry (${entry.toFixed(
-          dec
-        )}) for LONG.`,
-        session,
-      };
-    }
-    if (target.side === 'SHORT' && sl <= entry) {
-      return {
-        ok: false,
-        error: `Invalid Stop Loss (${sl.toFixed(dec)}): Must be above Entry (${entry.toFixed(
-          dec
-        )}) for SHORT.`,
-        session,
-      };
+    if (target.status === 'PENDING') {
+      if (target.side === 'LONG' && sl >= entry) {
+        return {
+          ok: false,
+          error: `Invalid Stop Loss (${sl.toFixed(dec)}): Must be below Entry (${entry.toFixed(
+            dec
+          )}) for pending LONG order.`,
+          session,
+        };
+      }
+      if (target.side === 'SHORT' && sl <= entry) {
+        return {
+          ok: false,
+          error: `Invalid Stop Loss (${sl.toFixed(dec)}): Must be above Entry (${entry.toFixed(
+            dec
+          )}) for pending SHORT order.`,
+          session,
+        };
+      }
+    } else {
+      // OPEN position: allow Stop Loss at Break-Even (entry) or into profit up to current market price (Bid for LONG, Ask for SHORT)
+      const maxLongSl = Math.max(entry, bid);
+      const minShortSl = Math.min(entry, ask);
+      if (target.side === 'LONG' && sl > maxLongSl) {
+        return {
+          ok: false,
+          error: `Invalid Stop Loss (${sl.toFixed(dec)}): Cannot be set above current Bid (${bid.toFixed(
+            dec
+          )}) for an open LONG trade.`,
+          session,
+        };
+      }
+      if (target.side === 'SHORT' && sl < minShortSl) {
+        return {
+          ok: false,
+          error: `Invalid Stop Loss (${sl.toFixed(dec)}): Cannot be set below current Ask (${ask.toFixed(
+            dec
+          )}) for an open SHORT trade.`,
+          session,
+        };
+      }
+      if (tp > 0) {
+        if (target.side === 'LONG' && sl >= tp) {
+          return {
+            ok: false,
+            error: `Invalid Stop Loss (${sl.toFixed(dec)}): Must be below Take Profit (${tp.toFixed(
+              dec
+            )}) for LONG.`,
+            session,
+          };
+        }
+        if (target.side === 'SHORT' && sl <= tp) {
+          return {
+            ok: false,
+            error: `Invalid Stop Loss (${sl.toFixed(dec)}): Must be above Take Profit (${tp.toFixed(
+              dec
+            )}) for SHORT.`,
+            session,
+          };
+        }
+      }
     }
   }
 
@@ -3054,9 +3156,15 @@ export function modifyPositionOrOrder(
     }
   }
 
+  const signedSlPnl =
+    sl > 0
+      ? calculatePositionPnl(target.side, entry, sl, lotSize, sym, session)
+      : 0;
   const riskDollars =
     sl > 0
-      ? Math.abs(calculatePositionPnl(target.side, entry, sl, lotSize, sym, session))
+      ? signedSlPnl < 0
+        ? Math.abs(signedSlPnl)
+        : 0
       : 0;
   const rewardDollars =
     tp > 0
@@ -3099,6 +3207,10 @@ export function modifyPositionOrOrder(
           entryPrice: entry,
           stopLoss: sl,
           initialStopLoss: p.initialStopLoss && p.initialStopLoss > 0 ? p.initialStopLoss : sl,
+          isBreakEvenMoved:
+            target.status === 'OPEN' && sl > 0 && signedSlPnl >= 0
+              ? true
+              : p.isBreakEvenMoved,
           takeProfit: tp,
           lotSize,
           sizeOz: lotSize * spec.contractSize,
@@ -3312,7 +3424,11 @@ export function closeOrCancelPosition(
 
     const nextSession: TradingSession = {
       ...session,
-      realizedPnL: Number(((session.realizedPnL ?? 0) + partialPnl).toFixed(2)),
+      realizedPnL: computeAuthoritativeRealizedPnl({
+        ...session,
+        positions: nextPositions,
+        realizedPnL: Number(((session.realizedPnL ?? 0) + partialPnl).toFixed(2)),
+      }),
       positions: nextPositions,
       fills: nextFills,
       tradeEvents: nextTradeEvents,
@@ -3407,7 +3523,11 @@ export function closeOrCancelPosition(
 
   const nextSession: TradingSession = {
     ...session,
-    realizedPnL: Number(((session.realizedPnL ?? 0) + closeLegPnl).toFixed(2)),
+    realizedPnL: computeAuthoritativeRealizedPnl({
+      ...session,
+      positions: nextPositions,
+      realizedPnL: Number(((session.realizedPnL ?? 0) + closeLegPnl).toFixed(2)),
+    }),
     positions: nextPositions,
     fills: nextFills,
     tradeEvents: nextTradeEvents,

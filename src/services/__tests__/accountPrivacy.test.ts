@@ -10,6 +10,8 @@ describe('Account-scoped privacy controls',()=>{
    ['aurum_u_person_example_com_strategy_notes_v1','private notes'],
    [`chart_flow_balance_hidden_v1:${email}`,'true'],
    [`chartflow_workspace_tour_v1:${encodeURIComponent(email)}`,'completed'],
+   [`chartflow_chart_announcement_v1:${encodeURIComponent(email)}`,'seen'],
+   [`chartflow_chart_announcement_v1:${encodeURIComponent(other)}`,'seen'],
    [`chart_flow_balance_hidden_v1:${other}`,'true'],
    [`chartflow_workspace_tour_v1:${encodeURIComponent(other)}`,'completed'],
   ]);
@@ -18,6 +20,8 @@ describe('Account-scoped privacy controls',()=>{
   expect(values.has('aurum_u_person_example_com_strategy_notes_v1')).toBe(false);
   expect(values.has(`chart_flow_balance_hidden_v1:${email}`)).toBe(false);
   expect(values.has(`chartflow_workspace_tour_v1:${encodeURIComponent(email)}`)).toBe(false);
+  expect(values.has(`chartflow_chart_announcement_v1:${encodeURIComponent(email)}`)).toBe(false);
+  expect(values.get(`chartflow_chart_announcement_v1:${encodeURIComponent(other)}`)).toBe('seen');
   expect(values.get(`chart_flow_balance_hidden_v1:${other}`)).toBe('true');
   expect(values.get(`chartflow_workspace_tour_v1:${encodeURIComponent(other)}`)).toBe('completed');
   expect(JSON.parse(values.get('aurum_replay_users_registry_v2')!)).toHaveLength(1);

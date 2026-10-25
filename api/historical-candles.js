@@ -20,7 +20,7 @@ async function rowsFor(symbol,tf,part){
   return rows;
  }catch(e){if(e.code==='ENOENT')return [];throw e;}
 }
-export async function loadHistoricalWindow(symbol,clock,limit=12000){
+export async function loadHistoricalWindow(symbol,clock,limit=45000){
  if(INDEX_SYMBOLS.has(symbol) && capitalEnabled())return capitalClient.history(symbol,clock);
  if(symbol==='BTCUSD'||symbol==='ETHUSD')return loadBitfinexWindow(root(),symbol,clock);
  const manifest=JSON.parse(await readFile(path.join(root(),'manifest.json'),'utf8'));
@@ -30,12 +30,13 @@ export async function loadHistoricalWindow(symbol,clock,limit=12000){
  }catch{}
  const info=manifest.symbols[symbol];if(!info)return null;
  const values=Object.values(info.years);info.first=Math.min(...values.map(v=>v.first));info.last=Math.max(...values.map(v=>v.last));info.rows=values.reduce((sum,v)=>sum+v.rows,0);
- const end=clock+3*86400;const year=new Date(clock*1000).getUTCFullYear();
+ const refClock=Math.min(Math.max(clock,info.first),info.last);
+ const end=Math.max(clock,refClock)+3*86400;const year=new Date(refClock*1000).getUTCFullYear();
  const all={};
  for(const tf of tfs){
   let parts;
   if(tf==='1m'){
-   const first=new Date((clock-35*86400)*1000);first.setUTCDate(1);const last=new Date(end*1000);parts=[];
+   const first=new Date((refClock-35*86400)*1000);first.setUTCDate(1);const last=new Date(end*1000);parts=[];
    for(let d=new Date(first);d<=last;d.setUTCMonth(d.getUTCMonth()+1))parts.push(d.toISOString().slice(0,7));
   }else parts=Object.keys(info.years).filter(y=>['1D','1W','1M'].includes(tf)||(+y>=year-1&&+y<=year+1)).sort();
   const merged=new Map();
@@ -48,7 +49,7 @@ export async function loadHistoricalWindow(symbol,clock,limit=12000){
   }
   all[tf]=[...merged.values()].sort((a,b)=>a[0]-b[0]).slice(-(tf==='1m'?limit:5000));
  }
- return {symbol,provider:manifest.provider,priceBasis:info.priceBasis,timezone:'UTC',coverage:{first:info.first,last:info.last,rows:info.rows,years:Object.keys(info.years).sort()},bars:all};
+ return {symbol,provider:info.provider||manifest.provider,priceBasis:info.priceBasis,timezone:'UTC',coverage:{first:info.first,last:info.last,rows:info.rows,years:Object.keys(info.years).sort()},bars:all};
 }
 export default async function handler(req,res){
  res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');

@@ -1,8 +1,15 @@
+import {TradingMindset} from './components/TradingMindset';
+import {PartnerPage} from './components/PartnerPage';
+import {usePlatformActivity} from './services/usePlatformActivity';
+import {AnimatedOrderPanel} from './components/AnimatedOrderPanel';
+import {AdminDashboard} from './components/AdminDashboard';
+import {ComingSoonPage} from './components/ComingSoonPage';
 import {BalanceBadge} from './components/BalanceBadge';
 import {LegalPage} from './components/LegalPage';
 import {LegalDocumentKey} from './components/LegalLinks';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MotivationWelcome } from './components/MotivationWelcome';
+import { ChartSponsorLoader } from './components/ChartSponsorLoader';
 import { resetMotivationVisit } from './services/motivation';
 import { getReplayWeekdayTarget, getHistoricalCandles, hasHistoricalArchive, getHistoricalReplayAvailability } from './services/goldDataService';
 import { hydrateHistoricalArchive, hydrateLiveHistoricalArchive } from './services/historicalFeed';
@@ -57,9 +64,11 @@ import {
 } from './services/simulationEngine';
 import {
   getActiveLoggedInUser,
+  authenticateUserAccount,
   loadUserCustomRuleProfiles,
   loadUserSessions,
   loadUserStrategies,
+  purgeBrowserSensitiveStorage,
   saveUserCustomRuleProfiles,
   saveUserSessions,
   deleteUserSession,
@@ -67,7 +76,14 @@ import {
   saveUserStrategies,
   setActiveLoggedInUser,
 } from './services/storageAndAnalytics';
-import { TopNavigation } from './components/TopNavigation';
+import { platformRequest } from './services/platformAccounts';
+import {
+  fetchCustomRuleProfilesFromSupabase,
+  fetchUserSessionsFromSupabase,
+  fetchUserStrategiesFromSupabase,
+  isUntouchedStarterSession,
+} from './services/supabaseClient';
+import { TopNavigation, ChartIndicatorsState } from './components/TopNavigation';
 import { LeftToolbar } from './components/LeftToolbar';
 import { TradingChart } from './components/TradingChart';
 import { RightOrderPanel } from './components/RightOrderPanel';
@@ -114,17 +130,20 @@ export function App() {
 
   const userEmail = currentUser?.email || 'trader@chartflow.io';
   const readLegalPage=():LegalDocumentKey|null=>{const page=new URLSearchParams(window.location.search).get('legal');return page==='terms'||page==='privacy'||page==='popia'?page:null;};
+  const [partnerPage,setPartnerPage]=useState(()=>window.location.pathname==='/partners');
+  const [adminPage,setAdminPage]=useState(()=>window.location.pathname==='/admin');
+  const [comingSoon,setComingSoon]=useState(()=>window.location.pathname==='/coming-soon');
   const [legalPage,setLegalPage]=useState<LegalDocumentKey|null>(readLegalPage);
-  useEffect(()=>{const back=()=>setLegalPage(readLegalPage());window.addEventListener('popstate',back);return()=>window.removeEventListener('popstate',back);},[]);
+  useEffect(()=>{const back=()=>{setPartnerPage(window.location.pathname==='/partners');setLegalPage(readLegalPage());setComingSoon(window.location.pathname==='/coming-soon');setAdminPage(window.location.pathname==='/admin');};window.addEventListener('popstate',back);return()=>window.removeEventListener('popstate',back);},[]);
   const [balanceHidden,setBalanceHidden]=useState(false);
-  useEffect(()=>{try{setBalanceHidden(localStorage.getItem(`chart_flow_balance_hidden_v1:${userEmail}`)==='true');}catch{setBalanceHidden(false);}},[userEmail]);
-  const toggleBalance=()=>setBalanceHidden(previous=>{const next=!previous;try{localStorage.setItem(`chart_flow_balance_hidden_v1:${userEmail}`,String(next));}catch{}return next;});
+  const toggleBalance=()=>setBalanceHidden(previous=>!previous);
 
 
   // 2. View Navigation State (persisted so refresh resumes accurately)
   const [activeView, setActiveView] = useState<
     'terminal' | 'dashboard' | 'analytics_page' | 'login' | 'landing'
   >(() => {
+    purgeBrowserSensitiveStorage();
     try {
       const savedView = localStorage.getItem('chart_replay_active_view_v2') as
         | 'terminal'
@@ -147,6 +166,33 @@ export function App() {
     return 'landing';
   });
 
+  useEffect(() => {
+    purgeBrowserSensitiveStorage();
+    if (currentUser || activeView === 'login') return;
+    let cancelled = false;
+    void platformRequest('status')
+      .then((res) => {
+        if (cancelled || !res?.user) return;
+        const u = res.user;
+        setActiveLoggedInUser({
+          ...u,
+          authSource: 'server',
+          passwordHash: '',
+        });
+        setCurrentUser({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          plan: u.plan || 'FREE_FOREVER',
+          joinedAt: u.joinedAt,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [hubInitialSection, setHubInitialSection] =
     useState<HubSidebarSection>('dashboard');
   const [loginInitialMode, setLoginInitialMode] = useState<'login' | 'signup'>(
@@ -154,9 +200,15 @@ export function App() {
   );
 
   // 3. Per-User Persistent Sessions, Strategies & Custom Prop Profiles
-  const [tradingSessions, setTradingSessions] = useState<TradingSession[]>(() =>
-    loadUserSessions(userEmail)
-  );
+  const [tradingSessions, setTradingSessions] = useState<TradingSession[]>(() => {
+    const loaded = loadUserSessions(userEmail);
+    return loaded.map((s) =>
+      !s.displayTimezone || s.displayTimezone === 'UTC'
+        ? { ...s, displayTimezone: 'Africa/Johannesburg' as const }
+        : s
+    );
+  });
+  usePlatformActivity(currentUser?.email,tradingSessions.map(session=>session.id).join('|'),adminPage);
   const [strategies, setStrategies] = useState<StrategyRecord[]>(() =>
     loadUserStrategies(userEmail)
   );
@@ -164,25 +216,87 @@ export function App() {
     CustomRuleProfile[]
   >(() => loadUserCustomRuleProfiles(userEmail));
 
+  const hasHydratedSessionsRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!currentUser) return;
-    const loadedSessions = loadUserSessions(currentUser.email);
+    hasHydratedSessionsRef.current = null;
+    const loadedSessions: TradingSession[] = loadUserSessions(currentUser.email).map((s) =>
+      !s.displayTimezone || s.displayTimezone === 'UTC'
+        ? { ...s, displayTimezone: 'Africa/Johannesburg' as const }
+        : s
+    );
     setTradingSessions(loadedSessions);
     setStrategies(loadUserStrategies(currentUser.email));
     setCustomRuleProfiles(loadUserCustomRuleProfiles(currentUser.email));
+
+    let cancelled = false;
+    const email = currentUser.email;
+    void fetchUserSessionsFromSupabase(email)
+      .then((remoteSessions) => {
+        if (cancelled) return;
+        hasHydratedSessionsRef.current = email;
+        if (!remoteSessions || remoteSessions.length === 0) return;
+        setTradingSessions((prev) => {
+          const nonStarterPrev = prev.filter((s) => !isUntouchedStarterSession(s));
+          const byId = new Map(nonStarterPrev.map((s) => [s.id, s]));
+          for (const r of remoteSessions) {
+            if (isUntouchedStarterSession(r) && remoteSessions.some((x) => !isUntouchedStarterSession(x))) {
+              continue;
+            }
+            const existing = byId.get(r.id);
+            if (
+              !existing ||
+              (Date.parse(r.updatedAt || '') || 0) >=
+                (Date.parse(existing.updatedAt || '') || 0)
+            ) {
+              byId.set(r.id, r);
+            }
+          }
+          const merged = Array.from(byId.values());
+          return merged.length > 0 ? merged : remoteSessions;
+        });
+        const preferredSession =
+          remoteSessions.find((r) => (r.positions ?? []).length > 0) ||
+          remoteSessions.find((r) => !isUntouchedStarterSession(r)) ||
+          remoteSessions[0];
+        setActiveSessionId((prevId) => {
+          const prevSession = remoteSessions.find((r) => r.id === prevId);
+          if (prevSession && !isUntouchedStarterSession(prevSession)) {
+            return prevId;
+          }
+          return preferredSession.id;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          hasHydratedSessionsRef.current = email;
+        }
+      });
+    void fetchUserStrategiesFromSupabase(email).then((remoteStrats) => {
+      if (cancelled || !remoteStrats || remoteStrats.length === 0) return;
+      setStrategies((prev) => {
+        const byId = new Map(prev.map((s) => [s.id, s]));
+        for (const r of remoteStrats) byId.set(r.id, r);
+        return Array.from(byId.values());
+      });
+    });
+    void fetchCustomRuleProfilesFromSupabase(email).then((remoteProfiles) => {
+      if (cancelled || !remoteProfiles || remoteProfiles.length === 0) return;
+      setCustomRuleProfiles((prev) => {
+        const byId = new Map(prev.map((p) => [p.id, p]));
+        for (const r of remoteProfiles) byId.set(r.id, r);
+        return Array.from(byId.values());
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [currentUser?.email]);
 
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
-    try {
-      return (
-        localStorage.getItem(`aurum_active_session_id_${userEmail}`) ||
-        tradingSessions[0]?.id ||
-        'session-default'
-      );
-    } catch {
-      return tradingSessions[0]?.id || 'session-default';
-    }
-  });
+  const [activeSessionId, setActiveSessionId] = useState<string>(
+    () => tradingSessions[0]?.id || 'session-default'
+  );
 
   const activeSession = useMemo(
     () =>
@@ -192,20 +306,17 @@ export function App() {
   );
 
   useEffect(() => {
-    if (currentUser?.email && tradingSessions.length > 0) {
+    if (!currentUser?.email || tradingSessions.length === 0) return;
+    const hasNonStarter = tradingSessions.some((s) => !isUntouchedStarterSession(s));
+    if (hasHydratedSessionsRef.current === currentUser.email || hasNonStarter) {
       saveUserSessions(currentUser.email, tradingSessions);
     }
   }, [currentUser?.email, tradingSessions]);
 
   useEffect(() => {
+    purgeBrowserSensitiveStorage();
     try {
       localStorage.setItem('chart_replay_active_view_v2', activeView);
-      if (currentUser?.email && activeSession?.id) {
-        localStorage.setItem(
-          `aurum_active_session_id_${currentUser.email}`,
-          activeSession.id
-        );
-      }
     } catch {
       // ignore
     }
@@ -448,6 +559,7 @@ export function App() {
 
   // 7. Replay Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [replayStepTimeframe,setReplayStepTimeframe]=useState<Timeframe>('1m');
   const [playbackSpeedMs, setPlaybackSpeedMs] = useState<number>(400);
 
   const isSessionLocked =
@@ -536,6 +648,50 @@ export function App() {
   // Guided product tour (spotlight coach-marks)
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
   const [motivationOpen, setMotivationOpen] = useState(false);
+  const [chartSponsorLoading, setChartSponsorLoading] = useState<boolean>(
+    () => activeView === 'terminal'
+  );
+  const prevActiveViewRef = useRef(activeView);
+  useEffect(() => {
+    if (prevActiveViewRef.current !== 'terminal' && activeView === 'terminal') {
+      setChartSponsorLoading(true);
+    } else if (activeView !== 'terminal') {
+      setChartSponsorLoading(false);
+    }
+    prevActiveViewRef.current = activeView;
+  }, [activeView]);
+  const [mindsetOpen,setMindsetOpen]=useState(false);
+  const [planToggleCount, setPlanToggleCount] = useState(0);
+  const [isPlanPinned, setIsPlanPinned] = useState(false);
+  const [chartIndicators, setChartIndicators] = useState<ChartIndicatorsState>(() => ({
+    showEMA20: false,
+    showEMA50: false,
+    showEMA200: false,
+    showSMA20: false,
+    showVWAP: false,
+    showBOLL: false,
+    showVOL: false,
+    showMACD: false,
+    showRSI: false,
+    showMomentum: false,
+    showForecast: (() => {
+      try {
+        return localStorage.getItem('chart_forecaster_enabled_v1') === '1';
+      } catch {
+        return false;
+      }
+    })(),
+    showEngulfing: (() => {
+      try {
+        return localStorage.getItem('chart_engulfing_enabled_v1') !== '0';
+      } catch {
+        return true;
+      }
+    })(),
+  }));
+  const handleToggleIndicator = useCallback((key: keyof ChartIndicatorsState) => {
+    setChartIndicators((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   const handleStartTour = useCallback(() => {
     if (!detectMobile()) setShowRightWidget(true);
@@ -559,7 +715,7 @@ export function App() {
   // Auto-start the tour once, the first time the trading workspace is opened.
   useEffect(() => {
     if (activeView !== 'terminal' || !currentUser) return;
-    if (isTourOpen || motivationOpen || isCreateSessionModalOpen || challengeAlertModal) return;
+    if (isTourOpen || motivationOpen || isCreateSessionModalOpen || challengeAlertModal || chartSponsorLoading) return;
     if (hasSeenTour() || detectMobile()) return;
     const t = setTimeout(() => handleStartTour(), 900);
     return () => clearTimeout(t);
@@ -570,6 +726,7 @@ export function App() {
     motivationOpen,
     isCreateSessionModalOpen,
     challengeAlertModal,
+    chartSponsorLoading,
     handleStartTour,
   ]);
 
@@ -799,7 +956,7 @@ export function App() {
     async (deltaBars: number) => {
       if (replayStepBusy.current) return;
       const replayClock = activeSession.replayTimestamp || activeSession.startTimestamp || authoritativeClockTs;
-      const requested = shiftTimeframeClock(isPresentTime ? replayClock : authoritativeClockTs, timeframe, deltaBars);
+      const requested = shiftTimeframeClock(isPresentTime ? replayClock : authoritativeClockTs, replayStepTimeframe, deltaBars);
       const weekday = deltaBars > 0 && !isPresentTime ? getReplayWeekdayTarget(symbol, requested) : requested;
       if (weekday === requested) { handleAdvanceOrRewindToTimestamp(requested); return; }
       replayStepBusy.current = true;
@@ -827,7 +984,7 @@ export function App() {
         if (replayStepContext.current === context) setIsMarketDataLoading(false);
       }
     },
-    [activeSession, isPresentTime, authoritativeClockTs, timeframe, symbol, handleAdvanceOrRewindToTimestamp, showToast]
+    [activeSession, isPresentTime, authoritativeClockTs, replayStepTimeframe, symbol, handleAdvanceOrRewindToTimestamp, showToast]
   );
 
   useEffect(() => {
@@ -1178,12 +1335,19 @@ export function App() {
   const openLegal=(page:LegalDocumentKey)=>{const url=new URL(window.location.href);url.searchParams.set('legal',page);window.history.pushState({},'',url);setLegalPage(page);};
   const closeLegal=()=>{const url=new URL(window.location.href);url.searchParams.delete('legal');window.history.pushState({},'',url);setLegalPage(null);};
   const signOut=()=>{setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
+  const openComingSoon=()=>{window.history.pushState({},'','/coming-soon');setComingSoon(true);};
+  const closeComingSoon=()=>{window.history.pushState({},'','/');setComingSoon(false);setActiveView('landing');};
+  const enterDemo=()=>{const result=authenticateUserAccount('trader@chartflow.io','demo1234');const user=result.user||{id:'user-demo-trader',name:'Alex Mercer',email:'trader@chartflow.io',passwordHash:'',plan:'FREE_FOREVER' as const,joinedAt:new Date().toISOString()};setActiveLoggedInUser(user);resetMotivationVisit(user.email);setCurrentUser({id:user.id,name:user.name,email:user.email,plan:user.plan,joinedAt:user.joinedAt});setHubInitialSection('dashboard');setActiveView('dashboard');};
   if(legalPage)return <LegalPage page={legalPage} onNavigate={openLegal} onBack={closeLegal}/>;
+
+  if(partnerPage)return <PartnerPage onBack={()=>{window.history.pushState({},'','/');setPartnerPage(false);setActiveView('landing');}} onOpenLegal={openLegal}/>;
+  if(adminPage)return <AdminDashboard onBack={()=>{window.history.pushState({},'','/');setAdminPage(false);setActiveView('landing');}}/>;
+  if(comingSoon)return <ComingSoonPage onBack={closeComingSoon} onOpenLegal={openLegal}/>;
 
   // VIEW 1: LANDING PAGE (HOMEPAGE)
   if (activeView === 'landing') {
     return (
-      <LandingPage onOpenLegal={openLegal}
+      <LandingPage onDemoLogin={enterDemo} onOpenComingSoon={openComingSoon} onOpenLegal={openLegal}
         onLaunchTerminal={(action) => {
           if (action === 'prop_firm') {
             setCreateSessionModalMode('PROP_FIRM');
@@ -1224,7 +1388,7 @@ export function App() {
       <LoginPage onOpenLegal={openLegal}
         initialMode={loginInitialMode}
         onSuccessAuth={(user: ChartFlowUser) => {
-          resetMotivationVisit(user.email);
+          resetMotivationVisit(user.email, user.isReturningLogin ?? true);
           setCurrentUser(user);
           // Fresh sign-in: re-arm the bottom workspace panel expand hint
           try {
@@ -1303,7 +1467,7 @@ export function App() {
             setActiveLoggedInUser(null);
             setCurrentUser(null);
             setActiveView('login');
-            showToast('Account and all associated session data permanently deleted.', 'info');
+            showToast('This browser’s account and practice data were deleted. For server registration records, contact info@voomay.co.za.', 'info');
           }}
           onLogout={signOut}
           theme={theme}
@@ -1361,6 +1525,17 @@ export function App() {
             setCustomRuleProfiles(next);
             saveUserCustomRuleProfiles(currentUser.email, next);
           }}
+        />
+
+        <MotivationWelcome
+          userKey={currentUser.email}
+          name={currentUser.name}
+          eligible={!isCreateSessionModalOpen && !isTourOpen && !challengeAlertModal && !chartSponsorLoading}
+          chartStatus="Your workspace is ready"
+          loading={false}
+          isLight={theme === 'light'}
+          onOpen={() => { setMotivationOpen(true); setIsPlaying(false); }}
+          onDismiss={() => setMotivationOpen(false)}
         />
       </>
     );
@@ -1468,8 +1643,15 @@ export function App() {
           setHubInitialSection('settings');
           setActiveView('dashboard');
         }}
+        onOpenMindset={()=>setMindsetOpen(true)}
+        onOpenPlan={()=>setPlanToggleCount(c=>c+1)}
+        isPlanPinned={isPlanPinned}
+        indicators={chartIndicators}
+        onToggleIndicator={handleToggleIndicator}
         onStartTour={handleStartTour}
       />
+
+      <TradingMindset key={`${currentUser?.email || "guest"}:${activeSession.id}`} session={activeSession} userKey={currentUser?.email || "guest"} displayName={currentUser?.name} onOpen={()=>setMindsetOpen(true)} open={mindsetOpen} onClose={()=>setMindsetOpen(false)} rightPanelOpen={!isChartWideMode && !isMobile && showRightWidget} welcomeBlocking={motivationOpen || isCreateSessionModalOpen || isTourOpen || chartSponsorLoading} planToggleCount={planToggleCount} onPlanPinnedChange={setIsPlanPinned} onUpdatePlanNote={(nextNote)=>updateActiveSession(s=>{if(JSON.stringify(s.mindsetNote)===JSON.stringify(nextNote))return s;return {...s,mindsetNote:nextNote,updatedAt:new Date().toISOString()};})}/>
 
       {/* Toast Notification */}
       {toastMessage && (
@@ -1737,7 +1919,10 @@ export function App() {
               isChartFullscreen={isChartWideMode}
               onToggleChartFullscreen={() => setIsChartWideMode((v) => !v)}
               theme={theme}
-              displayTimezone={activeSession.displayTimezone||'UTC'}
+              replayAnimationMs={isPlaying&&!isPresentTime?Math.min(450,playbackSpeedMs*0.8):0}
+              displayTimezone={activeSession.displayTimezone||'Africa/Johannesburg'}
+              indicators={chartIndicators}
+              onToggleIndicator={handleToggleIndicator}
               candleStyle={candleStyle}
               onSelectCandleStyle={setCandleStyle}
               customCandleColors={customCandleColors}
@@ -1882,7 +2067,10 @@ export function App() {
                   isChartFullscreen={false}
                   onToggleChartFullscreen={() => {}}
                   theme={theme}
-                  displayTimezone={activeSession.displayTimezone||'UTC'}
+                  replayAnimationMs={isPlaying&&!isPresentTime?Math.min(450,playbackSpeedMs*0.8):0}
+              displayTimezone={activeSession.displayTimezone||'Africa/Johannesburg'}
+              indicators={chartIndicators}
+              onToggleIndicator={handleToggleIndicator}
               candleStyle={candleStyle}
                   onSelectCandleStyle={setCandleStyle}
                   customCandleColors={customCandleColors}
@@ -1906,31 +2094,12 @@ export function App() {
           onClick={() => setShowRightWidget(value => !value)}
           title={showRightWidget ? 'Collapse order panel' : 'Expand order panel'}
           style={{right: showRightWidget && !isMobile ? 320 : 0}}
-          className={`absolute top-1/2 z-40 -translate-y-1/2 rounded-l-lg border border-r-0 px-0.5 py-3 shadow-md transition-colors ${theme === 'light' ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100' : 'border-[#303642] bg-[#1a1f28] text-slate-400 hover:text-white hover:bg-[#252c38]'}`}
+          className={`absolute top-1/2 z-40 -translate-y-1/2 rounded-l-lg border border-r-0 px-0.5 py-3 shadow-md order-panel-toggle ${theme === 'light' ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100' : 'border-[#303642] bg-[#1a1f28] text-slate-400 hover:text-white hover:bg-[#252c38]'}`}
         >{showRightWidget ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}</button>}
 
         {/* Right Panel */}
-        {showRightWidget && !isChartWideMode && (
-          <div id="chart-order-panel"
-            className={
-              isMobile
-                ? 'fixed inset-0 z-50 flex flex-col justify-end bg-black/50'
-                : 'contents'
-            }
-            onClick={(e) => {
-              if (isMobile && e.target === e.currentTarget) setShowRightWidget(false);
-            }}
-          >
-          {isMobile && (
-            <button
-              onClick={() => setShowRightWidget(false)}
-              style={{ backgroundColor: '#e11d48', borderColor: '#fb7185', color: '#ffffff' }}
-              className="self-end mr-2 mb-1 px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-500 border border-rose-400 text-white keep-white text-xs font-bold shadow-lg"
-            >
-              Close ✕
-            </button>
-          )}
-          <div className={isMobile ? 'max-h-[75vh] flex flex-col [&>aside]:!w-full [&>aside]:border-l-0 [&>aside]:border-t [&>aside]:rounded-t-2xl' : 'contents'}>
+        {!isChartWideMode && (
+          <AnimatedOrderPanel open={showRightWidget} mobile={isMobile} onClose={()=>setShowRightWidget(false)}>
           <RightOrderPanel
             key={activeSession.id}
             session={activeSession}
@@ -1952,8 +2121,7 @@ export function App() {
             activePositionDrawing={activePositionDrawing}
             onAddOrUpdatePositionDrawing={handleAddOrUpdatePositionDrawingFromTicket}
           />
-          </div>
-          </div>
+          </AnimatedOrderPanel>
         )}
 
 
@@ -1969,6 +2137,8 @@ export function App() {
           replayIndex={Math.max(0, visibleCandles.length - 1)}
           isReplayMode={!isPresentTime}
           isPlaying={isPlaying}
+          replayStepTimeframe={replayStepTimeframe}
+          onSetReplayStepTimeframe={setReplayStepTimeframe}
           playbackSpeedMs={playbackSpeedMs}
           onSetPlaybackSpeedMs={setPlaybackSpeedMs}
           onTogglePlay={() => { if (isPresentTime) return; setIsPlaying((v) => !v); }}
@@ -2020,10 +2190,12 @@ export function App() {
           setSymbol(newSession.activeAsset);
           setTimeframe(newSession.activeTimeframe || '15m');
           setIsCreateSessionModalOpen(false);
+          setChartSponsorLoading(true);
         }}
         onSelectSession={(sessId) => {
           setActiveSessionId(sessId);
           setIsCreateSessionModalOpen(false);
+          setChartSponsorLoading(true);
         }}
         onDeleteSession={handleDeleteSession}
         savedStrategies={allStrategyNames}
@@ -2052,10 +2224,19 @@ export function App() {
         }}
       />
 
+      <ChartSponsorLoader
+        open={chartSponsorLoading && !isCreateSessionModalOpen}
+        symbol={symbol}
+        timeframe={timeframe}
+        sessionName={activeSession?.name}
+        theme={theme}
+        onComplete={() => setChartSponsorLoading(false)}
+      />
+
       <MotivationWelcome
         userKey={currentUser.email}
         name={currentUser.name}
-        eligible={!isCreateSessionModalOpen && !isTourOpen && !challengeAlertModal}
+        eligible={!isCreateSessionModalOpen && !isTourOpen && !challengeAlertModal && !chartSponsorLoading}
         chartStatus={isMarketDataLoading ? 'Preparing your chart…' : visibleCandles.length ? 'Your chart is ready' : 'Your workspace is ready'}
         loading={isMarketDataLoading}
         isLight={theme === 'light'}

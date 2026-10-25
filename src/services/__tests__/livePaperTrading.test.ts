@@ -1,7 +1,7 @@
 import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest';
 import {createLivePaperSession} from '../livePaperTrading';
 import {createDefaultSessionsForUser, saveUserSessions, loadUserSessions} from '../storageAndAnalytics';
-import {advanceOrRewindSessionToTimestamp, validateAndPlaceOrder, closeOrCancelPosition, evaluateSessionAt1mTimestamp, getBidAskFromMid, getLatest1mCandleAtClock, computeLiveSessionMetrics} from '../simulationEngine';
+import {advanceOrRewindSessionToTimestamp, validateAndPlaceOrder, modifyPositionOrOrder, closeOrCancelPosition, evaluateSessionAt1mTimestamp, getBidAskFromMid, getLatest1mCandleAtClock, computeLiveSessionMetrics} from '../simulationEngine';
 import {TradingSession} from '../../types/trading';
 const now=Date.parse('2026-10-22T10:00:00Z')/1000;
 const input={symbol:'EURUSD' as const,side:'LONG' as const,orderSubType:'MARKET' as const,lotSize:0.01,stopLoss:1.09,takeProfit:1.12};
@@ -89,5 +89,29 @@ describe('Live paper trading',()=>{
   const outcome=advanceOrRewindSessionToTimestamp(opened.session,now-3600);
   expect(outcome.rewindBlockedReason).toContain('Live paper');
   expect(outcome.session).toEqual(opened.session);
+ });
+ it('allows moving Stop Loss to Break-Even and beyond Entry into profit, cutting out in profit on pullback',()=>{
+  const opened=validateAndPlaceOrder(account(),input);
+  expect(opened.ok,opened.error).toBe(true);
+  const posId=opened.position!.id;
+  const entry=opened.position!.entryPrice;
+  // 1. Move SL to Break-Even
+  const beRes=modifyPositionOrOrder(opened.session,posId,{newStopLoss:entry});
+  expect(beRes.ok,beRes.error).toBe(true);
+  expect(beRes.session.positions![0].stopLoss).toBe(entry);
+  expect(beRes.session.positions![0].riskDollars).toBe(0);
+  expect(beRes.session.positions![0].isBreakEvenMoved).toBe(true);
+  // 2. Price advances in profit to 1.1100; move SL into profit at 1.1060
+  const inProfitSession={...beRes.session,liveQuotes:{EURUSD:{price:1.11,time:now,receivedAt:now}}};
+  const lockRes=modifyPositionOrOrder(inProfitSession,posId,{newStopLoss:1.106});
+  expect(lockRes.ok,lockRes.error).toBe(true);
+  expect(lockRes.session.positions![0].stopLoss).toBe(1.106);
+  expect(lockRes.session.positions![0].riskDollars).toBe(0);
+  // 3. Price turns around to 1.1050 -> triggers profit-locked SL and closes in profit
+  const pullback=evaluateSessionAt1mTimestamp({...lockRes.session,liveQuotes:{EURUSD:{price:1.105,time:now+15,receivedAt:now+15}}},now+15);
+  const closedPos=pullback.session.positions![0];
+  expect(closedPos.status).toBe('CLOSED_SL');
+  expect(closedPos.exitPrice).toBe(1.106);
+  expect(closedPos.pnl).toBeGreaterThan(0);
  });
 });

@@ -1,0 +1,4 @@
+import {ChevronLeft,ChevronRight} from 'lucide-react';
+export function AdminPagination({page,pages,start,end,total,onPage}:{page:number;pages:number;start:number;end:number;total:number;onPage:(page:number)=>void}){
+ return <nav aria-label="Table pagination" className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-5 py-4 text-xs text-slate-400"><span>Showing {start}–{end} of {total} · 20 per page</span><div className="flex items-center gap-3"><button disabled={page<=1} onClick={()=>onPage(page-1)} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-2 disabled:opacity-30"><ChevronLeft size={14}/>Previous</button><span>Page {page} of {pages}</span><button disabled={page>=pages} onClick={()=>onPage(page+1)} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-2 disabled:opacity-30">Next<ChevronRight size={14}/></button></div></nav>;
+}

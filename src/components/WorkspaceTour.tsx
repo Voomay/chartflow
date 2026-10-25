@@ -4,10 +4,11 @@ import {GuidedTour,TourCloseReason,TourStep} from './GuidedTour';
 import type {HubSidebarSection} from './AnalyticsDashboardPage';
 
 interface WorkspaceTourProps {
- userKey:string;name?:string;section:HubSidebarSection;isSessionSetupOpen:boolean;
+ blocked?:boolean;userKey:string;name?:string;section:HubSidebarSection;isSessionSetupOpen:boolean;
  onNavigate:(section:HubSidebarSection)=>void;onOpenSessionSetup:()=>void;onCloseSessionSetup:()=>void;
 }
-export const WorkspaceTour:React.FC<WorkspaceTourProps>=({userKey,name,section,isSessionSetupOpen,onNavigate,onOpenSessionSetup,onCloseSessionSetup})=>{
+const memoryWorkspaceTourSeen = new Set<string>();
+export const WorkspaceTour:React.FC<WorkspaceTourProps>=({blocked=false,userKey,name,section,isSessionSetupOpen,onNavigate,onOpenSessionSetup,onCloseSessionSetup})=>{
  const [open,setOpen]=useState(false);
  const key=`chartflow_workspace_tour_v1:${encodeURIComponent(userKey.toLowerCase())}`;
  const firstName=name?.trim().split(/\s+/)[0];
@@ -19,19 +20,19 @@ export const WorkspaceTour:React.FC<WorkspaceTourProps>=({userKey,name,section,i
   {id:'setup-schedule',target:'setup-schedule',title:'Choose your dates and chart time zone',body:'Set your start date, end date, replay start time, and chart time zone. Use a date covered by the instrument’s available history.',allowInteraction:true},
   {id:'setup-details',target:'setup-details',title:'Give your session a clear plan',body:'Choose a starting balance and currency, then add a name and strategy. Your entries stay in the form; this tour won’t create a session for you.',allowInteraction:true},
   {id:'analytics',target:'hub-nav-analytics',title:'Review your progress',body:'Analytics shows your equity curve, outcomes, daily results, and losing streaks. Filter by session, instrument, or date to review what matters.',placement:'right'},
-  {id:'notes',target:'hub-nav-notes',title:'Keep the lessons',body:'Your notebook is a space for setup reminders and observations. Notes save automatically for your account in this browser.',placement:'right'},
+  {id:'notes',target:'hub-nav-notes',title:'Keep the lessons',body:'Your notebook is a space for setup reminders and observations. Notes save automatically for your account in the cloud.',placement:'right'},
   {id:'charts',target:'hub-chart',title:'You’re ready for the charts',body:'Open Chart Workspace to continue your active session. To start fresh, finish this tour and create your session. The chart also has a Tour button for its trading tools.',placement:'bottom'},
  ],[firstName]);
  const start=()=>{onCloseSessionSetup();onNavigate('dashboard');setOpen(true);};
- const close=useCallback((reason:TourCloseReason)=>{
-  try{localStorage.setItem(key,JSON.stringify({reason,at:new Date().toISOString()}));}catch{/* Manual replay still works when browser storage is unavailable. */}
+ const close=useCallback((_reason:TourCloseReason)=>{
+  memoryWorkspaceTourSeen.add(key);
   setOpen(false);onCloseSessionSetup();
  },[key,onCloseSessionSetup]);
  useEffect(()=>{
-  if(section!=='dashboard'||open||isSessionSetupOpen)return;
-  try{if(localStorage.getItem(key))return;}catch{return;}
+  if(blocked||section!=='dashboard'||open||isSessionSetupOpen)return;
+  if(memoryWorkspaceTourSeen.has(key))return;
   const timer=setTimeout(()=>setOpen(true),800);return()=>clearTimeout(timer);
- },[key,section,open,isSessionSetupOpen]);
+ },[key,section,open,isSessionSetupOpen,blocked]);
  const changeStep=(step:TourStep)=>{
   if(step.id.startsWith('setup-')){if(!isSessionSetupOpen)onOpenSessionSetup();return;}
   onCloseSessionSetup();

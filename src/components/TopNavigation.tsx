@@ -1,8 +1,10 @@
+import {compactChartClock,instrumentDisplayName,isInstrumentComingSoon} from '../services/instrumentPresentation';
 import {createPortal} from 'react-dom';
 import {BalanceBadge} from './BalanceBadge';
 import React, { useState, useRef, useLayoutEffect } from 'react';
 import { ChartReplayMark } from './ChartReplayLogo';
 import {
+  Activity,
   BarChart3,
   BookOpen,
   BrainCircuit,
@@ -19,13 +21,14 @@ import {
   Scissors,
   Search,
   Settings,
+  StickyNote,
   Sun,
   Trophy,
   User,
   LogOut,
   Wallet,
+  Wand2,
   X,
-  Zap,
 } from 'lucide-react';
 import {
   CandleColorStyle,
@@ -50,6 +53,21 @@ import {
   formatTimestampInTimezone,
 } from '../services/simulationEngine';
 import { ChartFlowUser } from './LoginPage';
+
+export interface ChartIndicatorsState {
+  showEMA20: boolean;
+  showEMA50: boolean;
+  showEMA200: boolean;
+  showSMA20: boolean;
+  showVWAP: boolean;
+  showBOLL: boolean;
+  showVOL: boolean;
+  showMACD: boolean;
+  showRSI: boolean;
+  showMomentum: boolean;
+  showForecast: boolean;
+  showEngulfing: boolean;
+}
 
 interface TopNavigationProps {
   symbol: InstrumentSymbol;
@@ -94,6 +112,11 @@ interface TopNavigationProps {
   onOpenDashboard?: () => void;
   onOpenGuide?: () => void;
   onOpenSettings?: () => void;
+  onOpenMindset?: () => void;
+  onOpenPlan?: () => void;
+  isPlanPinned?: boolean;
+  indicators?: ChartIndicatorsState;
+  onToggleIndicator?: (key: keyof ChartIndicatorsState) => void;
   onStartTour?: () => void;
   onLogout?:()=>void;
   balanceHidden?:boolean;
@@ -150,6 +173,11 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   onOpenDashboard,
   onOpenGuide,
   onOpenSettings,
+  onOpenMindset,
+  onOpenPlan,
+  isPlanPinned = false,
+  indicators,
+  onToggleIndicator,
   onStartTour,
   onLogout,
   balanceHidden=false,
@@ -159,6 +187,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false);
   const [isCandleMenuOpen, setIsCandleMenuOpen] = useState(false);
   const [isTimeframeMenuOpen, setIsTimeframeMenuOpen] = useState(false);
+  const [isIndicatorsMenuOpen, setIsIndicatorsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<InstrumentCategory>('ALL');
 
@@ -196,6 +225,16 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
     place();window.addEventListener('resize',place);window.addEventListener('scroll',place,true);window.addEventListener('keydown',escape);
     return()=>{window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);window.removeEventListener('keydown',escape);};
   },[isCandleMenuOpen]);
+
+  const indicatorsButtonRef=useRef<HTMLButtonElement>(null);
+  const [indicatorsMenuPosition,setIndicatorsMenuPosition]=useState({left:8,top:48});
+  useLayoutEffect(()=>{
+    if(!isIndicatorsMenuOpen)return;
+    const place=()=>{const rect=indicatorsButtonRef.current?.getBoundingClientRect();if(rect)setIndicatorsMenuPosition({left:Math.max(8,Math.min(rect.left,window.innerWidth-256)),top:rect.bottom+8});};
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')setIsIndicatorsMenuOpen(false);};
+    place();window.addEventListener('resize',place);window.addEventListener('scroll',place,true);window.addEventListener('keydown',escape);
+    return()=>{window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);window.removeEventListener('keydown',escape);};
+  },[isIndicatorsMenuOpen]);
   const dividerBg = isLight ? 'bg-[#e0e3eb]' : 'bg-[#262a34]';
 
   const filteredInstruments = INSTRUMENTS.filter((inst) => {
@@ -232,9 +271,12 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
     liveEquity !== undefined ? liveEquity : computedBalance;
   const floatingDiff = computedEquity - computedBalance;
 
-  const displayTz = activeSession?.displayTimezone || 'UTC';
+  const displayTz = activeSession?.displayTimezone || 'Africa/Johannesburg';
+  const displayTzLabel = displayTz === 'Africa/Johannesburg' ? 'South Africa' : displayTz;
   const authoritativeClockTs = currentTimestamp;
   const formattedReplayClock = formatTimestampInTimezone(authoritativeClockTs, displayTz);
+  const compactClock = compactChartClock(authoritativeClockTs,displayTz);
+  const sessionInstrument = activeSession?.assets[0] || currentInst.displaySymbol;
   const isPropChallenge = activeSession?.mode === 'PROP_FIRM';
   const sessionStatus = activeSession?.challengeState?.status || activeSession?.status || 'ACTIVE';
   const activePhase =
@@ -289,15 +331,11 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                   : 'Normal Backtest'
               }) — Click to Switch or Create New Session`}
             >
-              {isPropChallenge ? (
-                <Trophy className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              ) : (
-                <Zap className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              )}
+              {isPropChallenge&&<Trophy className="w-3.5 h-3.5 text-amber-400 shrink-0"/>}
               <span className="text-[11px] font-bold max-w-[90px] sm:max-w-[140px] xl:max-w-[180px] truncate">
-                {activeSession.name}
+                {sessionInstrument}
               </span>
-              <span
+              {(isPropChallenge||sessionStatus!=='ACTIVE')&&<span
                 className={`hidden sm:inline text-[9px] font-mono font-bold px-1 py-0.2 rounded uppercase shrink-0 ${
                   sessionStatus === 'FAILED'
                     ? 'bg-rose-500 text-white keep-white'
@@ -313,7 +351,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                     ? phaseShortLabel
                     : activeSession?.marketMode === 'LIVE_PAPER' ? 'PAPER · LIVE' : 'BACKTEST'
                   : `${isPropChallenge ? `${phaseShortLabel} · ` : ''}${sessionStatus}`}
-              </span>
+              </span>}
             </button>
           )}
 
@@ -365,15 +403,15 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                 ? 'bg-amber-50 border-amber-300 text-amber-900'
                 : 'bg-[#181c24] border-[#2a2f3b] text-[#e2e8f0]'
             }`}
-            title={`${isReplayMode ? 'Session replay clock' : 'Current market clock'} (${displayTz})`}
+            title={`${isReplayMode ? 'Session replay clock' : 'Current market clock'}: ${formattedReplayClock} · ${displayTzLabel}`} aria-label={`${formattedReplayClock} ${displayTzLabel}`}
           >
             <Clock className="w-3 h-3 text-emerald-400 shrink-0" />
             <span className="font-bold">
-              {formattedReplayClock} {displayTz}
+              {compactClock}
             </span>
           </div>
 
-          {onChangeTimezone && <label className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] shrink-0 ${cardBg}`} title="Change chart time zone"><Clock className="w-3 h-3 text-emerald-500"/><select aria-label="Chart time zone" value={displayTz} onChange={event=>onChangeTimezone(event.target.value as DisplayTimezone)} className="bg-transparent outline-none max-w-[100px]">{([{value:'UTC',label:'UTC'},{value:'Europe/London',label:'London'},{value:'America/New_York',label:'New York'},{value:'Africa/Johannesburg',label:'South Africa'},{value:'Europe/Prague',label:'Prague'},{value:'Asia/Tokyo',label:'Tokyo'},{value:'Australia/Sydney',label:'Sydney'}] as const).map(zone=><option key={zone.value} value={zone.value} className={isLight?'bg-white text-slate-900':'bg-[#161920] text-slate-100'}>{zone.label}</option>)}</select></label>}
+          {onChangeTimezone && <label className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] shrink-0 ${cardBg}`} title="Change chart time zone"><Clock className="w-3 h-3 text-emerald-500"/><select aria-label="Chart time zone" value={displayTz} onChange={event=>onChangeTimezone(event.target.value as DisplayTimezone)} className="bg-transparent outline-none max-w-[120px]">{([{value:'Africa/Johannesburg',label:'South Africa'},{value:'UTC',label:'UTC'},{value:'Europe/London',label:'London'},{value:'America/New_York',label:'New York'},{value:'Europe/Prague',label:'Prague'},{value:'Asia/Tokyo',label:'Tokyo'},{value:'Australia/Sydney',label:'Sydney'}] as const).map(zone=><option key={zone.value} value={zone.value} className={isLight?'bg-white text-slate-900':'bg-[#161920] text-slate-100'}>{zone.label}</option>)}</select></label>}
 
           {/* Candle Color Picker */}
           <div className="relative shrink-0">
@@ -463,6 +501,27 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
         <div className="flex items-center gap-1 shrink-0">
           <BalanceBadge balance={computedBalance} equity={computedEquity} currency={accountCurrency} hidden={balanceHidden} onToggle={onToggleBalance} isLight={isLight} className="hidden sm:flex" />
 
+          {onOpenMindset && <button onClick={onOpenMindset} title="Trading mindset & psychology coach" aria-label="Trading mindset" className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border shrink-0 ${cardBg}`}><BrainCircuit className="w-3.5 h-3.5 text-emerald-400"/><span className="hidden md:inline">Mindset</span></button>}
+
+          {onOpenPlan && (
+            <button
+              onClick={onOpenPlan}
+              title={isPlanPinned ? 'Hide trading plan sticky note' : 'Show my trading plan sticky note'}
+              aria-label="Show trading plan"
+              aria-pressed={isPlanPinned}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${
+                isPlanPinned
+                  ? 'bg-amber-400/20 border-amber-400/60 text-amber-300'
+                  : isLight
+                  ? 'bg-[#fff8db] hover:bg-[#fff0b8] border-[#e6d295] text-[#7e6937]'
+                  : cardBg
+              }`}
+            >
+              <StickyNote className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="hidden md:inline">My plan</span>
+            </button>
+          )}
+
           {/* View Analytics Action */}
           {onOpenAnalyticsPage && (
             <button
@@ -474,6 +533,120 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
               <BarChart3 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
               <span className="hidden md:inline">Analytics</span>
             </button>
+          )}
+
+          {/* Indicators Dropdown (Next to Analytics) */}
+          {indicators && onToggleIndicator && (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                ref={indicatorsButtonRef}
+                onClick={() => {
+                  setIsTimeframeMenuOpen(false);
+                  setIsCandleMenuOpen(false);
+                  setIsIndicatorsMenuOpen((v) => !v);
+                }}
+                aria-expanded={isIndicatorsMenuOpen}
+                title="Chart Indicators & Overlays"
+                className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition whitespace-nowrap shrink-0 ${cardBg}`}
+              >
+                <Activity className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="hidden md:inline">Indicators</span>
+                <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
+              </button>
+
+              {isIndicatorsMenuOpen && createPortal(
+                <>
+                  <button
+                    type="button"
+                    aria-label="Dismiss indicators menu"
+                    className="fixed inset-0 z-[70] cursor-default"
+                    onClick={() => setIsIndicatorsMenuOpen(false)}
+                  />
+                  <div
+                    role="dialog"
+                    aria-label="Indicators"
+                    style={{
+                      ...indicatorsMenuPosition,
+                      maxHeight: Math.max(180, window.innerHeight - indicatorsMenuPosition.top - 12),
+                    }}
+                    className={`fixed w-60 overflow-y-auto rounded-xl border p-1.5 z-[71] text-xs shadow-2xl ${
+                      isLight
+                        ? 'bg-white border-[#e0e3eb] text-[#131722]'
+                        : 'bg-[#1a1e26] border-[#2a2e39] text-[#d1d4dc]'
+                    }`}
+                  >
+                    <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider opacity-60">
+                      Overlays
+                    </div>
+                    {(
+                      [
+                        ['EMA 20', 'showEMA20', '#06b6d4'],
+                        ['EMA 50', 'showEMA50', '#f59e0b'],
+                        ['EMA 200', 'showEMA200', '#a855f7'],
+                        ['SMA 20', 'showSMA20', '#ec4899'],
+                        ['VWAP', 'showVWAP', '#3b82f6'],
+                        ['Bollinger Bands', 'showBOLL', '#9333ea'],
+                        ['__sub__', null, ''],
+                        ['Volume', 'showVOL', '#6366f1'],
+                        ['MACD', 'showMACD', '#0ea5e9'],
+                        ['RSI', 'showRSI', '#14b8a6'],
+                        ['__ai__', null, ''],
+                        ['Engulfing Vol / Momentum', 'showEngulfing', '#10b981'],
+                        ['Momentum Pullback · 2R', 'showMomentum', '#34d399'],
+                        ['Forecaster', 'showForecast', '#8b5cf6'],
+                      ] as Array<[string, keyof ChartIndicatorsState | null, string]>
+                    ).map(([label, key, color]) =>
+                      key === null ? (
+                        <div
+                          key={label}
+                          className="px-2 pt-2 pb-1 text-[9px] font-bold uppercase tracking-wider opacity-60"
+                        >
+                          {label === '__sub__' ? 'Sub-panes' : 'Analysis'}
+                        </div>
+                      ) : (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => onToggleIndicator(key)}
+                          className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded text-[11px] font-semibold transition ${
+                            isLight ? 'hover:bg-[#f0f3fa]' : 'hover:bg-[#242832]'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            {label === 'Forecaster' ? (
+                              <Wand2 className="w-3 h-3" style={{ color }} />
+                            ) : (
+                              <span
+                                className="w-2.5 h-2.5 rounded-full"
+                                style={{ background: color }}
+                              />
+                            )}
+                            {label}
+                          </span>
+                          <span
+                            className={`relative w-7 h-4 rounded-full transition ${
+                              indicators[key]
+                                ? 'bg-emerald-500'
+                                : isLight
+                                ? 'bg-gray-300'
+                                : 'bg-gray-600'
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${
+                                indicators[key] ? 'left-3.5' : 'left-0.5'
+                              }`}
+                            />
+                          </span>
+                        </button>
+                      )
+                    )}
+                  </div>
+                </>,
+                document.body
+              )}
+            </div>
           )}
 
           {/* Dashboard Route Button */}
@@ -488,7 +661,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
             </button>
           )}
 
-          <button onClick={currentUser?onLogout:onOpenLogin} aria-label={currentUser?'Log out':'Sign in'} title={currentUser?'Log out and return to homepage':'Sign in'} className={`flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-semibold whitespace-nowrap shrink-0 ${cardBg}`}><LogOut className="w-3.5 h-3.5"/><span className="hidden md:inline">{currentUser?'Log out':'Sign in'}</span></button>
+          <button onClick={currentUser?onLogout:onOpenLogin} aria-label={currentUser?'Log out':'Sign in'} title={currentUser?'Log out and return to homepage':'Sign in'} className={`flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-semibold whitespace-nowrap shrink-0 ${cardBg}`}><LogOut className="w-3.5 h-3.5"/>{!currentUser&&<span className="hidden md:inline">Sign in</span>}</button>
 
           {/* Take the Tour (interactive spotlight walkthrough) */}
           {onStartTour && (
@@ -514,19 +687,6 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
             ) : (
               <Sun className="w-3.5 h-3.5 text-amber-400" />
             )}
-          </button>
-
-          {/* Wide Chart Mode */}
-          <button
-            onClick={onToggleChartWideMode}
-            className={`p-1.5 rounded border transition shrink-0 ${
-              isChartWideMode
-                ? 'bg-[#252a34] text-white keep-white border-[#3a404f]'
-                : cardBg
-            }`}
-            title="Wide Chart Mode"
-          >
-            <Columns className="w-3.5 h-3.5" />
           </button>
 
           {/* Browser Full Screen */}
@@ -603,15 +763,16 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
       )}
 
       {/* Instrument Selector Modal */}
-      {isSymbolModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div
-            className={`w-full max-w-xl border rounded-xl shadow-2xl overflow-hidden ${
-              isLight
-                ? 'bg-white border-[#e0e3eb] text-[#131722]'
-                : 'bg-[#12151b] border-[#262a34] text-white'
-            }`}
-          >
+      {isSymbolModalOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+            <div role="dialog" aria-modal="true" aria-label="Choose instrument"
+              className={`w-full max-w-xl border rounded-2xl shadow-2xl overflow-hidden ${
+                isLight
+                  ? 'bg-white border-[#e0e3eb] text-[#131722]'
+                  : 'bg-[#12151b] border-[#262a34] text-white'
+              }`}
+            >
             <div
               className={`px-4 py-3 border-b flex items-center justify-between ${
                 isLight ? 'border-[#e0e3eb]' : 'border-[#262a34]'
@@ -620,11 +781,11 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
               <div className="flex items-center gap-2">
                 <Search className="w-4 h-4 text-emerald-400" />
                 <h3 className="text-sm font-bold">
-                  Select Instrument — Synchronized to Replay Clock ({formattedReplayClock})
+                  Choose your market
                 </h3>
               </div>
               <button
-                onClick={() => setIsSymbolModalOpen(false)}
+                onClick={() => setIsSymbolModalOpen(false)} aria-label="Close instrument selector"
                 className="p-1 rounded hover:bg-gray-500/20"
               >
                 <X className="w-4 h-4" />
@@ -640,7 +801,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search symbol (e.g. XAUUSD, NAS100, EURUSD, GBPJPY)..."
+                    aria-label="Search instruments" placeholder="Search markets…"
                     className={`w-full pl-8 pr-3 py-1.5 rounded-lg border text-xs outline-none ${
                       isLight
                         ? 'bg-[#f8f9fd] border-[#e0e3eb] text-[#131722]'
@@ -681,7 +842,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                   <span className="font-bold opacity-70">Session Watchlist:</span>
                   {activeSession.assets.map((sym: InstrumentSymbol) => (
                     <button
-                      key={sym}
+                      key={sym} disabled={isInstrumentComingSoon(sym)}
                       onClick={() => {
                         onSelectSymbol(sym);
                         setIsSymbolModalOpen(false);
@@ -702,16 +863,15 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                 {filteredInstruments.map((inst) => {
                   const isActive = inst.symbol === symbol;
                   const inSession = activeSession?.assets.includes(inst.symbol);
-                  const customSpec = activeSession?.instrumentSpecs?.[inst.symbol];
-                  const contractSize = customSpec?.contractSize ?? inst.contractSize;
+                  const comingSoon=isInstrumentComingSoon(inst.symbol);
                   return (
-                    <div
+                    <button type="button" disabled={comingSoon} aria-label={`${inst.displaySymbol}${comingSoon?' — Coming soon':''}`}
                       key={inst.symbol}
                       onClick={() => {
                         onSelectSymbol(inst.symbol);
                         setIsSymbolModalOpen(false);
                       }}
-                      className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition ${
+                      className={`w-full text-left flex items-center justify-between gap-3 p-3 rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-50 ${
                         isActive
                           ? 'bg-emerald-500/10 border-emerald-500/60'
                           : isLight
@@ -738,32 +898,25 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                             )}
                           </div>
                           <span className="text-[11px] opacity-75">
-                            {inst.name} · Contract: {contractSize.toLocaleString()}{' '}
-                            {inst.category === 'METALS'
-                              ? 'oz'
-                              : inst.category === 'INDICES'
-                              ? 'contracts'
-                              : 'units'}
+                            {instrumentDisplayName(inst.symbol,inst.name)}
                           </span>
                         </div>
                       </div>
-                      <div className="text-right font-mono">
-                        <div className="text-xs font-bold">
+                      <div className="shrink-0 text-right font-mono">
+                        {comingSoon?<span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold text-amber-500">Coming soon</span>:<div className="text-xs font-bold">
                           {isActive
                             ? (Number.isFinite(currentPrice) ? currentPrice.toFixed(inst.decimals) : '—')
                             : (getCachedRealCandles(timeframe, inst.symbol)?.filter(c => c.time <= currentTimestamp).slice(-1)[0]?.close.toFixed(inst.decimals) ?? '—')}
-                        </div>
-                        <div className="text-[10px] text-emerald-400 flex items-center gap-1 justify-end">
-                          <Radio className="w-2.5 h-2.5" /> Provider candles
-                        </div>
+                        </div>}
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

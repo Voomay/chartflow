@@ -1,3 +1,4 @@
+import {platformRequest,serverAccountRequest} from '../services/platformAccounts';
 import {LegalLinks,LegalDocumentKey} from './LegalLinks';
 import React, { useEffect, useState } from 'react';
 import { ChartReplayLogo } from './ChartReplayLogo';
@@ -6,6 +7,8 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  Eye,
+  EyeOff,
   KeyRound,
   Lock,
   Mail,
@@ -17,6 +20,7 @@ import {
   RegisteredUser,
   registerUserAccount,
   resetUserPassword,
+  getRegisteredUsers,
 } from '../services/storageAndAnalytics';
 
 export interface ChartFlowUser {
@@ -25,6 +29,8 @@ export interface ChartFlowUser {
   email: string;
   plan: 'FREE_FOREVER';
   joinedAt: string;
+  loginCount?: number;
+  isReturningLogin?: boolean;
 }
 
 interface LoginPageProps {
@@ -43,11 +49,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onBackToLanding,
   onOpenLegal,
 }) => {
+  const [submitting,setSubmitting]=useState(false);
+  const [serverAccounts,setServerAccounts]=useState(false);
+  useEffect(()=>{void platformRequest('status').then(result=>setServerAccounts(result.enabled===true)).catch(()=>{});},[]);
   const [mode, setMode] = useState<'login' | 'signup' | 'reset'>(initialMode);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -64,20 +75,38 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
   }, [initialMode]);
 
-  const handleCompleteUser = (u: RegisteredUser) => {
+  const handleCompleteUser = (u: RegisteredUser, isReturning = mode === 'login') => {
+    const returning =
+      isReturning || (typeof u.loginCount === 'number' && u.loginCount > 1);
     onSuccessAuth({
       id: u.id,
       name: u.name,
       email: u.email,
       plan: u.plan,
       joinedAt: u.joinedAt,
+      loginCount: u.loginCount,
+      isReturningLogin: returning,
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
+
+    if(submitting)return;
+    if(mode==='login'||mode==='signup'){
+      setSubmitting(true);
+      try{
+        const server=await serverAccountRequest(mode==='signup'?'register':'login',{name,email,password});
+        if(server.available){
+          if(server.ok&&server.user){handleCompleteUser(server.user);return;}
+          const legacy=mode==='login'&&getRegisteredUsers().some(user=>user.email.toLowerCase()===email.trim().toLowerCase()&&user.authSource!=='server'&&Boolean(user.passwordHash));
+          if(!legacy){setErrorMsg(server.error||'Unable to sign in.');return;}
+        }
+      }catch(reason){setErrorMsg(reason instanceof Error?reason.message:'Account service unavailable.');return;}
+      finally{setSubmitting(false);}
+    }
 
     if (mode === 'login') {
       const res = authenticateUserAccount(email, password);
@@ -123,7 +152,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const handleQuickDemoLogin = () => {
     const res = authenticateUserAccount('trader@chartflow.io', 'demo1234');
     if (res.ok && res.user) {
-      handleCompleteUser(res.user);
+      handleCompleteUser(res.user, true);
     } else {
       onSuccessAuth({
         id: 'user-demo-trader',
@@ -131,6 +160,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         email: 'trader@chartflow.io',
         plan: 'FREE_FOREVER',
         joinedAt: new Date().toISOString().slice(0, 10),
+        isReturningLogin: true,
       });
     }
   };
@@ -329,15 +359,29 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 )}
               </div>
               <div className="relative">
-                <Lock className="w-4 h-4 text-[#787b86] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Lock className="w-4 h-4 text-[#787b86] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
-                  placeholder="••••••••"
+                  placeholder={showPassword ? 'Enter your password' : '••••••••'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full min-h-[48px] pl-10 pr-4 py-3 rounded-xl bg-[#0d111a]/90 border border-white/[0.09] hover:border-white/[0.16] focus:border-emerald-400/70 focus:ring-2 focus:ring-emerald-400/20 text-base sm:text-sm text-white placeholder:text-gray-500 outline-none transition"
+                  className="w-full min-h-[48px] pl-10 pr-11 py-3 rounded-xl bg-[#0d111a]/90 border border-white/[0.09] hover:border-white/[0.16] focus:border-emerald-400/70 focus:ring-2 focus:ring-emerald-400/20 text-base sm:text-sm text-white placeholder:text-gray-500 outline-none transition"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-[#787b86] hover:text-white hover:bg-white/[0.06] transition"
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
               </div>
             </div>
 
@@ -347,15 +391,39 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   Confirm New Password
                 </label>
                 <div className="relative">
-                  <KeyRound className="w-4 h-4 text-[#787b86] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <KeyRound className="w-4 h-4 text-[#787b86] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
-                    type="password"
+                    type={showConfirmPassword ? 'text' : 'password'}
                     required
-                    placeholder="••••••••"
+                    placeholder={
+                      showConfirmPassword ? 'Confirm new password' : '••••••••'
+                    }
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full min-h-[48px] pl-10 pr-4 py-3 rounded-xl bg-[#0d111a]/90 border border-white/[0.09] hover:border-white/[0.16] focus:border-emerald-400/70 focus:ring-2 focus:ring-emerald-400/20 text-base sm:text-sm text-white placeholder:text-gray-500 outline-none transition"
+                    className="w-full min-h-[48px] pl-10 pr-11 py-3 rounded-xl bg-[#0d111a]/90 border border-white/[0.09] hover:border-white/[0.16] focus:border-emerald-400/70 focus:ring-2 focus:ring-emerald-400/20 text-base sm:text-sm text-white placeholder:text-gray-500 outline-none transition"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((prev) => !prev)}
+                    aria-label={
+                      showConfirmPassword
+                        ? 'Hide confirm password'
+                        : 'Show confirm password'
+                    }
+                    aria-pressed={showConfirmPassword}
+                    title={
+                      showConfirmPassword
+                        ? 'Hide confirm password'
+                        : 'Show confirm password'
+                    }
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-[#787b86] hover:text-white hover:bg-white/[0.06] transition"
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
               </div>
             )}
@@ -367,7 +435,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             )}
 
             <button
-              type="submit"
+              type="submit" disabled={submitting}
               className="lp-btn-primary w-full py-3.5 min-h-[48px] text-base sm:text-sm"
             >
               <span>
@@ -381,6 +449,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </button>
           </form>
 
+          {serverAccounts&&<p className="text-[11px] text-slate-500 leading-5 mt-4">Accounts, trading sessions, and journals are securely stored in Supabase. Login details are never saved in localhost storage or readable cookies.</p>}
           {/* Quick Demo Access */}
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">

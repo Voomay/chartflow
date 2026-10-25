@@ -8,7 +8,8 @@ The localhost platform now uses an original-data archive for replay. This is a s
 - USOIL: 2014–2023 plus partial June–October 2026. 2024–2025 and January–May 2026 are missing.
 - BTCUSD: Bitfinex original exchange candles fetched and cached on demand; January 2015 was verified.
 - ETHUSD: Bitfinex original exchange candles fetched and cached on demand; June 2016 was verified. There is no 2015 ETH history in this feed.
-- US30: no complete free minute archive installed. FXCM's tick archive requires sign-in. EV Trading Labs lists Dow history, but M1 downloads require a free account; these files have not been downloaded or validated.
+- US30: EV Trading Labs / Dukascopy bid archive installed (`200,000` validated `1m` bars from `2026-03-26T05:17:00.000Z` through `2026-10-23T19:59:00.000Z` across 8 monthly partitions `2026-03` to `2026-10`, plus `5m`, `15m`, `30m`, `1H`, `4H`, `1D`, `1W`, `1M`).
+- Per-request `1m` replay window raised from `12,000` bars (~8.3 days) to `45,000` bars (~1.5 months) so a full month of 1-minute candlesticks loads in a single window.
 - Monthly timeframe added alongside minute, hourly, daily and weekly intervals.
 
 ## Reliability and time alignment
@@ -66,3 +67,4 @@ The repository includes download/import scripts and compressed archive manifests
 | USDJPY | 2015-01-01T18:01:00.000Z | 2026-10-16T21:58:00.000Z | 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026 |
 | USOIL | 2014-01-01T23:00:00.000Z | 2026-10-16T21:58:00.000Z | 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2026 |
 | XAGUSD | 2015-01-01T23:01:00.000Z | 2026-10-16T21:58:00.000Z | 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026 |
+| US30 | 2026-03-26T05:17:00.000Z | 2026-10-23T19:59:00.000Z | 2026 (Mar–Oct M1, 2020–2026 M5–1M) |

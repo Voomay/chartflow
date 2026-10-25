@@ -1,12 +1,27 @@
 import {createDefaultSessionsForUser} from '../storageAndAnalytics';
 import {beforeEach,describe,expect,it} from 'vitest';
-import {getReplayWeekdayTarget,getHistoricalReplayAvailability,clearRealCandleCache,setHistoricalCandles,getProviderChartCandles,setCachedRealCandles,getMarketFeedLabel} from '../goldDataService';
+import {aggregateCandlesToTimeframe,getReplayWeekdayTarget,getHistoricalReplayAvailability,clearRealCandleCache,setHistoricalCandles,getProviderChartCandles,setCachedRealCandles,getMarketFeedLabel} from '../goldDataService';
 import {advanceOrRewindSessionToTimestamp,closeOrCancelPosition,modifyPositionOrOrder,validateAndPlaceOrder,evaluateSessionAt1mTimestamp,validateSessionHistoricalData,getLatest1mCandleAtClock,get1mExecutionSlice,getDay1mCandles,getAggregatedCandlesUpToClock} from '../simulationEngine';
 import {Candle} from '../../types/trading';
 const t=Date.parse('2015-01-05T08:00:00Z')/1000;
 const bar=(time:number,open=1200):Candle=>({time,open,high:open+2,low:open-1,close:open+1,volume:0});
 beforeEach(clearRealCandleCache);
 describe('Original historical replay archives',()=>{
+ it('develops a 15-minute candle at each one-minute replay clock without exposing later wicks',()=>{
+  const minutes=Array.from({length:31},(_,i)=>bar(t+i*60,1200+i));
+  const higher=aggregateCandlesToTimeframe(minutes,'15m','XAUUSD');
+  setHistoricalCandles('XAUUSD',{'1m':minutes,'15m':higher},'Archive',t);
+  for(let minute=1;minute<15;minute++){
+   const visible=getProviderChartCandles('XAUUSD','15m',t+minute*60);
+   expect(visible).toHaveLength(1);expect(visible[0].time).toBe(t);
+   expect(visible[0].open).toBe(1200);expect(visible[0].close).toBe(1200+minute);
+   expect(visible[0].high).toBe(1201+minute);
+  }
+  const boundary=getProviderChartCandles('XAUUSD','15m',t+15*60);
+  expect(boundary).toHaveLength(2);expect(boundary[0]).toEqual(higher[0]);
+  expect(boundary[1]).toMatchObject({time:t+900,open:1215,high:1215,low:1215,close:1215});
+ });
+
  it('skips closed weekends to Monday while respecting New York summer and winter closes',()=>{
   const seconds=(value:string)=>Date.parse(value)/1000;
   const monday=seconds('2023-01-09T00:00:00Z');

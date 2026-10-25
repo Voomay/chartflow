@@ -1,13 +1,19 @@
+import platformHandler from './api/platform.js';
+import waitlistHandler from './api/waitlist.js';
 import { defineConfig, loadEnv, Plugin } from 'vite';
 import capitalHandler from './api/capital-indices.js';
 // Private broker configuration remains in the Node server, never VITE_* client variables.
 const privateEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), 'CAPITAL_');
 for (const [key,value] of Object.entries(privateEnv)) if (process.env[key] === undefined) process.env[key] = value;
+const waitlistEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), 'WAITLIST_');
+for (const [key,value] of Object.entries(waitlistEnv)) if (process.env[key] === undefined) process.env[key] = value;
+const supabaseEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), ['SUPABASE_', 'VITE_SUPABASE_', 'ADMIN_']);
+for (const [key,value] of Object.entries(supabaseEnv)) if (process.env[key] === undefined) process.env[key] = value;
 import react from '@vitejs/plugin-react';
 import spotHandler from './api/spot-candles.js';
 import historicalHandler from './api/historical-candles.js';
 function spotPlugin(): Plugin {
-  const use = (server: any) => { server.middlewares.use('/api/index-candles', capitalHandler); server.middlewares.use('/api/spot-candles', spotHandler); server.middlewares.use('/api/historical-candles', historicalHandler); };
+  const use = (server: any) => { server.middlewares.use('/api/platform', platformHandler); server.middlewares.use('/api/waitlist', waitlistHandler); server.middlewares.use('/api/index-candles', capitalHandler); server.middlewares.use('/api/spot-candles', spotHandler); server.middlewares.use('/api/historical-candles', historicalHandler); };
   return {name: 'spot-market-feed', configureServer: use, configurePreviewServer: use};
 }
 
@@ -120,13 +126,14 @@ export default defineConfig({
   plugins: [react(), yahooFinanceApiPlugin(), spotPlugin()],
   cacheDir: 'd:/fx/.vite-cache',
   server: {
-    port: 3005,
+    fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.chart-replay/**'] },
+    port: 3003,
     strictPort: true,
-    host: true,
+    host: '127.0.0.1',
   },
   preview: {
-    port: 3005,
+    port: 3003,
     strictPort: true,
-    host: true,
+    host: '127.0.0.1',
   },
 });

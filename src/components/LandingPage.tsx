@@ -1,12 +1,15 @@
+import {FaqAssistant} from './FaqAssistant';
 import {LegalLinks,LegalDocumentKey} from './LegalLinks';
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import {
   ArrowRight,
   BarChart3,
+  BrainCircuit,
   CandlestickChart,
   CheckCircle2,
   Menu,
   ShieldCheck,
+  StickyNote,
   Target,
   TrendingUp,
   Trophy,
@@ -15,7 +18,8 @@ import {
   Handshake,
 } from 'lucide-react';
 import { ChartReplayLogo } from './ChartReplayLogo';
-import { ForexTicker, PlatformPreview } from './LandingExtras';
+import { ForexTicker } from './LandingExtras';
+import { HomepageDemoVideo } from './HomepageDemoVideo';
 
 export type LandingLaunchAction =
   | 'default'
@@ -26,6 +30,8 @@ export type LandingLaunchAction =
   | 'dashboard';
 
 interface LandingPageProps {
+  onDemoLogin?:()=>void;
+  onOpenComingSoon?:()=>void;
   onOpenLegal?:(page:LegalDocumentKey)=>void;
   onLaunchTerminal: (initialAction?: LandingLaunchAction) => void;
   onOpenLogin: (mode?: 'login' | 'signup') => void;
@@ -60,6 +66,18 @@ const FEATURES = [
     icon: BarChart3,
     title: 'Deep Analytics & Journal',
     desc: 'Equity curves, P&L calendar, win rate, profit factor, R-multiples and CSV export for every trade.',
+    accent: 'from-emerald-400 to-teal-500',
+  },
+  {
+    icon: BrainCircuit,
+    title: 'AI Psychologist Coach',
+    desc: 'Real-time mindset check-ins on entries, wins and losses to keep emotions in check, curb FOMO and stop revenge trading.',
+    accent: 'from-emerald-400 to-teal-500',
+  },
+  {
+    icon: StickyNote,
+    title: 'Sticky-Note Trading Plan',
+    desc: 'Pin your trading plan as a movable sticky note right on your chart so you always trade with your trading plan and your rules.',
     accent: 'from-emerald-400 to-teal-500',
   },
 ];
@@ -178,6 +196,8 @@ const COMPARE_ROWS: { feature: string; us: CompareCell; fx: CompareCell; tz: Com
   { feature: 'Prop firm challenge simulator (Phase 1 / 2 / Funded)', us: true, fx: 'Pro only', tz: 'partial' },
   { feature: 'Drag-to-adjust Long / Short position tool', us: true, fx: true, tz: 'partial' },
   { feature: 'Built-in trade journal & screenshots', us: true, fx: 'partial', tz: true },
+  { feature: 'AI psychologist coach & mindset check-ins', us: true, fx: false, tz: false },
+  { feature: 'Sticky-note trading plan & rules on chart', us: true, fx: false, tz: false },
   { feature: 'Analytics: equity curve, P&L calendar, R-multiples', us: true, fx: true, tz: true },
   { feature: 'Session boxes (Asia / London / New York)', us: true, fx: 'partial', tz: false },
   { feature: 'Momentum Forecaster overlay', us: true, fx: false, tz: false },
@@ -193,7 +213,7 @@ const CompareMark: React.FC<{ v: CompareCell; strong?: boolean }> = ({ v, strong
   return <span className={`font-bold ${strong ? 'text-sm sm:text-base font-black text-emerald-300' : 'text-xs sm:text-sm text-[#cbd5e1]'}`}>{v}</span>;
 };
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal,onOpenComingSoon,onDemoLogin }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const scrollToSection = (id: string) => {
@@ -247,7 +267,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                 {l.label}
               </button>
             ))}
-            <a href={PARTNER_MAILTO} className="px-3 py-2 rounded-lg hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5">
+            <button onClick={onOpenComingSoon} className="px-3 py-2 text-emerald-300 text-sm font-semibold text-left">Coming soon</button>
+            <a href="/partners" className="px-3 py-2 rounded-lg hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5">
               <Handshake className="w-4 h-4 text-emerald-400" />
               Partner with Us
             </a>
@@ -288,7 +309,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                   {l.label}
                 </button>
               ))}
-              <a href={PARTNER_MAILTO} onClick={() => setMobileNavOpen(false)} className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition">
+              <button onClick={onOpenComingSoon} className="px-3 py-2 text-emerald-300 text-sm font-semibold text-left">Coming soon</button>
+            <a href="/partners" onClick={() => setMobileNavOpen(false)} className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition">
                 <Handshake className="w-4 h-4 text-emerald-400" />
                 Partner with Us
               </a>
@@ -310,9 +332,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
 
       <main id="top" className="relative z-10 px-4 sm:px-6">
         {/* HERO */}
-        <section className="max-w-[1400px] mx-auto pt-12 sm:pt-20 pb-16 sm:pb-24 grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-12 items-center">
-          <div className="text-center lg:text-left">
-            <div className="lp-fade-up flex justify-center lg:justify-start mb-5">
+        <section className="max-w-[1400px] mx-auto pt-12 sm:pt-16 pb-16 sm:pb-24 flex flex-col items-center gap-8 sm:gap-12">
+          <div className="text-center w-full max-w-4xl mx-auto">
+            <div className="lp-fade-up flex justify-center mb-5">
               <span className="inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-400/25 text-[11px] sm:text-xs font-semibold text-emerald-200 max-w-full">
                 <span className="inline-flex items-center gap-1.5"><SAFlag className="w-4 h-[11px]" />Proudly South African</span>
                 <span className="text-emerald-400/60" aria-hidden="true">·</span>
@@ -320,19 +342,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
               </span>
             </div>
 
-            <h1 className="lp-fade-up lp-d1 text-[2.4rem] leading-[1.12] sm:text-6xl lg:text-[4.1rem] xl:text-7xl font-black tracking-tight text-white mb-6">
-              <span className="block lg:whitespace-nowrap">Replay the Markets.</span>
+            <h1 className="lp-fade-up lp-d1 text-[clamp(2.6rem,11.5vw,3.5rem)] leading-[1.08] sm:text-6xl lg:text-[4.1rem] xl:text-7xl font-black tracking-tight text-white mb-6">
+              <span className="block"><span className="whitespace-nowrap">Replay the</span>{' '}<br className="sm:hidden"/>Markets.</span>
               <span className="block mt-1 pb-[0.12em] lg:whitespace-nowrap bg-gradient-to-r from-[#5b8cff] via-sky-400 to-emerald-400 bg-clip-text text-transparent lp-gradient-text">
-                Master Your Trades.
+                <span className="whitespace-nowrap">Master Your</span>{' '}<br className="sm:hidden"/>Trades.
               </span>
             </h1>
 
-            <p className="lp-fade-up lp-d2 text-base sm:text-lg text-[#9ca3af] max-w-xl mx-auto lg:mx-0 leading-relaxed mb-8">
-              Backtest candle-by-candle on real historical data, simulate prop firm drawdown rules and audit every trade —{' '}
+            <p className="lp-fade-up lp-d2 text-base sm:text-lg text-[#9ca3af] max-w-2xl mx-auto leading-relaxed mb-7">
+              Backtest candle-by-candle on real historical data, simulate prop firm drawdown rules, stay disciplined with an{' '}
+              <strong className="text-white font-semibold">AI psychologist coach</strong> and an{' '}
+              <strong className="text-white font-semibold">on-chart sticky note for your trading plan &amp; rules</strong>, and audit every trade —{' '}
               <strong className="text-emerald-400 font-bold">100% free.</strong>{' '}The best alternative to FX Replay — proudly made in South Africa.
             </p>
 
-            <div className="lp-fade-up lp-d3 flex flex-col sm:flex-row items-stretch sm:items-center justify-center lg:justify-start gap-3 mb-8">
+            <div className="lp-fade-up lp-d3 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3">
               <button onClick={() => openAuth('signup')} className="lp-btn-primary group px-7 py-4 text-base">
                 <span>Get Started Free</span>
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
@@ -348,10 +372,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
           </div>
 
           {/* Hero visual */}
-          <div className="lp-fade-up lp-d2 relative w-full max-w-2xl mx-auto lg:max-w-none min-w-0">
+          <div className="lp-fade-up lp-d2 relative w-full max-w-[1240px] mx-auto min-w-0">
             <div className="absolute -inset-6 rounded-[2rem] bg-gradient-to-tr from-[#2962ff]/25 via-transparent to-emerald-400/25 blur-2xl" aria-hidden="true" />
             <div className="relative">
-              <PlatformPreview />
+              <HomepageDemoVideo />
             </div>
 
           </div>
@@ -370,11 +394,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
               <span className="bg-gradient-to-r from-sky-400 to-emerald-400 bg-clip-text text-transparent">prove your edge</span>
             </h2>
             <p className="mt-4 text-base sm:text-lg text-[#9ca3af]">
-              A professional replay terminal, prop firm rules engine and analytics suite — in one place.
+              A professional replay terminal, prop firm rules engine, AI psychologist coach, sticky-note trading plan and analytics suite — in one place.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
             {FEATURES.map((f) => (
               <div key={f.title} className="lp-card group">
                 <div className="lp-card-inner h-full p-6">
@@ -624,13 +648,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
         </section>
       </main>
 
+      <FaqAssistant/>
       {/* Footer */}
       <footer className="relative z-10 border-t border-white/[0.06] py-6 px-4 sm:px-6 text-sm text-[#787b86]">
         <div className="max-w-[1400px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center">
           <span className="flex items-center gap-3"><ChartReplayLogo size={28} /><span className="hidden sm:inline">© Historical Trading Simulator</span></span>
           <span className="inline-flex items-center gap-2 font-semibold text-gray-400"><SAFlag className="w-5 h-[14px]" />Proudly made in South Africa</span>
           <div className="flex flex-wrap items-center justify-center gap-2 font-semibold">
-            <a href={PARTNER_MAILTO} className="px-3 min-h-[44px] inline-flex items-center hover:text-white transition">Partner with Us</a>
+            <a href="/admin" className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2.5 text-xs font-bold text-emerald-200 hover:bg-emerald-400/20">Administrator Login</a>{import.meta.env.DEV&&['localhost','127.0.0.1','[::1]'].includes(window.location.hostname)&&<a href="/admin?preview=1" className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2.5 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20">Quick admin preview</a>}<button type="button" onClick={onDemoLogin} className="px-3 min-h-[44px] text-xs text-slate-400 hover:text-white">Try platform demo</button>
+            <a href="/partners" className="px-3 min-h-[44px] inline-flex items-center hover:text-white transition">Partner with Us</a>
             <button onClick={() => openAuth('login')} className="px-3 min-h-[44px] hover:text-white transition">
               Sign In
             </button>
@@ -639,7 +665,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
             </button>
           </div>
         </div>
-        <div className="max-w-[1400px] mx-auto pt-4 flex flex-col sm:flex-row items-center justify-between gap-3"><p className="text-[11px] opacity-65">Technology for trader development · Simulated money only · Not a financial institution</p><LegalLinks onOpen={onOpenLegal}/></div>
+        <div className="max-w-[1400px] mx-auto pt-4 flex flex-col sm:flex-row items-center justify-between gap-3"><p className="text-[11px] opacity-65">Technology for trader development · Simulated money only · Not a financial institution</p><div className="flex flex-wrap items-center justify-center gap-4"><LegalLinks onOpen={onOpenLegal}/></div></div>
       </footer>
     </div>
   );

@@ -1,5 +1,15 @@
 import {computeTradeStreaks} from './tradeStreaks';
 import {
+  deleteAllUserSupabaseData,
+  deleteUserSessionFromSupabase,
+  isUntouchedStarterSession,
+  syncCustomRuleProfilesToSupabase,
+  syncUserAccountToSupabase,
+  syncUserSessionsToSupabase,
+  syncUserStrategiesToSupabase,
+  syncUserStrategyNotesToSupabase,
+} from './supabaseClient';
+import {
   AccountCurrency,
   BacktestPosition,
   BacktestSessionMode,
@@ -10,6 +20,7 @@ import {
   TradingSession,
 } from '../types/trading';
 import {
+  computeAuthoritativeRealizedPnl,
   computeLiveSessionMetrics,
   createInitialChallengeState,
   formatMoney,
@@ -21,12 +32,95 @@ export interface RegisteredUser {
   name: string;
   email: string;
   passwordHash: string;
+  authSource?:'server'|'local';
+  loginCount?:number;
+  lastLoginAt?:string;
   plan: 'FREE_FOREVER';
   joinedAt: string;
 }
 
 const USERS_REGISTRY_KEY = 'aurum_replay_users_registry_v2';
 const CURRENT_USER_KEY = 'aurum_replay_active_user_v2';
+
+const memoryStorage = new Map<string, string>();
+
+function isTestEnvironment(): boolean {
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env || {};
+  return env.MODE === 'test' || Boolean(env.VITEST);
+}
+
+interface StorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+  key(index: number): string | null;
+  readonly length: number;
+}
+
+const memoryStorageAdapter: StorageLike = {
+  getItem: (key: string) => memoryStorage.get(key) ?? null,
+  setItem: (key: string, value: string) => {
+    memoryStorage.set(key, value);
+  },
+  removeItem: (key: string) => {
+    memoryStorage.delete(key);
+  },
+  key: (index: number) => Array.from(memoryStorage.keys())[index] ?? null,
+  get length() {
+    return memoryStorage.size;
+  },
+};
+
+function runtimeStorage(): StorageLike {
+  if (isTestEnvironment() && typeof localStorage !== 'undefined') {
+    return localStorage;
+  }
+  return memoryStorageAdapter;
+}
+
+/**
+ * Purges any legacy trader login details, emails, or account-scoped records from browser
+ * localStorage and sessionStorage so no trader credentials or PII remain on localhost.
+ */
+export function purgeBrowserSensitiveStorage(): void {
+  if (isTestEnvironment()) return;
+  const sensitivePrefixes = [
+    USERS_REGISTRY_KEY,
+    CURRENT_USER_KEY,
+    'aurum_u_',
+    'aurum_active_session_id_',
+    'chart_mindset_v1',
+    'chart_flow_sa_tz_v1',
+    'chart_replay_motivation_v1',
+    'chart_flow_balance_hidden_v1',
+    'chartflow_workspace_tour_v1',
+    'chartflow_chart_announcement_v1',
+  ];
+  for (const store of [
+    typeof localStorage !== 'undefined' ? localStorage : null,
+    typeof sessionStorage !== 'undefined' ? sessionStorage : null,
+  ]) {
+    if (!store) continue;
+    try {
+      const toRemove: string[] = [];
+      for (let i = 0; i < store.length; i++) {
+        const k = store.key(i);
+        if (!k) continue;
+        if (
+          k.includes('@') ||
+          sensitivePrefixes.some((p) => k === p || k.startsWith(p))
+        ) {
+          toRemove.push(k);
+        }
+      }
+      toRemove.forEach((k) => store.removeItem(k));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+purgeBrowserSensitiveStorage();
 
 function simpleHash(password: string): string {
   let h = 5381;
@@ -37,8 +131,9 @@ function simpleHash(password: string): string {
 }
 
 export function getRegisteredUsers(): RegisteredUser[] {
+  const store = runtimeStorage();
   try {
-    const raw = localStorage.getItem(USERS_REGISTRY_KEY);
+    const raw = store.getItem(USERS_REGISTRY_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -50,12 +145,12 @@ export function getRegisteredUsers(): RegisteredUser[] {
     id: 'user-demo-trader',
     name: 'Alex Mercer',
     email: 'trader@chartflow.io',
-    passwordHash: simpleHash('demo1234'),
+    passwordHash: '',
     plan: 'FREE_FOREVER',
     joinedAt: '2026-10-01',
   };
   try {
-    localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify([defaultUser]));
+    store.setItem(USERS_REGISTRY_KEY, JSON.stringify([defaultUser]));
   } catch {
     // ignore
   }
@@ -93,16 +188,22 @@ export function registerUserAccount(
     email: cleanEmail,
     passwordHash: simpleHash(password),
     plan: 'FREE_FOREVER',
-    joinedAt: new Date().toISOString().slice(0, 10),
+    joinedAt: new Date().toISOString(),
+    authSource:'local',
+    loginCount:1,
+    lastLoginAt:new Date().toISOString(),
   };
 
   const next = [...users, newUser];
+  const store = runtimeStorage();
   try {
-    localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(next));
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
+    store.setItem(USERS_REGISTRY_KEY, JSON.stringify(next));
+    store.setItem(CURRENT_USER_KEY, JSON.stringify({ ...newUser, passwordHash: '' }));
   } catch {
     // ignore
   }
+  purgeBrowserSensitiveStorage();
+  void syncUserAccountToSupabase(newUser);
   return { ok: true, user: newUser };
 }
 
@@ -127,19 +228,25 @@ export function authenticateUserAccount(
     };
   }
 
-  if (found.passwordHash !== simpleHash(password)) {
+  const expectedHash = cleanEmail === 'trader@chartflow.io' && !found.passwordHash ? simpleHash('demo1234') : found.passwordHash;
+  if (expectedHash !== simpleHash(password)) {
     return {
       ok: false,
       error: 'Incorrect password. Please try again or use "Forgot Password?" to reset it.',
     };
   }
 
+  const updated={...found,passwordHash:found.authSource==='server'||cleanEmail==='trader@chartflow.io'?'':found.passwordHash,loginCount:(found.loginCount||0)+1,lastLoginAt:new Date().toISOString()};
+  const store = runtimeStorage();
   try {
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(found));
+    store.setItem(USERS_REGISTRY_KEY,JSON.stringify(users.map(user=>user.id===found.id?updated:user)));
+    store.setItem(CURRENT_USER_KEY, JSON.stringify({...updated, passwordHash: ''}));
   } catch {
     // ignore
   }
-  return { ok: true, user: found };
+  purgeBrowserSensitiveStorage();
+  void syncUserAccountToSupabase(updated);
+  return { ok: true, user: updated };
 }
 
 export function resetUserPassword(
@@ -160,6 +267,7 @@ export function resetUserPassword(
     return { ok: false, error: 'No registered account found with that email address.' };
   }
 
+  if(users[idx].authSource==='server')return {ok:false,error:'For this server account, contact info@voomay.co.za for password recovery.'};
   const updatedUser: RegisteredUser = {
     ...users[idx],
     passwordHash: simpleHash(newPassword),
@@ -167,18 +275,23 @@ export function resetUserPassword(
   const next = [...users];
   next[idx] = updatedUser;
 
+  const store = runtimeStorage();
   try {
-    localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(next));
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updatedUser));
+    store.setItem(USERS_REGISTRY_KEY, JSON.stringify(next));
+    store.setItem(CURRENT_USER_KEY, JSON.stringify({ ...updatedUser, passwordHash: '' }));
   } catch {
     // ignore
   }
+  purgeBrowserSensitiveStorage();
+  void syncUserAccountToSupabase(updatedUser);
   return { ok: true, user: updatedUser };
 }
 
 export function getActiveLoggedInUser(): RegisteredUser | null {
+  purgeBrowserSensitiveStorage();
+  const store = runtimeStorage();
   try {
-    const raw = localStorage.getItem(CURRENT_USER_KEY);
+    const raw = store.getItem(CURRENT_USER_KEY);
     if (raw) return JSON.parse(raw);
   } catch {
     // ignore
@@ -187,11 +300,14 @@ export function getActiveLoggedInUser(): RegisteredUser | null {
 }
 
 export function setActiveLoggedInUser(user: RegisteredUser | null): void {
+  purgeBrowserSensitiveStorage();
+  const store = runtimeStorage();
   try {
     if (user) {
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+      store.setItem(CURRENT_USER_KEY, JSON.stringify({ ...user, passwordHash: '' }));
     } else {
-      localStorage.removeItem(CURRENT_USER_KEY);
+      store.removeItem(CURRENT_USER_KEY);
+      void fetch('/api/platform?action=user-logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',credentials:'same-origin'}).catch(()=>{});
     }
   } catch {
     // ignore
@@ -207,6 +323,11 @@ export function createDefaultSessionsForUser(userId: string): TradingSession[] {
   const startTs = Math.floor(Date.parse('2026-10-01T00:00:00Z') / 1000);
   const endTs = Math.floor(Date.parse('2026-10-20T23:59:00Z') / 1000);
   const replayStartTs = Math.floor(Date.parse('2026-10-05T08:00:00Z') / 1000);
+  const slug =
+    (userId.split('@')[0] || userId)
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 12) || 'trader';
 
   const normalRules: PropFirmRules = {
     presetId: 'FTMO',
@@ -229,7 +350,7 @@ export function createDefaultSessionsForUser(userId: string): TradingSession[] {
   };
 
   const session1: TradingSession = {
-    id: `session-normal-${userId.slice(-6)}`,
+    id: `session-normal-${slug}`,
     userId,
     name: 'XAUUSD NY Killzone Backtest',
     description: 'Normal historical backtest on Spot Gold and major FX pairs during London/NY sessions.',
@@ -244,7 +365,7 @@ export function createDefaultSessionsForUser(userId: string): TradingSession[] {
     startDate: '2026-10-01',
     endDate: '2026-10-20',
     replayStartTime: '08:00',
-    displayTimezone: 'UTC',
+    displayTimezone: 'Africa/Johannesburg',
     autoUpdateEndDate: false,
     chartLayout: 'SINGLE',
     smoothCandles: false,
@@ -295,7 +416,7 @@ export function createDefaultSessionsForUser(userId: string): TradingSession[] {
   };
 
   const session2: TradingSession = {
-    id: `session-prop-${userId.slice(-6)}`,
+    id: `session-prop-${slug}`,
     userId,
     name: 'FTMO $100K Phase 1 Evaluation',
     description: '1-Step / Phase 1 Prop Firm Challenge with Equity-based 5% daily loss and 10% static overall drawdown.',
@@ -310,7 +431,7 @@ export function createDefaultSessionsForUser(userId: string): TradingSession[] {
     startDate: '2026-10-01',
     endDate: '2026-10-20',
     replayStartTime: '08:00',
-    displayTimezone: 'UTC',
+    displayTimezone: 'Africa/Johannesburg',
     autoUpdateEndDate: false,
     chartLayout: 'SINGLE',
     smoothCandles: false,
@@ -334,7 +455,7 @@ export function createDefaultSessionsForUser(userId: string): TradingSession[] {
       startDate: '2026-10-01',
       endDate: '2026-10-20',
       replayStartTime: '08:00',
-      displayTimezone: 'UTC',
+      displayTimezone: 'Africa/Johannesburg',
       propFirmRules: propRules,
       moreOptions: {
         spreadMode: 'DEFAULT',
@@ -370,8 +491,9 @@ export function createDefaultSessionsForUser(userId: string): TradingSession[] {
 
 export function loadUserSessions(userId: string): TradingSession[] {
   const key = `${getUserScopePrefix(userId)}_sessions_v2`;
+  const store = runtimeStorage();
   try {
-    const raw = localStorage.getItem(key);
+    const raw = store.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -382,17 +504,28 @@ export function loadUserSessions(userId: string): TradingSession[] {
     // ignore
   }
   const seeded = createDefaultSessionsForUser(userId);
-  saveUserSessions(userId, seeded);
-  return seeded;
-}
-
-export function saveUserSessions(userId: string, sessions: TradingSession[]): void {
-  const key = `${getUserScopePrefix(userId)}_sessions_v2`;
   try {
-    localStorage.setItem(key, JSON.stringify(sessions));
+    store.setItem(key, JSON.stringify(seeded));
   } catch {
     // ignore
   }
+  return seeded;
+}
+
+let sessionSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function saveUserSessions(userId: string, sessions: TradingSession[]): void {
+  const key = `${getUserScopePrefix(userId)}_sessions_v2`;
+  const store = runtimeStorage();
+  try {
+    store.setItem(key, JSON.stringify(sessions));
+  } catch {
+    // ignore
+  }
+  if (sessionSyncTimer) clearTimeout(sessionSyncTimer);
+  sessionSyncTimer = setTimeout(() => {
+    void syncUserSessionsToSupabase(userId, sessions);
+  }, 250);
 }
 
 export const DEFAULT_USER_STRATEGIES: Array<Omit<StrategyRecord, 'id' | 'userId' | 'createdAt'>> = [
@@ -480,8 +613,9 @@ export const DEFAULT_USER_STRATEGIES: Array<Omit<StrategyRecord, 'id' | 'userId'
 ];
 
 export function loadUserStrategyNotes(userId: string): {text:string;error:boolean} {
+  const store = runtimeStorage();
   try {
-    const raw=localStorage.getItem(`${getUserScopePrefix(userId)}_strategy_notes_v1`);
+    const raw=store.getItem(`${getUserScopePrefix(userId)}_strategy_notes_v1`);
     if(raw===null)return {text:'',error:false};
     const data=JSON.parse(raw);
     if(typeof data?.text!=='string')return {text:'',error:true};
@@ -490,16 +624,19 @@ export function loadUserStrategyNotes(userId: string): {text:string;error:boolea
 }
 
 export function saveUserStrategyNotes(userId:string,text:string):boolean {
+  const store = runtimeStorage();
   try {
-    localStorage.setItem(`${getUserScopePrefix(userId)}_strategy_notes_v1`,JSON.stringify({text,updatedAt:new Date().toISOString()}));
+    store.setItem(`${getUserScopePrefix(userId)}_strategy_notes_v1`,JSON.stringify({text,updatedAt:new Date().toISOString()}));
+    void syncUserStrategyNotesToSupabase(userId, text);
     return true;
   } catch {return false;}
 }
 
 export function loadUserStrategies(userId: string): StrategyRecord[] {
   const key = `${getUserScopePrefix(userId)}_strategies_v2`;
+  const store = runtimeStorage();
   try {
-    const raw = localStorage.getItem(key);
+    const raw = store.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -516,23 +653,30 @@ export function loadUserStrategies(userId: string): StrategyRecord[] {
     setupTags: s.setupTags,
     createdAt: '2026-10-01',
   }));
-  saveUserStrategies(userId, defaults);
+  try {
+    store.setItem(key, JSON.stringify(defaults));
+  } catch {
+    // ignore
+  }
   return defaults;
 }
 
 export function saveUserStrategies(userId: string, strategies: StrategyRecord[]): void {
   const key = `${getUserScopePrefix(userId)}_strategies_v2`;
+  const store = runtimeStorage();
   try {
-    localStorage.setItem(key, JSON.stringify(strategies));
+    store.setItem(key, JSON.stringify(strategies));
   } catch {
     // ignore
   }
+  void syncUserStrategiesToSupabase(userId, strategies);
 }
 
 export function loadUserCustomRuleProfiles(userId: string): CustomRuleProfile[] {
   const key = `${getUserScopePrefix(userId)}_rule_profiles_v2`;
+  const store = runtimeStorage();
   try {
-    const raw = localStorage.getItem(key);
+    const raw = store.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed;
@@ -548,11 +692,13 @@ export function saveUserCustomRuleProfiles(
   profiles: CustomRuleProfile[]
 ): void {
   const key = `${getUserScopePrefix(userId)}_rule_profiles_v2`;
+  const store = runtimeStorage();
   try {
-    localStorage.setItem(key, JSON.stringify(profiles));
+    store.setItem(key, JSON.stringify(profiles));
   } catch {
     // ignore
   }
+  void syncCustomRuleProfilesToSupabase(userId, profiles);
 }
 
 /**
@@ -714,11 +860,32 @@ export function computeAnalyticsReport(
     primarySession.frozenConfig?.accountCurrency ||
     primarySession.accountCurrency ||
     'USD';
-  const startingBalance =
-    filters.sessionId !== 'ALL'
-      ? primarySession.startingBalance
-      : targetSessions.reduce((s, sess) => s + sess.startingBalance, 0) ||
-        activeSession.startingBalance;
+
+  const getSessionAccountBalance = (sess: TradingSession): number =>
+    Number(sess.frozenConfig?.startingBalance ?? sess.startingBalance ?? 100000);
+
+  let startingBalance: number;
+  if (filters.sessionId !== 'ALL') {
+    startingBalance = getSessionAccountBalance(primarySession);
+  } else {
+    const sessionsWithPositions = targetSessions.filter(
+      (s) => (s.positions ?? []).length > 0
+    );
+    const nonStarterSessions = targetSessions.filter(
+      (s) =>
+        !isUntouchedStarterSession(s) &&
+        !(s.marketMode === 'LIVE_PAPER' && (s.positions ?? []).length === 0)
+    );
+    const sessionsForBalance =
+      sessionsWithPositions.length > 0
+        ? sessionsWithPositions
+        : nonStarterSessions.length > 0
+        ? nonStarterSessions
+        : [primarySession];
+    startingBalance =
+      sessionsForBalance.reduce((sum, sess) => sum + getSessionAccountBalance(sess), 0) ||
+      getSessionAccountBalance(activeSession);
+  }
 
   const fromSec = filters.dateFrom
     ? Math.floor(Date.parse(`${filters.dateFrom}T00:00:00Z`) / 1000)
@@ -731,10 +898,20 @@ export function computeAnalyticsReport(
   const allPositions: BacktestPosition[] = [];
   for (const s of targetSessions) {
     for (const p of s.positions ?? []) {
+      const j = s.journals?.[p.id];
+      const mergedTags = Array.from(
+        new Set([...(p.journalTags ?? []), ...(j?.setupTags ?? [])])
+      );
       allPositions.push({
         ...p,
         sessionId: p.sessionId || s.id,
         symbol: p.symbol || s.activeAsset,
+        journalTags: mergedTags,
+        journalNotes: p.journalNotes ?? j?.notes,
+        journalEntryReasoning: p.journalEntryReasoning ?? j?.entryReasoning,
+        journalExitReasoning: p.journalExitReasoning ?? j?.exitReasoning,
+        journalLessonsLearned: p.journalLessonsLearned ?? j?.lessonsLearned,
+        journalEmotionalState: p.journalEmotionalState ?? j?.emotionalState,
       });
     }
   }
@@ -791,12 +968,22 @@ export function computeAnalyticsReport(
   const realizedNetPnl = Number(
     filteredClosedTrades.reduce((sum, t) => sum + t.pnl, 0).toFixed(2)
   );
+  const openBankedRealizedPnl = Number(
+    filteredOpenTrades
+      .reduce(
+        (sum, t) => sum + ((t.bankedPartialPnl ?? 0) - (t.commissionPaid ?? 0)),
+        0
+      )
+      .toFixed(2)
+  );
   const openUnrealizedPnl = Number(
     filteredOpenTrades
       .reduce((sum, t) => sum + (t.openFloatingPnl ?? t.pnl ?? 0), 0)
       .toFixed(2)
   );
-  const currentBalance = Number((startingBalance + realizedNetPnl).toFixed(2));
+  const currentBalance = Number(
+    (startingBalance + realizedNetPnl + openBankedRealizedPnl).toFixed(2)
+  );
   const currentEquity = Number((currentBalance + openUnrealizedPnl).toFixed(2));
   const netPnl = realizedNetPnl;
   const returnPct =
@@ -921,7 +1108,8 @@ export function computeAnalyticsReport(
   });
 
   if (filteredOpenTrades.length > 0) {
-    const liveEq = Number((runningBalance + openUnrealizedPnl).toFixed(2));
+    const liveBalance = Number((runningBalance + openBankedRealizedPnl).toFixed(2));
+    const liveEq = Number((liveBalance + openUnrealizedPnl).toFixed(2));
     if (liveEq > peakEquity) peakEquity = liveEq;
     const ddDollars = Math.max(0, Number((peakEquity - liveEq).toFixed(2)));
     const ddPct =
@@ -934,7 +1122,7 @@ export function computeAnalyticsReport(
       timestamp:
         primarySession.replayTimestamp || Math.floor(Date.now() / 1000),
       label: 'Live Open',
-      balance: runningBalance,
+      balance: liveBalance,
       equity: liveEq,
       tradePnl: openUnrealizedPnl,
       drawdownDollars: ddDollars,
@@ -1182,6 +1370,8 @@ export function exportFilteredTradesToCsv(
     'Trade ID',
     'Session Name',
     'Session Mode',
+    'Account Balance',
+    'Account Currency',
     'Strategy',
     'Instrument',
     'Direction',
@@ -1218,6 +1408,11 @@ export function exportFilteredTradesToCsv(
 
   const rows = trades.map((t) => {
     const sess = t.sessionId ? sessionMap.get(t.sessionId) : undefined;
+    const j = sess?.journals?.[t.id];
+    const acctBal = sess
+      ? Number(sess.frozenConfig?.startingBalance ?? sess.startingBalance ?? 100000)
+      : 100000;
+    const acctCur = sess?.frozenConfig?.accountCurrency || sess?.accountCurrency || 'USD';
     const sym = t.symbol || sess?.activeAsset || 'XAUUSD';
     const spec = getEffectiveInstrumentSpec(sym, sess);
     const dec = spec.decimals;
@@ -1234,11 +1429,14 @@ export function exportFilteredTradesToCsv(
       hasDefinedRisk && t.rMultiple !== null && t.rMultiple !== undefined
         ? t.rMultiple.toFixed(2)
         : 'N/A';
+    const tags = Array.from(new Set([...(t.journalTags ?? []), ...(j?.setupTags ?? [])]));
 
     return [
       t.id,
       sess?.name || 'Session',
       sess?.mode || 'BACKTESTING',
+      acctBal.toFixed(2),
+      acctCur,
       sess?.strategyName || '',
       sym,
       t.side,
@@ -1256,12 +1454,12 @@ export function exportFilteredTradesToCsv(
       costs.toFixed(2),
       t.pnl.toFixed(2),
       t.isAmbiguous ? 'YES (Conservative SL)' : 'NO',
-      (t.journalTags ?? []).join('; '),
-      t.journalEmotionalState ?? '',
-      t.journalEntryReasoning ?? '',
-      t.journalExitReasoning ?? '',
-      t.journalLessonsLearned ?? '',
-      t.journalNotes ?? '',
+      tags.join('; '),
+      t.journalEmotionalState ?? j?.emotionalState ?? '',
+      t.journalEntryReasoning ?? j?.entryReasoning ?? '',
+      t.journalExitReasoning ?? j?.exitReasoning ?? '',
+      t.journalLessonsLearned ?? j?.lessonsLearned ?? '',
+      t.journalNotes ?? j?.notes ?? '',
     ]
       .map(escapeCsvCell)
       .join(',');
@@ -1289,10 +1487,15 @@ export { computeLiveSessionMetrics, formatMoney };
 export function deleteUserSession(userId: string, sessionId: string): TradingSession[] {
   const remaining = loadUserSessions(userId).filter((s) => s.id !== sessionId);
   saveUserSessions(userId, remaining);
+  void deleteUserSessionFromSupabase(userId, sessionId);
+  const store = runtimeStorage();
   try {
-    Object.keys(localStorage)
-      .filter((k) => k.includes(sessionId))
-      .forEach((k) => localStorage.removeItem(k));
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < store.length; i++) {
+      const k = store.key(i);
+      if (k && k.includes(sessionId)) keysToRemove.push(k);
+    }
+    keysToRemove.forEach((k) => store.removeItem(k));
   } catch {
     // ignore
   }
@@ -1305,12 +1508,13 @@ export function deleteUserSession(userId: string, sessionId: string): TradingSes
 export function deleteUserAccount(userEmail: string): boolean {
   if (!userEmail) return false;
   const cleanEmail = userEmail.trim().toLowerCase();
+  const store = runtimeStorage();
 
   // 1. Remove from registered users registry
   try {
     const users = getRegisteredUsers();
     const remainingUsers = users.filter((u) => u.email.toLowerCase() !== cleanEmail);
-    localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(remainingUsers));
+    store.setItem(USERS_REGISTRY_KEY, JSON.stringify(remainingUsers));
   } catch {
     // ignore
   }
@@ -1319,7 +1523,8 @@ export function deleteUserAccount(userEmail: string): boolean {
   try {
     const active = getActiveLoggedInUser();
     if (active && active.email.toLowerCase() === cleanEmail) {
-      localStorage.removeItem(CURRENT_USER_KEY);
+      store.removeItem(CURRENT_USER_KEY);
+      void fetch('/api/platform?action=user-logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',credentials:'same-origin'}).catch(()=>{});
     }
   } catch {
     // ignore
@@ -1329,16 +1534,18 @@ export function deleteUserAccount(userEmail: string): boolean {
   try {
     const prefix = getUserScopePrefix(userEmail);
     const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.startsWith(prefix) || key.includes(cleanEmail.replace(/[^a-z0-9]/g, '_')) || key===`chart_flow_balance_hidden_v1:${cleanEmail}` || key===`chartflow_workspace_tour_v1:${encodeURIComponent(cleanEmail)}`)) {
+    for (let i = 0; i < store.length; i++) {
+      const key = store.key(i);
+      if (key && (key.startsWith(prefix) || key.includes(cleanEmail.replace(/[^a-z0-9]/g, '_')) || key===`chart_flow_balance_hidden_v1:${cleanEmail}` || key===`chartflow_workspace_tour_v1:${encodeURIComponent(cleanEmail)}` || key===`chartflow_chart_announcement_v1:${encodeURIComponent(cleanEmail)}`)) {
         keysToRemove.push(key);
       }
     }
-    keysToRemove.forEach((k) => localStorage.removeItem(k));
+    keysToRemove.forEach((k) => store.removeItem(k));
   } catch {
     // ignore
   }
 
+  purgeBrowserSensitiveStorage();
+  void deleteAllUserSupabaseData(cleanEmail);
   return true;
 }

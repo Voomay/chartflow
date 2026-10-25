@@ -1,0 +1,7 @@
+# Developing candles during replay
+
+Chart timeframe and replay step are independent. The new Step selector defaults to one minute; it controls both manual stepping and Play. A 15-minute view with Step 1m therefore receives fifteen clock updates per full chart period instead of jumping a whole chart candle each time. The speed selector controls the wall-clock interval between these replay steps. Weekend navigation and authoritative order evaluation still use the existing replay clock and engine.
+
+Only rendering uses requestAnimationFrame easing between already-revealed OHLC snapshots. Completed data, execution prices, simulated balances and order checks never consume interpolated values. New bars begin at their known open; each transition finishes at the exact revealed OHLC. This is visual easing, not tick-by-tick historical reconstruction: minute archives do not reveal the true sequence of ticks within a minute. Selecting larger replay steps intentionally skips more simulated time per update.
+
+Animation is disabled when paused, in live mode, for reduced-motion preferences, on dataset/timeframe switches or rewinds. Each update cancels the prior frame before retargeting. The latest authoritative snapshot is immediately displayed on pause; unmount cancels animation. Existing pan/zoom preservation remains in place. The redundant top-right Replay Bar counter is removed; playback controls remain in the bottom dock.

@@ -33,6 +33,17 @@ export async function loadBitfinexWindow(root,symbol,clock){
     rows=await scheduledFetch(`https://api-pub.bitfinex.com/v2/candles/trade:${tf}:t${symbol}/hist?end=${Math.floor(end*1000)}&limit=10000&sort=-1`);
     await mkdir(path.dirname(file),{recursive:true});await writeFile(file,gzipSync(JSON.stringify(rows)));
    }
+   if(tf==='1m'){
+    const merged=new Map(rows.map(r=>[r[0],r]));
+    for(let d=day-35;d<=day+4;d++){
+     if(d===day)continue;
+     try{
+      const extra=JSON.parse(gunzipSync(await readFile(path.join(root,'bitfinex-cache',symbol,'1m',`${d}.json.gz`))).toString());
+      for(const r of extra)if(r[0]<=end)merged.set(r[0],r);
+     }catch{}
+    }
+    rows=[...merged.values()].sort((a,b)=>a[0]-b[0]).slice(-45000);
+   }
    bars[tf==='1h'?'1H':tf]=rows;
   }
   const grouped=new Map();for(const b of bars['1H']){const bucket=Math.floor(b[0]/14400)*14400;const old=grouped.get(bucket);if(old){old[2]=Math.max(old[2],b[2]);old[3]=Math.min(old[3],b[3]);old[4]=b[4];old[5]+=b[5];}else grouped.set(bucket,[bucket,...b.slice(1)]);}

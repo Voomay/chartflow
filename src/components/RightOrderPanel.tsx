@@ -1,3 +1,4 @@
+import {positionRiskReward,lotsForRisk} from '../services/orderTicketMath';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   AlertTriangle,
@@ -88,7 +89,8 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
   const [entryPriceInput, setEntryPriceInput] = useState<string>('');
   const [stopLossInput, setStopLossInput] = useState<string>('');
   const [takeProfitInput, setTakeProfitInput] = useState<string>('');
-  const [selectedR, setSelectedR] = useState<number | null>(2);
+  const [customRisk,setCustomRisk]=useState(false);
+  const customRiskRef=useRef<HTMLInputElement>(null);
   const [strategyTag, setStrategyTag] = useState<string>(
     session.strategyName || 'Price Action'
   );
@@ -320,12 +322,15 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
       ? 'BUY_STOP'
       : 'SELL_STOP';
 
-  const effectiveEntryPrice =
+  const executionEntryPrice =
     orderCategory === 'MARKET'
       ? side === 'LONG'
         ? ask
         : bid
       : Number(entryPriceInput) || (side === 'LONG' ? ask : bid);
+
+  const drawingMatchesSide=activePositionDrawing?.type===(side==='LONG'?'long_position':'short_position');
+  const effectiveEntryPrice=orderCategory==='MARKET'&&drawingMatchesSide&&activePositionDrawing?activePositionDrawing.price1:executionEntryPrice;
 
   const parsedSL = Number(stopLossInput) || 0;
   const parsedTP = Number(takeProfitInput) || 0;
@@ -340,7 +345,6 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
       return Math.max(minQ, Number(raw.toFixed(2)));
     }
     const riskPct = Math.max(0.05, Number(riskPctInput) || 1);
-    const targetRiskMoney = liveMetrics.currentBalance * (riskPct / 100);
     if (parsedSL <= 0 || Math.abs(effectiveEntryPrice - parsedSL) <= 0) {
       return minQ;
     }
@@ -348,9 +352,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
       calculatePositionPnl(side, effectiveEntryPrice, parsedSL, 1, symbol, session)
     );
     if (oneLotRisk <= 0) return minQ;
-    const rawLots = targetRiskMoney / oneLotRisk;
-    const stepped = Math.floor(rawLots / inc) * inc;
-    return Math.max(minQ, Number(stepped.toFixed(2)));
+    return lotsForRisk(liveMetrics.currentBalance,riskPct,oneLotRisk,minQ,inc);
   }, [
     sizingMode,
     lotSizeInput,
@@ -364,6 +366,20 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
     spec.quantityIncrement,
     session,
   ]);
+
+  const syncTicketDrawing=(patch:{entry?:number;sl?:number;tp?:number;lot?:number}={})=>{
+    if(!activePositionDrawing||!onAddOrUpdatePositionDrawing)return;
+    const entry=patch.entry??effectiveEntryPrice,sl=patch.sl??parsedSL,tp=patch.tp??parsedTP,lot=patch.lot??effectiveLotSize;
+    if([entry,sl,tp,lot].every(value=>Number.isFinite(value)&&value>0))onAddOrUpdatePositionDrawing(side,entry,sl,tp,lot);
+  };
+  // A fixed risk percentage re-sizes the tool when its stop distance changes.
+  useEffect(()=>{
+    const drawing=activePositionDrawing;
+    if(sizingMode!=='RISK_PCT'||!drawing||!drawingMatchesSide||!onAddOrUpdatePositionDrawing)return;
+    if(Math.abs(drawing.price1-effectiveEntryPrice)>spec.minMove/2||drawing.stopLoss!==parsedSL||drawing.takeProfit!==parsedTP)return;
+    if(Math.abs((drawing.lotSize??1)-effectiveLotSize)<(spec.quantityIncrement||.01)/2)return;
+    onAddOrUpdatePositionDrawing(side,drawing.price1,parsedSL,parsedTP,effectiveLotSize);
+  },[sizingMode,activePositionDrawing,drawingMatchesSide,effectiveEntryPrice,parsedSL,parsedTP,effectiveLotSize,side,spec.minMove,spec.quantityIncrement,onAddOrUpdatePositionDrawing]);
 
   // Live Risk, Reward, and Cost Estimates
   const estimates = useMemo(() => {
@@ -400,10 +416,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
       liveMetrics.currentBalance > 0
         ? (estimatedRiskMoney / liveMetrics.currentBalance) * 100
         : 0;
-    const rrRatio =
-      estimatedRiskMoney > 0 && estimatedRewardMoney > 0
-        ? estimatedRewardMoney / estimatedRiskMoney
-        : null;
+    const rrRatio = positionRiskReward(side,effectiveEntryPrice,parsedSL,parsedTP);
 
     const spreadCostMoney = convertUsdToAccountCurrency(
       spread * effectiveLotSize * spec.contractSize,
@@ -449,7 +462,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
   ]);
 
   const applyQuickRR = (targetR: number) => {
-    setSelectedR(targetR);
+
     let currentSL = parsedSL;
     if (currentSL <= 0 || Math.abs(effectiveEntryPrice - currentSL) <= 0) {
       const defaultDist = Math.max(
@@ -519,11 +532,12 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
         }
       }
     }
+    const submittedLots=sizingMode==='RISK_PCT'?lotsForRisk(liveMetrics.currentBalance,Math.max(.05,Number(riskPctInput)||1),Math.abs(calculatePositionPnl(side,executionEntryPrice,finalSL,1,symbol,session)),spec.minQuantity||.01,spec.quantityIncrement||.01):effectiveLotSize;
     const res = onExecuteOrder({
       symbol,
       side,
       orderSubType: resolvedOrderSubType,
-      lotSize: effectiveLotSize,
+      lotSize: submittedLots,
       entryPrice: orderCategory === 'MARKET' ? undefined : Number(entryPriceInput),
       stopLoss: finalSL,
       takeProfit: finalTP,
@@ -539,7 +553,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
         type: 'success',
         message: `${
           orderCategory === 'MARKET' ? 'Executed' : 'Placed'
-        } ${side} ${effectiveLotSize.toFixed(2)} lots ${symbol} @ ${effectiveEntryPrice.toFixed(
+        } ${side} ${submittedLots.toFixed(2)} lots ${symbol} @ ${executionEntryPrice.toFixed(
           spec.decimals
         )}`,
       });
@@ -571,11 +585,11 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
   return (
     <aside
       data-tour="order-ticket"
-      className={`w-80 border-l flex flex-col h-full shrink-0 select-none overflow-y-auto custom-scrollbar ${panelBg}`}
+      className={`execution-ticket w-80 border-l flex flex-col h-full shrink-0 select-none overflow-y-auto custom-scrollbar ${panelBg}`}
     >
       {/* Top Section: Order Ticket Header */}
       <div
-        className={`px-3.5 py-2.5 border-b flex items-center justify-between ${
+        className={`px-4 py-4 border-b flex items-center justify-between bg-gradient-to-r from-emerald-500/[0.07] via-cyan-500/[0.03] to-transparent ${
           isLight ? 'border-[#e0e3eb]' : 'border-[#242832]'
         }`}
       >
@@ -774,6 +788,8 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
             <input
               type="number"
               step={spec.minMove}
+              aria-label="Pending entry price"
+              onBlur={()=>syncTicketDrawing({entry:Number(entryPriceInput)})}
               value={entryPriceInput}
               onChange={(e) => setEntryPriceInput(e.target.value)}
               className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none ${inputBg}`}
@@ -819,8 +835,10 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                   min={spec.minQuantity}
                   step={spec.quantityIncrement}
                   value={lotSizeInput}
+                  aria-label="Position size in lots"
+                  onBlur={()=>syncTicketDrawing({lot:Number(lotSizeInput)})}
                   onChange={(e) => setLotSizeInput(e.target.value)}
-                  className={`flex-1 px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none ${inputBg}`}
+                  className={`min-w-0 flex-1 px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none ${inputBg}`}
                 />
                 {[0.1, 0.5, 1.0, 2.0].map((presetLot) => {
                   const isSelectedLot =
@@ -829,7 +847,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                     <button
                       key={presetLot}
                       type="button"
-                      onClick={() => setLotSizeInput(presetLot.toFixed(2))}
+                      onClick={() => {setLotSizeInput(presetLot.toFixed(2));syncTicketDrawing({lot:presetLot});}}
                       className={`px-2 py-1.5 rounded-lg border text-[10px] font-mono font-bold transition ${
                         isSelectedLot
                           ? 'bg-emerald-600 text-white keep-white border-emerald-500 shadow-sm'
@@ -849,39 +867,10 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
           ) : (
             <div className="space-y-1.5">
               <div className="flex items-center gap-1.5">
-                {[0.5, 1.0, 2.0].map((pct) => {
-                  const isSelectedRisk =
-                    Math.abs((Number(riskPctInput) || 0) - pct) < 0.001;
-                  return (
-                    <button
-                      key={pct}
-                      type="button"
-                      onClick={() => setRiskPctInput(pct.toFixed(1))}
-                      className={`flex-1 py-1 rounded-lg border text-[11px] font-mono font-bold transition ${
-                        isSelectedRisk
-                          ? 'bg-emerald-600 text-white keep-white border-emerald-500 shadow-sm'
-                          : `${cardBg} hover:border-emerald-500/50`
-                      }`}
-                    >
-                      {pct}%
-                    </button>
-                  );
-                })}
+                {[0.5,1,2,3].map(pct=><button key={pct} type="button" aria-pressed={!customRisk&&Math.abs(Number(riskPctInput)-pct)<.001} onClick={()=>{setCustomRisk(false);setRiskPctInput(String(pct));}} className={`flex-1 min-w-0 h-7 rounded-md border px-1 text-[10px] font-mono font-semibold transition ${!customRisk&&Math.abs(Number(riskPctInput)-pct)<.001?'border-emerald-400/50 bg-emerald-400/15 text-emerald-400':`${cardBg} opacity-70 hover:opacity-100`}`}>{pct}%</button>)}
+                <button type="button" aria-pressed={customRisk} onClick={()=>{setCustomRisk(true);requestAnimationFrame(()=>customRiskRef.current?.focus());}} className={`flex-1 min-w-0 h-7 rounded-md border px-1 text-[10px] font-semibold ${customRisk?'border-cyan-400/50 bg-cyan-400/10 text-cyan-400':`${cardBg} opacity-70`}`}>Custom</button>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-bold opacity-60 shrink-0">Custom %</span>
-                <input
-                  type="number"
-                  min={0.05}
-                  max={50}
-                  step={0.1}
-                  value={riskPctInput}
-                  placeholder="Custom %"
-                  onChange={(e) => setRiskPctInput(e.target.value)}
-                  className={`flex-1 px-2 py-1 rounded-lg border text-xs font-mono font-bold outline-none ${inputBg}`}
-                />
-                <span className="text-xs font-mono font-bold opacity-60">%</span>
-              </div>
+              {customRisk&&<div className="flex items-center gap-2"><label htmlFor="ticket-custom-risk" className="text-[10px] opacity-60">Custom risk</label><input ref={customRiskRef} id="ticket-custom-risk" type="number" min={.05} max={50} step={.1} value={riskPctInput} onChange={event=>setRiskPctInput(event.target.value)} className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs font-mono outline-none ${inputBg}`}/><span className="text-xs opacity-50">%</span></div>}
               <div className="text-[10px] text-emerald-400 font-mono font-bold">
                 Auto-Sized: {effectiveLotSize.toFixed(2)} lots
               </div>
@@ -906,7 +895,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                   type="button"
                   onClick={() => {
                     setStopLossInput('0');
-                    setSelectedR(null);
+
                   }}
                   className="text-[9px] opacity-60 hover:opacity-100"
                 >
@@ -917,10 +906,12 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
             <input
               type="number"
               step={spec.minMove}
+              aria-label="Stop loss price"
+              onBlur={()=>syncTicketDrawing({sl:Number(stopLossInput)})}
               value={stopLossInput}
               onChange={(e) => {
                 setStopLossInput(e.target.value);
-                setSelectedR(null);
+
               }}
               placeholder="0.00"
               className={`w-full px-2 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none border-rose-500/30 ${inputBg}`}
@@ -937,9 +928,8 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
               >
                 {[1, 2, 3].map((r) => {
                   const matchesRR =
-                    selectedR === r ||
                     (estimates.rrRatio !== null &&
-                      Math.abs(estimates.rrRatio - r) < 0.08);
+                      Math.abs(estimates.rrRatio - r) < 0.02);
                   return (
                     <button
                       key={r}
@@ -960,10 +950,12 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
             <input
               type="number"
               step={spec.minMove}
+              aria-label="Take profit price"
+              onBlur={()=>syncTicketDrawing({tp:Number(takeProfitInput)})}
               value={takeProfitInput}
               onChange={(e) => {
                 setTakeProfitInput(e.target.value);
-                setSelectedR(null);
+
               }}
               placeholder="0.00"
               className={`w-full px-2 py-1.5 rounded-lg border text-xs font-mono font-bold outline-none border-emerald-500/30 ${inputBg}`}
@@ -989,44 +981,12 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
           </select>
         </div>
 
-        {/* Estimated Risk, Reward & Costs Summary Card */}
-        <div className={`p-2.5 rounded-xl border space-y-1.5 text-[11px] ${cardBg}`}>
-          <div className="flex items-center justify-between font-bold text-[10px] uppercase tracking-wider opacity-70 pb-1 border-b border-gray-500/20">
-            <span className="flex items-center gap-1">
-              <Calculator className="w-3 h-3 text-emerald-400" /> Pre-Trade Estimates
-            </span>
-            <span className="font-mono">{effectiveLotSize.toFixed(2)} Lots</span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="opacity-75">Estimated Risk (SL):</span>
-            <span className="font-mono font-bold text-rose-400">
-              {parsedSL > 0
-                ? `-${formatMoney(estimates.estimatedRiskMoney, currency)} (${
-                    estimates.riskPctOfBalance
-                  }%)`
-                : 'No SL (Uncapped)'}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="opacity-75">Estimated Reward (TP):</span>
-            <span className="font-mono font-bold text-emerald-400">
-              {parsedTP > 0
-                ? `+${formatMoney(estimates.estimatedRewardMoney, currency)} (${
-                    estimates.rrRatio !== null ? `${estimates.rrRatio}R` : 'N/A'
-                  })`
-                : 'Open Target'}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between pt-1 border-t border-gray-500/15">
-            <span className="opacity-75">Est. Costs (Sprd+Comm+Slip):</span>
-            <span className="font-mono font-bold text-amber-400">
-              {formatMoney(estimates.totalEstimatedCost, currency)}
-            </span>
-          </div>
-        </div>
+        <section aria-label="Position setup summary" className={`rounded-2xl border p-3 ${isLight?'border-emerald-200 bg-gradient-to-br from-emerald-50 to-cyan-50/50':'border-emerald-400/15 bg-gradient-to-br from-emerald-500/[0.07] via-cyan-500/[0.03] to-transparent'}`}>
+          <div className="flex items-center justify-between gap-2"><span className="text-[10px] uppercase tracking-wider opacity-60">Setup summary</span><output aria-label="Risk reward ratio" className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-xs font-mono font-bold text-emerald-500">{estimates.rrRatio===null?'R:R —':`1 : ${estimates.rrRatio.toFixed(2)}`}</output></div>
+          <div className="mt-3 grid grid-cols-2 gap-3"><div><p className="text-[10px] opacity-50">Risk at stop</p><p className="mt-1 text-sm font-mono font-semibold text-rose-400">{parsedSL>0?`−${formatMoney(estimates.estimatedRiskMoney,currency)}`:'No stop'}</p><p className="mt-1 text-[10px] opacity-40">{estimates.riskPctOfBalance}% of balance</p></div><div><p className="text-[10px] opacity-50">Reward at target</p><p className="mt-1 text-sm font-mono font-semibold text-emerald-400">{parsedTP>0?`+${formatMoney(estimates.estimatedRewardMoney,currency)}`:'No target'}</p><p className="mt-1 text-[10px] opacity-40">{effectiveLotSize.toFixed(2)} lots</p></div></div>
+          <div className="mt-3 border-t border-gray-500/10 pt-2 text-[10px] opacity-50 flex justify-between"><span>Estimated trading costs</span><span className="font-mono">{formatMoney(estimates.totalEstimatedCost,currency)}</span></div>
+          {activePositionDrawing&&orderCategory==='MARKET'&&<p className="mt-2 text-[10px] leading-4 opacity-50">Preview uses tool entry {effectiveEntryPrice.toFixed(spec.decimals)}. Market execution uses the current bid/ask.</p>}
+        </section>
 
         {/* Validation / Execution Feedback Banner */}
         {orderFeedback && (
@@ -1082,7 +1042,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
         <button
           type="button"
           onClick={() => setShowChallengeTracker((v) => !v)}
-          className={`w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-extrabold uppercase tracking-wider ${
+          className={`w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-semibold uppercase tracking-wider ${
             isPropMode
               ? isLight
                 ? 'bg-amber-50/70 text-amber-900'

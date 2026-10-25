@@ -1,3 +1,4 @@
+import {ChartAnnouncement,hasSeenChartAnnouncement,markChartAnnouncementSeen} from './ChartAnnouncement';
 import {LegalLinks,LegalDocumentKey} from './LegalLinks';
 import { WorkspaceTour } from './WorkspaceTour';
 import { PerformanceOverview } from './PerformanceOverview';
@@ -45,6 +46,7 @@ import {
   Filter,
   FolderKanban,
   Info,
+  Megaphone,
   LayoutDashboard,
   LogOut,
   Moon,
@@ -130,6 +132,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   onReturnToChart,
   onOpenLanding,
 }) => {
+  const announcementUser=currentUser?.email||'guest';
+  const [announcementPending,setAnnouncementPending]=useState(()=>!hasSeenChartAnnouncement(announcementUser));
+  const [announcementManual,setAnnouncementManual]=useState(false);
+  useEffect(()=>{setAnnouncementPending(!hasSeenChartAnnouncement(announcementUser));setAnnouncementManual(false);},[announcementUser]);
+  const closeAnnouncement=()=>{markChartAnnouncementSeen(announcementUser);setAnnouncementPending(false);setAnnouncementManual(false);};
   const isLight = theme === 'light';
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -208,6 +215,17 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
     if (filters.sessionId === 'ALL') return activeSession;
     return sessions.find((s) => s.id === filters.sessionId) || activeSession;
   }, [filters.sessionId, sessions, activeSession]);
+
+  useEffect(() => {
+    const latestTrade =
+      report.filteredClosedTrades[report.filteredClosedTrades.length - 1];
+    const refTs =
+      latestTrade?.exitTime ||
+      latestTrade?.entryTime ||
+      selectedAnalyticsSession?.replayTimestamp ||
+      Math.floor(Date.now() / 1000);
+    setCalendarMonthDate(new Date(refTs * 1000));
+  }, [filters.sessionId, selectedAnalyticsSession?.id, report.filteredClosedTrades.length]);
 
   const allStrategyOptions = useMemo(() => {
     const set = new Set<string>();
@@ -502,6 +520,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
   return (
     <div data-hub-theme={isLight?'light':'dark'} className={`h-screen w-screen flex overflow-hidden hub-modern ${bgMain}`}>
+      <ChartAnnouncement open={(announcementPending||announcementManual)&&sidebarSection==='dashboard'&&!isSessionSetupOpen} onClose={closeAnnouncement}/>
       {/* DESKTOP SIDEBAR */}
       <aside className={`hidden md:flex w-64 border-r flex-col justify-between shrink-0 ${sidebarBg}`}>
         {renderSidebarContent()}
@@ -553,7 +572,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-            <WorkspaceTour userKey={currentUser?.email||'guest'} name={currentUser?.name} section={sidebarSection} isSessionSetupOpen={isSessionSetupOpen} onNavigate={section=>{setSidebarSection(section);setMobileMenuOpen((section==='analytics'||section==='notes') && window.matchMedia('(max-width:767px)').matches);}} onOpenSessionSetup={()=>onOpenCreateSessionModal('BACKTESTING')} onCloseSessionSetup={onCloseSessionSetup} />
+            <button type="button" onClick={()=>{setSidebarSection('dashboard');setAnnouncementManual(true);}} aria-label="Read chart update" title="A note from Chart Replay" className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-2 text-xs text-cyan-500 hover:bg-cyan-500/10"><Megaphone className="h-3.5 w-3.5"/><span className="hidden lg:inline">What's new</span></button>
+            <WorkspaceTour blocked={announcementPending||announcementManual} userKey={currentUser?.email||'guest'} name={currentUser?.name} section={sidebarSection} isSessionSetupOpen={isSessionSetupOpen} onNavigate={section=>{setSidebarSection(section);setMobileMenuOpen((section==='analytics'||section==='notes') && window.matchMedia('(max-width:767px)').matches);}} onOpenSessionSetup={()=>onOpenCreateSessionModal('BACKTESTING')} onCloseSessionSetup={onCloseSessionSetup} />
             {onToggleTheme && (
               <button
                 onClick={onToggleTheme}
@@ -743,33 +763,36 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
                       {/* Balance, Net P&L & Return */}
                       <div
-                        className={`grid grid-cols-3 gap-3 p-3 rounded-xl border font-mono text-[11px] ${subCardBg}`}
+                        className={`grid grid-cols-3 gap-2.5 p-2.5 rounded-xl border font-mono text-[10px] ${subCardBg}`}
                       >
-                        <div>
-                          <div className="text-[9px] uppercase opacity-60">Balance</div>
-                          <div className="font-bold">
+                        <div className="min-w-0">
+                          <div className="text-[9px] uppercase opacity-60">Account / Bal</div>
+                          <div className="font-bold truncate">
                             {formatMoney(metrics.currentBalance, sessCurrency)}
                           </div>
+                          <div className="text-[9px] opacity-55 truncate">
+                            Start {formatMoney(metrics.startingBalance, sessCurrency)}
+                          </div>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <div className="text-[9px] uppercase opacity-60">Net P&L</div>
                           <div
-                            className={`font-extrabold ${
-                              (sess.realizedPnL ?? 0) >= 0
+                            className={`font-extrabold truncate ${
+                              (metrics.currentBalance - metrics.startingBalance) >= 0
                                 ? 'text-emerald-400'
                                 : 'text-rose-400'
                             }`}
                           >
                             {formatMoney(
-                              sess.realizedPnL ?? 0,
+                              Number((metrics.currentBalance - metrics.startingBalance).toFixed(2)),
                               sessCurrency,
                               true
                             )}
                           </div>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <div className="text-[9px] uppercase opacity-60">Trades</div>
-                          <div className="font-bold">{closedCount} closed</div>
+                          <div className="font-bold truncate">{closedCount} closed</div>
                         </div>
                       </div>
 
@@ -921,7 +944,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Session</span><select aria-label="Analytics session" value={filters.sessionId} onChange={event=>setFilters(previous=>({...previous,sessionId:event.target.value}))} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="ALL">All sessions</option>{sessions.map(session=><option key={session.id} value={session.id}>{session.name}</option>)}</select></label>
+                <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Session &amp; Trading Account</span><select aria-label="Analytics session" value={filters.sessionId} onChange={event=>setFilters(previous=>({...previous,sessionId:event.target.value}))} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="ALL">All sessions</option>{sessions.map(session=>{const bal=session.frozenConfig?.startingBalance??session.startingBalance;const cur=session.frozenConfig?.accountCurrency||session.accountCurrency||'USD';return <option key={session.id} value={session.id}>{session.name} ({formatMoney(bal,cur)})</option>;})}</select></label>
                 <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Instrument</span><select aria-label="Analytics instrument" value={filters.instrument} onChange={event=>setFilters(previous=>({...previous,instrument:event.target.value as AnalyticsFilterState['instrument']}))} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="ALL">All instruments</option>{INSTRUMENTS.map(instrument=><option key={instrument.symbol} value={instrument.symbol}>{instrument.symbol}</option>)}</select></label>
                 <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Date range · UTC</span><select aria-label="Analytics date range" value={!filters.dateFrom&&!filters.dateTo&&analyticsRange!=='CUSTOM'?'ALL':analyticsRange} onChange={event=>{const range=event.target.value;setAnalyticsRange(range);if(range==='CUSTOM')return;const today=new Date().toISOString().slice(0,10);setFilters(previous=>({...previous,dateFrom:range==='ALL'?'':new Date(Date.now()-(Number(range)-1)*86400000).toISOString().slice(0,10),dateTo:range==='ALL'?'':today}));}} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="ALL">All time</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 365 days</option><option value="CUSTOM">Custom dates</option></select></label>
               </div>
@@ -940,11 +963,15 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                     className={`w-full px-2.5 py-1.5 rounded-lg border font-semibold outline-none ${subCardBg}`}
                   >
                     <option value="ALL">All Sessions</option>
-                    {sessions.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
+                    {sessions.map((s) => {
+                      const bal = s.frozenConfig?.startingBalance ?? s.startingBalance;
+                      const cur = s.frozenConfig?.accountCurrency || s.accountCurrency || 'USD';
+                      return (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({formatMoney(bal, cur)})
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -1075,6 +1102,69 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 </div>
               </div>
               </details>
+              {/* Session Trading Account Balance Banner */}
+              <div className={`pt-3 border-t border-gray-500/15 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs`}>
+                <div className={`p-3 rounded-xl border ${subCardBg}`}>
+                  <div className="text-[10px] font-bold uppercase opacity-60">
+                    Trading Account Balance
+                  </div>
+                  <div className="text-sm sm:text-base font-mono font-bold text-blue-400 mt-0.5 tabular-nums whitespace-nowrap">
+                    {formatMoney(report.startingBalance, report.accountCurrency)}
+                  </div>
+                  <div className="text-[10px] opacity-60 truncate">
+                    {filters.sessionId === 'ALL'
+                      ? `All filtered sessions (${report.accountCurrency})`
+                      : `${selectedAnalyticsSession.name} (${
+                          selectedAnalyticsSession.mode === 'PROP_FIRM'
+                            ? 'Prop Challenge'
+                            : 'Backtesting'
+                        })`}
+                  </div>
+                </div>
+                <div className={`p-3 rounded-xl border ${subCardBg}`}>
+                  <div className="text-[10px] font-bold uppercase opacity-60">
+                    Current Account Balance
+                  </div>
+                  <div className="text-sm sm:text-base font-mono font-bold mt-0.5 tabular-nums whitespace-nowrap">
+                    {formatMoney(report.currentBalance, report.accountCurrency)}
+                  </div>
+                  <div className="text-[10px] font-mono opacity-60 truncate">
+                    Start {formatMoney(report.startingBalance, report.accountCurrency)}{' '}
+                    {report.netPnl >= 0 ? '+' : '-'}{' '}
+                    {formatMoney(Math.abs(report.netPnl), report.accountCurrency)}
+                  </div>
+                </div>
+                <div className={`p-3 rounded-xl border ${subCardBg}`}>
+                  <div className="text-[10px] font-bold uppercase opacity-60">
+                    Current Account Equity
+                  </div>
+                  <div className="text-sm sm:text-base font-mono font-bold mt-0.5 tabular-nums whitespace-nowrap">
+                    {formatMoney(report.currentEquity, report.accountCurrency)}
+                  </div>
+                  <div className="text-[10px] font-mono opacity-60 truncate">
+                    {report.filteredOpenTrades.length > 0
+                      ? `${report.filteredOpenTrades.length} open position(s)`
+                      : 'No open floating trades'}
+                  </div>
+                </div>
+                <div className={`p-3 rounded-xl border ${subCardBg}`}>
+                  <div className="text-[10px] font-bold uppercase opacity-60">
+                    Account Return
+                  </div>
+                  <div
+                    className={`text-sm sm:text-base font-mono font-bold mt-0.5 tabular-nums whitespace-nowrap ${
+                      report.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    {report.returnPct !== null
+                      ? `${report.returnPct >= 0 ? '+' : ''}${report.returnPct.toFixed(2)}%`
+                      : '0.00%'}
+                  </div>
+                  <div className="text-[10px] font-mono opacity-60 truncate">
+                    Net P&amp;L: {formatMoney(report.netPnl, report.accountCurrency, true)}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <PerformanceOverview report={report} isLight={isLight} />
@@ -1087,13 +1177,13 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   Net Realised P&L
                 </div>
                 <div
-                  className={`text-lg font-mono font-black mt-1 ${
+                  className={`text-sm sm:text-base font-mono font-bold mt-1 tabular-nums whitespace-nowrap ${
                     report.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
                   }`}
                 >
                   {formatMoney(report.netPnl, report.accountCurrency, true)}
                 </div>
-                <div className="text-[11px] font-mono opacity-75">
+                <div className="text-[10px] font-mono opacity-75">
                   Return:{' '}
                   {report.returnPct !== null
                     ? `${report.returnPct >= 0 ? '+' : ''}${report.returnPct.toFixed(2)}%`
@@ -1101,15 +1191,18 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 </div>
               </div>
 
-              {/* 2. Balance & Equity */}
+              {/* 2. Trading Account Balance & Equity */}
               <div className={`${kpiCardCls} before:from-blue-500 before:to-cyan-400`}>
                 <div className="text-[10px] font-bold uppercase opacity-60">
-                  Balance / Equity
+                  Account Balance / Equity
                 </div>
-                <div className="text-base font-mono font-bold mt-1">
+                <div className="text-sm sm:text-base font-mono font-bold mt-1 tabular-nums whitespace-nowrap">
                   {formatMoney(report.currentBalance, report.accountCurrency)}
                 </div>
-                <div className="text-[11px] font-mono text-blue-400">
+                <div className="text-[10px] font-mono opacity-75 truncate">
+                  Account Size: {formatMoney(report.startingBalance, report.accountCurrency)}
+                </div>
+                <div className="text-[10px] font-mono text-blue-400 truncate">
                   Eq: {formatMoney(report.currentEquity, report.accountCurrency)}
                 </div>
               </div>
@@ -1119,7 +1212,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 <div className="text-[10px] font-bold uppercase opacity-60">
                   Closed Trades
                 </div>
-                <div className="text-lg font-mono font-black mt-1">
+                <div className="text-sm sm:text-base font-mono font-bold mt-1 tabular-nums">
                   {report.totalClosedTrades}
                 </div>
                 <div className="text-[10px] font-mono opacity-80">
@@ -1134,7 +1227,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 <div className="text-[10px] font-bold uppercase opacity-60">
                   Win Rate
                 </div>
-                <div className="text-lg font-mono font-black mt-1 text-emerald-400">
+                <div className="text-sm sm:text-base font-mono font-bold mt-1 text-emerald-400 tabular-nums">
                   {report.winRatePct !== null
                     ? `${report.winRatePct.toFixed(1)}%`
                     : 'N/A'}
@@ -1149,7 +1242,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 <div className="text-[10px] font-bold uppercase opacity-60">
                   Profit Factor
                 </div>
-                <div className="text-lg font-mono font-black mt-1 text-blue-400">
+                <div className="text-sm sm:text-base font-mono font-bold mt-1 text-blue-400 tabular-nums">
                   {report.profitFactor !== null
                     ? report.profitFactor.toFixed(2)
                     : report.grossProfit > 0 && report.grossLossAbs === 0
@@ -1166,7 +1259,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 <div className="text-[10px] font-bold uppercase opacity-60">
                   Avg Win / Avg Loss
                 </div>
-                <div className="text-xs font-mono font-bold mt-1.5 space-y-0.5">
+                <div className="text-xs font-mono font-bold mt-1.5 space-y-0.5 tabular-nums">
                   <div className="text-emerald-400">
                     W:{' '}
                     {report.avgWin !== null
@@ -1188,7 +1281,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   Expectancy / Trade
                 </div>
                 <div
-                  className={`text-lg font-mono font-black mt-1 ${
+                  className={`text-sm sm:text-base font-mono font-bold mt-1 tabular-nums whitespace-nowrap ${
                     (report.expectancyPerTrade || 0) >= 0
                       ? 'text-emerald-400'
                       : 'text-rose-400'
@@ -1210,7 +1303,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 <div className="text-[10px] font-bold uppercase opacity-60">
                   Avg Realised R
                 </div>
-                <div className="text-lg font-mono font-black mt-1 text-indigo-400">
+                <div className="text-sm sm:text-base font-mono font-bold mt-1 text-indigo-400 tabular-nums">
                   {report.avgRealisedR !== null
                     ? `${report.avgRealisedR >= 0 ? '+' : ''}${report.avgRealisedR.toFixed(
                         2
@@ -1227,7 +1320,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 <div className="text-[10px] font-bold uppercase opacity-60">
                   Max Equity Drawdown
                 </div>
-                <div className="text-lg font-mono font-black mt-1 text-rose-400">
+                <div className="text-sm sm:text-base font-mono font-bold mt-1 text-rose-400 tabular-nums">
                   {report.maxEquityDrawdownPct.toFixed(2)}%
                 </div>
                 <div className="text-[10px] font-mono opacity-75">
@@ -1270,7 +1363,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               {(() => {
                 const pts = report.equityCurve;
-                const initBal = selectedAnalyticsSession.startingBalance;
+                const initBal = report.startingBalance;
                 const rules =
                   selectedAnalyticsSession.frozenConfig?.propFirmRules ||
                   selectedAnalyticsSession.propFirmRules;
@@ -1308,10 +1401,10 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                             Balance &amp; Equity Curve
                           </h3>
                           <p className="text-[11px] opacity-65">
-                            Includes Prop Firm Profit Target &amp; Max Loss Drawdown Boundary Overlays
+                            Trading Account Balance: {formatMoney(initBal, report.accountCurrency)} · Includes Prop Firm Profit Target &amp; Max Loss Drawdown Boundary Overlays
                           </p>
                           <div className="mt-2 flex items-baseline gap-2.5 flex-wrap">
-                            <span className="text-2xl font-mono font-black tracking-tight">
+                            <span className="text-lg sm:text-xl font-mono font-bold tracking-tight tabular-nums">
                               {formatMoney(curEquity, report.accountCurrency)}
                             </span>
                             <span
@@ -1716,6 +1809,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   <thead>
                     <tr className="border-b border-gray-500/20 text-[10px] uppercase opacity-70">
                       <th className="py-2 px-2">Exit Time</th>
+                      <th className="py-2 px-2">Account Balance</th>
                       <th className="py-2 px-2">Symbol</th>
                       <th className="py-2 px-2">Side</th>
                       <th className="py-2 px-2">Lots</th>
@@ -1731,7 +1825,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                     {report.filteredClosedTrades.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={10}
+                          colSpan={11}
                           className="py-8 text-center opacity-60 font-sans"
                         >
                           No closed trades match the current filters.
@@ -1743,6 +1837,13 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                           sessions.find((s) =>
                             (s.positions || []).some((p) => p.id === tr.id)
                           ) || selectedAnalyticsSession;
+                        const parentAcctBalance =
+                          parentSess.frozenConfig?.startingBalance ??
+                          parentSess.startingBalance;
+                        const parentAcctCurrency =
+                          parentSess.frozenConfig?.accountCurrency ||
+                          parentSess.accountCurrency ||
+                          'USD';
                         const trSym =
                           tr.symbol || parentSess.activeAsset || 'XAUUSD';
                         const spec = getEffectiveInstrumentSpec(trSym, parentSess);
@@ -1763,6 +1864,9 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                                 tr.exitTime || tr.entryTime,
                                 parentSess.displayTimezone
                               )}
+                            </td>
+                            <td className="py-2.5 px-2 font-semibold text-blue-400">
+                              {formatMoney(parentAcctBalance, parentAcctCurrency)}
                             </td>
                             <td className="py-2.5 px-2 font-bold">{trSym}</td>
                             <td className="py-2.5 px-2">
@@ -2206,7 +2310,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             </div>
 
             <p className="text-xs text-[#9ca3af] leading-relaxed">
-              Are you sure you want to permanently delete your account (<strong className="text-white">{currentUser?.email || 'this account'}</strong>)? All sessions, trades, and playbooks will be wiped immediately.
+              Are you sure you want to permanently delete your account (<strong className="text-white">{currentUser?.email || 'this account'}</strong>)? All sessions, trades, and playbooks will be wiped immediately. This removes this browser’s records. Server registration records, if any, require a separate request to info@voomay.co.za.
             </p>
 
             <div className="space-y-1.5 text-xs">
@@ -2392,6 +2496,16 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               <div className={`p-3.5 rounded-xl border space-y-1.5 font-mono ${subCardBg}`}>
                 <div className="font-sans font-bold uppercase text-[10px] opacity-70">
                   Execution Details
+                </div>
+                <div>
+                  Trading Account Balance:{' '}
+                  {formatMoney(
+                    inspectedTrade.session.frozenConfig?.startingBalance ??
+                      inspectedTrade.session.startingBalance,
+                    inspectedTrade.session.frozenConfig?.accountCurrency ||
+                      inspectedTrade.session.accountCurrency ||
+                      'USD'
+                  )}
                 </div>
                 <div>
                   Entry: {inspectedTrade.trade.entryPrice} (

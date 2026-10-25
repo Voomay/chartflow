@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import {
   ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  Highlighter,
+  MoveUpRight,
+  Waypoints,
   Eye,
   EyeOff,
   Layers,
@@ -91,7 +96,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
   onToggleMagnetMode,
 }) => {
   const [openMenu, setOpenMenu] = useState<
-    'lines' | 'shapes' | 'positions' | 'style' | null
+    'lines' | 'shapes' | 'patterns' | 'positions' | 'style' | null
   >(null);
 
   const isLight = theme === 'light';
@@ -124,6 +129,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
 
   // Render active Line icon in the main toolbar button — unified light stroke matching Ruler & Text (T)
   const renderLineToolbarIcon = () => {
+    if(activeTool==='ray'||activeTool==='extended_line')return <MoveUpRight className="w-4 h-4"/>;
     if (activeTool === 'hline') {
       return (
         <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="butt">
@@ -161,6 +167,9 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
 
   // Render active Shape icon in the main toolbar button — unified light stroke matching Ruler & Text (T)
   const renderShapeToolbarIcon = () => {
+    if(activeTool==='highlighter')return <Highlighter className="w-4 h-4"/>;
+    if(activeTool==='arrow_up')return <ArrowUp className="w-4 h-4"/>;
+    if(activeTool==='arrow_down')return <ArrowDown className="w-4 h-4"/>;
     if (activeTool === 'brush') {
       return (
         <svg viewBox="0 0 24 24" className="w-[21px] h-[21px]" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round">
@@ -216,35 +225,36 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         <button
           onClick={() =>
             selectAndClose(
-              ['trendline', 'hline', 'vline', 'arrow'].includes(activeTool)
+              ['trendline', 'hline', 'vline', 'arrow', 'ray', 'extended_line'].includes(activeTool)
                 ? 'cursor'
                 : 'trendline'
             )
           }
           className={`w-8 h-7 rounded-lg flex items-center justify-center transition ${
-            ['trendline', 'hline', 'vline', 'arrow'].includes(activeTool)
+            ['trendline', 'hline', 'vline', 'arrow', 'ray', 'extended_line'].includes(activeTool)
               ? btnActive
               : btnIdle
           }`}
-          title="Line Tools — Trend Line, Horizontal Line, Vertical Line, Arrow"
+          title="Line Tools — Trend Line, Ray, Extended Line, Horizontal Line, Vertical Line, Arrow"
         >
           {renderLineToolbarIcon()}
         </button>
         <button
           onClick={() => setOpenMenu(openMenu === 'lines' ? null : 'lines')}
           className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-3 h-5 flex items-center justify-center opacity-60 hover:opacity-100"
-          title="More Line Tools (Trend Line, Horizontal Line, Vertical Line, Arrow)"
+          title="More Line Tools (Trend Line, Ray, Extended Line, Horizontal Line, Vertical Line, Arrow)"
         >
           <ChevronRight className="w-3 h-3" />
         </button>
 
         {openMenu === 'lines' && (
           <div
-            className={`absolute left-11 top-0 w-64 rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}
+            className={`absolute left-11 top-0 w-64 max-h-[55dvh] overflow-y-auto rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}
           >
             <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60">
               Lines & Rays
             </div>
+            {([['ray','Ray','One direction'],['extended_line','Extended Line','Both directions']] as const).map(([tool,label,hint])=><button key={tool} onClick={()=>selectAndClose(tool)} className={menuItemClass(activeTool===tool)}><span className="flex items-center gap-2.5"><MoveUpRight className="w-4 h-4"/>{label}</span><span className="text-[10px] opacity-60">{hint}</span></button>)}
             <button
               onClick={() => selectAndClose('trendline')}
               className={menuItemClass(activeTool === 'trendline')}
@@ -360,7 +370,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
 
         {openMenu === 'positions' && (
           <div
-            className={`absolute left-11 top-0 w-64 rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}
+            className={`absolute left-11 top-0 w-64 max-h-[55dvh] overflow-y-auto rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}
           >
             <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60">
               Buy / Sell Position & Risk
@@ -416,17 +426,17 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         <button
           onClick={() =>
             selectAndClose(
-              ['rect_box', 'circle', 'triangle', 'brush'].includes(activeTool)
+              ['rect_box', 'circle', 'triangle', 'brush', 'highlighter', 'arrow_up', 'arrow_down'].includes(activeTool)
                 ? 'cursor'
                 : 'rect_box'
             )
           }
           className={`w-8 h-7 rounded-lg flex items-center justify-center transition ${
-            ['rect_box', 'circle', 'triangle', 'brush'].includes(activeTool)
+            ['rect_box', 'circle', 'triangle', 'brush', 'highlighter', 'arrow_up', 'arrow_down'].includes(activeTool)
               ? btnActive
               : btnIdle
           }`}
-          title="Geometric Shapes — Rectangle Zone Block, Circle, Triangle, Brush"
+          title="Shapes & Marks — Rectangle, Circle, Triangle, Brush, Highlighter, Up/Down Arrows"
         >
           {renderShapeToolbarIcon()}
         </button>
@@ -440,11 +450,12 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
 
         {openMenu === 'shapes' && (
           <div
-            className={`absolute left-11 top-0 w-64 rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}
+            className={`absolute left-11 top-0 w-64 max-h-[55dvh] overflow-y-auto rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}
           >
             <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60">
               Brushes & Arrows
             </div>
+            {([['highlighter','Highlighter',Highlighter,'Drag'],['arrow_up','Arrow mark up',ArrowUp,'1-Click'],['arrow_down','Arrow mark down',ArrowDown,'1-Click']] as const).map(([tool,label,Icon,hint])=><button key={tool} onClick={()=>selectAndClose(tool)} className={menuItemClass(activeTool===tool)}><span className="flex items-center gap-2.5"><Icon className="w-4 h-4"/>{label}</span><span className="text-[10px] opacity-60">{hint}</span></button>)}
             <button
               onClick={() => selectAndClose('brush')}
               className={menuItemClass(activeTool === 'brush')}
@@ -516,6 +527,10 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         )}
       </div>
 
+      <div className="relative flex items-center shrink-0">
+        <button type="button" aria-label="Chart pattern tools" title="Chart Patterns — ABC correction, ABCD" onClick={()=>setOpenMenu(openMenu==='patterns'?null:'patterns')} className={`w-8 h-7 rounded-lg flex items-center justify-center ${activeTool==='abc_pattern'||activeTool==='abcd_pattern'?btnActive:btnIdle}`}><Waypoints className="h-4 w-4"/></button>
+        {openMenu==='patterns'&&<div className={`absolute left-11 top-0 w-64 max-h-[55dvh] overflow-y-auto rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}><div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60">Manual chart patterns</div>{([['abc_pattern','ABC correction','0 → A → B → C'],['abcd_pattern','ABCD pattern','A → B → C → D']] as const).map(([tool,label,hint])=><button key={tool} onClick={()=>selectAndClose(tool)} className={menuItemClass(activeTool===tool)}><span>{label}</span><span className="text-[10px] opacity-60">{hint}</span></button>)}<p className="px-3 py-2 text-[10px] opacity-50 leading-4">Click four points on the chart. Escape cancels. These are drawing tools, not trade signals.</p></div>}
+      </div>
       {/* 6. Text Annotation (T) */}
       <button
         onClick={() => selectAndClose(activeTool === 'text' ? 'cursor' : 'text')}
@@ -734,7 +749,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         {hideDrawings ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
       </button>
 
-      {/* Session Boxes & S/R Quick Toggles */}
+      {/* Session Boxes Quick Toggle */}
       <button
         onClick={onToggleSessionBoxes}
         className={`w-8 h-7 rounded-lg flex items-center justify-center shrink-0 transition ${
@@ -745,18 +760,6 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         title="Toggle Trading Session Boxes"
       >
         <Layers className="w-3.5 h-3.5" />
-      </button>
-
-      <button
-        onClick={onToggleSRLevels}
-        className={`w-8 h-7 rounded-lg flex items-center justify-center shrink-0 transition ${
-          showSRLevels
-            ? 'bg-rose-500/20 text-rose-500 border border-rose-500/40'
-            : btnIdle
-        }`}
-        title="Toggle Institutional Support & Resistance Zones"
-      >
-        <Sparkles className="w-3.5 h-3.5" />
       </button>
 
       <div className="flex-1 min-h-[2px]" />

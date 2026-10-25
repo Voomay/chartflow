@@ -1,0 +1,457 @@
+{
+  "source": "Local HistData XAUUSD bid archive; UTC-normalized; volume not supplied",
+  "timeZone": "Africa/Johannesburg (UTC+02:00)",
+  "method": "Complete contiguous 12x5m hours only. Median hourly high-low/open (%). Directional hour: abs(close-open)/(high-low)>=0.60. Descriptive; no strategy returns, spread or fees.",
+  "counts": {
+    "bars": 770268,
+    "volumeBars": 0
+  },
+  "first": 1420153200,
+  "last": 1767218100,
+  "periods": {
+    "2025": [
+      {
+        "hour": 16,
+        "hours": 258,
+        "medianRangePct": 0.4766,
+        "directionalPct": 30.2
+      },
+      {
+        "hour": 17,
+        "hours": 258,
+        "medianRangePct": 0.4434,
+        "directionalPct": 34.1
+      },
+      {
+        "hour": 15,
+        "hours": 258,
+        "medianRangePct": 0.3934,
+        "directionalPct": 37.6
+      },
+      {
+        "hour": 4,
+        "hours": 258,
+        "medianRangePct": 0.3367,
+        "directionalPct": 36
+      },
+      {
+        "hour": 18,
+        "hours": 257,
+        "medianRangePct": 0.3285,
+        "directionalPct": 30.4
+      },
+      {
+        "hour": 3,
+        "hours": 258,
+        "medianRangePct": 0.3022,
+        "directionalPct": 31
+      },
+      {
+        "hour": 10,
+        "hours": 257,
+        "medianRangePct": 0.2941,
+        "directionalPct": 40.5
+      },
+      {
+        "hour": 9,
+        "hours": 258,
+        "medianRangePct": 0.2747,
+        "directionalPct": 29.5
+      },
+      {
+        "hour": 11,
+        "hours": 258,
+        "medianRangePct": 0.2661,
+        "directionalPct": 35.3
+      },
+      {
+        "hour": 14,
+        "hours": 258,
+        "medianRangePct": 0.2639,
+        "directionalPct": 31.8
+      },
+      {
+        "hour": 8,
+        "hours": 258,
+        "medianRangePct": 0.2631,
+        "directionalPct": 32.9
+      },
+      {
+        "hour": 19,
+        "hours": 257,
+        "medianRangePct": 0.2569,
+        "directionalPct": 35.8
+      },
+      {
+        "hour": 5,
+        "hours": 258,
+        "medianRangePct": 0.255,
+        "directionalPct": 35.7
+      },
+      {
+        "hour": 12,
+        "hours": 258,
+        "medianRangePct": 0.2387,
+        "directionalPct": 29.1
+      },
+      {
+        "hour": 20,
+        "hours": 255,
+        "medianRangePct": 0.2351,
+        "directionalPct": 32.5
+      },
+      {
+        "hour": 13,
+        "hours": 258,
+        "medianRangePct": 0.2312,
+        "directionalPct": 29.1
+      },
+      {
+        "hour": 6,
+        "hours": 258,
+        "medianRangePct": 0.2157,
+        "directionalPct": 33.3
+      },
+      {
+        "hour": 7,
+        "hours": 258,
+        "medianRangePct": 0.2133,
+        "directionalPct": 37.6
+      },
+      {
+        "hour": 2,
+        "hours": 256,
+        "medianRangePct": 0.2105,
+        "directionalPct": 37.5
+      },
+      {
+        "hour": 22,
+        "hours": 248,
+        "medianRangePct": 0.2085,
+        "directionalPct": 37.1
+      },
+      {
+        "hour": 1,
+        "hours": 253,
+        "medianRangePct": 0.2061,
+        "directionalPct": 28.5
+      },
+      {
+        "hour": 21,
+        "hours": 248,
+        "medianRangePct": 0.2004,
+        "directionalPct": 25.8
+      },
+      {
+        "hour": 0,
+        "hours": 20,
+        "medianRangePct": 0.19,
+        "directionalPct": 35
+      },
+      {
+        "hour": 23,
+        "hours": 228,
+        "medianRangePct": 0.1643,
+        "directionalPct": 38.2
+      }
+    ],
+    "2015-2020": [
+      {
+        "hour": 16,
+        "hours": 1547,
+        "medianRangePct": 0.3518,
+        "directionalPct": 29.7
+      },
+      {
+        "hour": 15,
+        "hours": 1546,
+        "medianRangePct": 0.3503,
+        "directionalPct": 31.8
+      },
+      {
+        "hour": 17,
+        "hours": 1547,
+        "medianRangePct": 0.3307,
+        "directionalPct": 27.7
+      },
+      {
+        "hour": 18,
+        "hours": 1547,
+        "medianRangePct": 0.2534,
+        "directionalPct": 26.2
+      },
+      {
+        "hour": 10,
+        "hours": 1546,
+        "medianRangePct": 0.2211,
+        "directionalPct": 30.4
+      },
+      {
+        "hour": 20,
+        "hours": 1501,
+        "medianRangePct": 0.2076,
+        "directionalPct": 27.8
+      },
+      {
+        "hour": 14,
+        "hours": 1547,
+        "medianRangePct": 0.2055,
+        "directionalPct": 29.5
+      },
+      {
+        "hour": 19,
+        "hours": 1547,
+        "medianRangePct": 0.2009,
+        "directionalPct": 27.3
+      },
+      {
+        "hour": 9,
+        "hours": 1546,
+        "medianRangePct": 0.1963,
+        "directionalPct": 31.5
+      },
+      {
+        "hour": 4,
+        "hours": 1546,
+        "medianRangePct": 0.1877,
+        "directionalPct": 31.4
+      },
+      {
+        "hour": 11,
+        "hours": 1546,
+        "medianRangePct": 0.1854,
+        "directionalPct": 28.9
+      },
+      {
+        "hour": 3,
+        "hours": 1545,
+        "medianRangePct": 0.182,
+        "directionalPct": 30.1
+      },
+      {
+        "hour": 21,
+        "hours": 1501,
+        "medianRangePct": 0.1727,
+        "directionalPct": 30.6
+      },
+      {
+        "hour": 12,
+        "hours": 1546,
+        "medianRangePct": 0.1704,
+        "directionalPct": 26.6
+      },
+      {
+        "hour": 22,
+        "hours": 1501,
+        "medianRangePct": 0.1642,
+        "directionalPct": 32.8
+      },
+      {
+        "hour": 13,
+        "hours": 1547,
+        "medianRangePct": 0.1639,
+        "directionalPct": 26.4
+      },
+      {
+        "hour": 8,
+        "hours": 1546,
+        "medianRangePct": 0.1569,
+        "directionalPct": 31.4
+      },
+      {
+        "hour": 0,
+        "hours": 40,
+        "medianRangePct": 0.1562,
+        "directionalPct": 30
+      },
+      {
+        "hour": 2,
+        "hours": 1541,
+        "medianRangePct": 0.1391,
+        "directionalPct": 30.9
+      },
+      {
+        "hour": 1,
+        "hours": 1536,
+        "medianRangePct": 0.1358,
+        "directionalPct": 29.9
+      },
+      {
+        "hour": 5,
+        "hours": 1546,
+        "medianRangePct": 0.1344,
+        "directionalPct": 24.8
+      },
+      {
+        "hour": 23,
+        "hours": 1447,
+        "medianRangePct": 0.1205,
+        "directionalPct": 32.1
+      },
+      {
+        "hour": 7,
+        "hours": 1545,
+        "medianRangePct": 0.1173,
+        "directionalPct": 30.8
+      },
+      {
+        "hour": 6,
+        "hours": 1546,
+        "medianRangePct": 0.1114,
+        "directionalPct": 26.9
+      }
+    ],
+    "2021-2025": [
+      {
+        "hour": 16,
+        "hours": 1225,
+        "medianRangePct": 0.4438,
+        "directionalPct": 30.2
+      },
+      {
+        "hour": 15,
+        "hours": 1240,
+        "medianRangePct": 0.4114,
+        "directionalPct": 33.2
+      },
+      {
+        "hour": 17,
+        "hours": 1238,
+        "medianRangePct": 0.408,
+        "directionalPct": 32.8
+      },
+      {
+        "hour": 18,
+        "hours": 1225,
+        "medianRangePct": 0.29,
+        "directionalPct": 30.8
+      },
+      {
+        "hour": 10,
+        "hours": 1287,
+        "medianRangePct": 0.2549,
+        "directionalPct": 32.9
+      },
+      {
+        "hour": 9,
+        "hours": 1289,
+        "medianRangePct": 0.2334,
+        "directionalPct": 30.3
+      },
+      {
+        "hour": 14,
+        "hours": 1230,
+        "medianRangePct": 0.2293,
+        "directionalPct": 29.7
+      },
+      {
+        "hour": 4,
+        "hours": 1290,
+        "medianRangePct": 0.2255,
+        "directionalPct": 33.7
+      },
+      {
+        "hour": 11,
+        "hours": 1286,
+        "medianRangePct": 0.2253,
+        "directionalPct": 27.9
+      },
+      {
+        "hour": 19,
+        "hours": 1228,
+        "medianRangePct": 0.2188,
+        "directionalPct": 31.8
+      },
+      {
+        "hour": 20,
+        "hours": 1216,
+        "medianRangePct": 0.2057,
+        "directionalPct": 29.8
+      },
+      {
+        "hour": 13,
+        "hours": 1232,
+        "medianRangePct": 0.2025,
+        "directionalPct": 31.3
+      },
+      {
+        "hour": 12,
+        "hours": 1272,
+        "medianRangePct": 0.2022,
+        "directionalPct": 29.2
+      },
+      {
+        "hour": 8,
+        "hours": 1289,
+        "medianRangePct": 0.1933,
+        "directionalPct": 32.7
+      },
+      {
+        "hour": 3,
+        "hours": 1289,
+        "medianRangePct": 0.1925,
+        "directionalPct": 33.4
+      },
+      {
+        "hour": 5,
+        "hours": 1290,
+        "medianRangePct": 0.1739,
+        "directionalPct": 33.3
+      },
+      {
+        "hour": 21,
+        "hours": 1190,
+        "medianRangePct": 0.1667,
+        "directionalPct": 30
+      },
+      {
+        "hour": 22,
+        "hours": 1195,
+        "medianRangePct": 0.1627,
+        "directionalPct": 32.3
+      },
+      {
+        "hour": 7,
+        "hours": 1289,
+        "medianRangePct": 0.1501,
+        "directionalPct": 33.6
+      },
+      {
+        "hour": 0,
+        "hours": 80,
+        "medianRangePct": 0.149,
+        "directionalPct": 22.5
+      },
+      {
+        "hour": 6,
+        "hours": 1290,
+        "medianRangePct": 0.142,
+        "directionalPct": 30.2
+      },
+      {
+        "hour": 2,
+        "hours": 1237,
+        "medianRangePct": 0.1351,
+        "directionalPct": 32.6
+      },
+      {
+        "hour": 1,
+        "hours": 1223,
+        "medianRangePct": 0.1313,
+        "directionalPct": 29.7
+      },
+      {
+        "hour": 23,
+        "hours": 1119,
+        "medianRangePct": 0.1171,
+        "directionalPct": 33.9
+      }
+    ]
+  },
+  "setups2025": {
+    "priceOnlyAllSessions": 1040,
+    "priceOnlyNewYork": 211,
+    "volumeRequired": 0,
+    "note": "Counts only. Not a profitability backtest. No volume in this source. Final developing bar excluded."
+  }
+}

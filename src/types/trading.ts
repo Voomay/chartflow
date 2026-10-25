@@ -474,6 +474,14 @@ export interface TradingSession {
   parentChallengeId?: string;
   previousAttempts?: ChallengeAttemptSummary[];
   drawingsBySymbol?: Partial<Record<InstrumentSymbol, ChartDrawing[]>>;
+  mindsetNote?: {
+    text: string;
+    pinned: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 export interface BacktestPosition {
@@ -541,6 +549,13 @@ export interface BacktestPosition {
 export type DrawingTool =
   | 'cursor'
   | 'replay_cut'
+  | 'ray'
+  | 'extended_line'
+  | 'arrow_up'
+  | 'arrow_down'
+  | 'highlighter'
+  | 'abc_pattern'
+  | 'abcd_pattern'
   | 'trendline'
   | 'hline'
   | 'vline'
@@ -558,6 +573,13 @@ export type DrawingTool =
 export interface ChartDrawing {
   id: string;
   type:
+    | 'ray'
+    | 'extended_line'
+    | 'arrow_up'
+    | 'arrow_down'
+    | 'highlighter'
+    | 'abc_pattern'
+    | 'abcd_pattern'
     | 'trendline'
     | 'hline'
     | 'vline'

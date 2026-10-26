@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#060b13"/>
+      <stop offset="55%" stop-color="#0b1322"/>
+      <stop offset="100%" stop-color="#071a1e"/>
+    </linearGradient>
+    <linearGradient id="gradLine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.0"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#1e293b" stroke-width="1" stroke-opacity="0.55"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+
+  <rect x="60" y="36" width="1080" height="118" rx="20" fill="#0d1626" fill-opacity="0.88" stroke="#1e293b" stroke-width="1.5"/>
+  <rect x="84" y="54" width="350" height="26" rx="13" fill="#f59e0b" fill-opacity="0.15" stroke="#f59e0b" stroke-opacity="0.45"/>
+  <text x="100" y="72" fill="#f59e0b" font-family="monospace" font-size="12" font-weight="bold" letter-spacing="1">XAUUSD · GOLD SPOT &amp; COMEX FUTURES</text>
+  <text x="1112" y="72" fill="#94a3b8" font-family="monospace" font-size="13" font-weight="bold" text-anchor="end">CHART REPLAY · TRADER'S INSIGHT</text>
+
+  <text x="84" y="110" fill="#f8fafc" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="800">XAUUSD Asian Sweep &amp; NY Displacement</text>
+  <text x="84" y="136" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="15">Session Liquidity Raid · Stop-Hunt Reversal · ATR Position Sizing</text>
+
+  <rect x="60" y="170" width="1080" height="270" rx="20" fill="#090f1a" fill-opacity="0.9" stroke="#1e293b" stroke-width="1.5"/>
+  
+    
+      <line x1="130" y1="295" x2="130" y2="365" stroke="#f43f5e" stroke-width="2.5"/>
+      <rect x="118" y="310" width="24" height="45" rx="3" fill="#f43f5e"/>
+    
+      <line x1="180" y1="315" x2="180" y2="370" stroke="#10b981" stroke-width="2.5"/>
+      <rect x="168" y="330" width="24" height="25" rx="3" fill="#10b981"/>
+    
+      <line x1="230" y1="325" x2="230" y2="385" stroke="#f43f5e" stroke-width="2.5"/>
+      <rect x="218" y="330" width="24" height="35" rx="3" fill="#f43f5e"/>
+    
+      <line x1="280" y1="355" x2="280" y2="412" stroke="#f43f5e" stroke-width="2.5"/>
+      <rect x="268" y="365" width="24" height="25" rx="3" fill="#f43f5e"/>
+    
+      <line x1="330" y1="325" x2="330" y2="405" stroke="#10b981" stroke-width="2.5"/>
+      <rect x="318" y="340" width="24" height="50" rx="3" fill="#10b981"/>
+    
+      <line x1="380" y1="280" x2="380" y2="350" stroke="#10b981" stroke-width="2.5"/>
+      <rect x="368" y="295" width="24" height="45" rx="3" fill="#10b981"/>
+    
+      <line x1="430" y1="288" x2="430" y2="330" stroke="#f43f5e" stroke-width="2.5"/>
+      <rect x="418" y="295" width="24" height="20" rx="3" fill="#f43f5e"/>
+    
+      <line x1="480" y1="250" x2="480" y2="322" stroke="#10b981" stroke-width="2.5"/>
+      <rect x="468" y="265" width="24" height="50" rx="3" fill="#10b981"/>
+    
+      <line x1="530" y1="222" x2="530" y2="275" stroke="#10b981" stroke-width="2.5"/>
+      <rect x="518" y="235" width="24" height="30" rx="3" fill="#10b981"/>
+    
+      <line x1="580" y1="230" x2="580" y2="268" stroke="#f43f5e" stroke-width="2.5"/>
+      <rect x="568" y="235" width="24" height="17" rx="3" fill="#f43f5e"/>
+    
+      <line x1="630" y1="195" x2="630" y2="260" stroke="#10b981" stroke-width="2.5"/>
+      <rect x="618" y="210" width="24" height="42" rx="3" fill="#10b981"/>
+    
+      <line x1="680" y1="172" x2="680" y2="220" stroke="#10b981" stroke-width="2.5"/>
+      <rect x="668" y="185" width="24" height="25" rx="3" fill="#10b981"/>
+    
+    <rect x="380" y="178" width="420" height="117" rx="6" fill="#10b981" fill-opacity="0.16" stroke="#10b981" stroke-width="1.8"/>
+    <rect x="380" y="295" width="420" height="55" rx="6" fill="#f43f5e" fill-opacity="0.18" stroke="#f43f5e" stroke-width="1.8"/>
+    <line x1="380" y1="295" x2="800" y2="295" stroke="#ffffff" stroke-width="2" stroke-dasharray="5 5"/>
+    <text x="395" y="202" fill="#6ee7b7" font-family="monospace" font-size="13" font-weight="bold">TAKE PROFIT · +3.2R TARGET</text>
+    <text x="395" y="286" fill="#ffffff" font-family="monospace" font-size="12" font-weight="bold">LIMIT ENTRY · FVG / STRUCTURE RETEST</text>
+    <text x="395" y="340" fill="#fda4af" font-family="monospace" font-size="12" font-weight="bold">STOP LOSS · -1.0R INVALIDATION</text>
+    <line x1="850" y1="165" x2="850" y2="415" stroke="#38bdf8" stroke-width="2.5" stroke-dasharray="8 6"/>
+    <rect x="868" y="245" width="220" height="78" rx="12" fill="#0f172a" stroke="#38bdf8" stroke-opacity="0.5"/>
+    <text x="886" y="274" fill="#38bdf8" font-family="monospace" font-size="12" font-weight="bold">REPLAY CUT ACTIVE</text>
+    <text x="886" y="296" fill="#cbd5e1" font-family="sans-serif" font-size="12">Future bars hidden for</text>
+    <text x="886" y="313" fill="#cbd5e1" font-family="sans-serif" font-size="12">zero-lookahead testing</text>
+  
+
+  <g transform="translate(60, 460)">
+    <rect x="0" y="0" width="344" height="126" rx="18" fill="#0d1626" stroke="#1e293b" stroke-width="1.5"/>
+    <text x="24" y="42" fill="#94a3b8" font-family="monospace" font-size="12" font-weight="bold">PEAK LIQUIDITY</text>
+    <text x="24" y="86" fill="#f59e0b" font-family="monospace" font-size="22" font-weight="800">14:30 - 17:00 SAST</text>
+
+    <rect x="368" y="0" width="344" height="126" rx="18" fill="#0d1626" stroke="#1e293b" stroke-width="1.5"/>
+    <text x="392" y="42" fill="#94a3b8" font-family="monospace" font-size="12" font-weight="bold">AVG NY 1H RANGE</text>
+    <text x="392" y="86" fill="#f8fafc" font-family="monospace" font-size="22" font-weight="800">180 - 320 Pips</text>
+
+    <rect x="736" y="0" width="344" height="126" rx="18" fill="#0d1626" stroke="#1e293b" stroke-width="1.5"/>
+    <text x="760" y="42" fill="#94a3b8" font-family="monospace" font-size="12" font-weight="bold">KEY SETUP</text>
+    <text x="760" y="86" fill="#10b981" font-family="monospace" font-size="22" font-weight="800">London/NY Sweep</text>
+  </g>
+</svg>

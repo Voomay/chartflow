@@ -1,12 +1,14 @@
 import {FaqAssistant} from './FaqAssistant';
 import {LegalLinks,LegalDocumentKey} from './LegalLinks';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowRight,
   BarChart3,
+  BookOpen,
   BrainCircuit,
   CandlestickChart,
   CheckCircle2,
+  Clock,
   Menu,
   ShieldCheck,
   StickyNote,
@@ -20,6 +22,8 @@ import {
 import { ChartReplayLogo } from './ChartReplayLogo';
 import { ForexTicker } from './LandingExtras';
 import { HomepageDemoVideo } from './HomepageDemoVideo';
+import { TRADERS_INSIGHT_ARTICLES } from '../services/tradersInsightData';
+import { applyPageSeo, buildHomeJsonLd, DEFAULT_DESCRIPTION, DEFAULT_TITLE } from '../services/seo';
 
 export type LandingLaunchAction =
   | 'default'
@@ -32,6 +36,7 @@ export type LandingLaunchAction =
 interface LandingPageProps {
   onDemoLogin?:()=>void;
   onOpenComingSoon?:()=>void;
+  onOpenTradersInsight?:(slug?:string|null)=>void;
   onOpenLegal?:(page:LegalDocumentKey)=>void;
   onLaunchTerminal: (initialAction?: LandingLaunchAction) => void;
   onOpenLogin: (mode?: 'login' | 'signup') => void;
@@ -213,8 +218,37 @@ const CompareMark: React.FC<{ v: CompareCell; strong?: boolean }> = ({ v, strong
   return <span className={`font-bold ${strong ? 'text-sm sm:text-base font-black text-emerald-300' : 'text-xs sm:text-sm text-[#cbd5e1]'}`}>{v}</span>;
 };
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal,onOpenComingSoon,onDemoLogin }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal,onOpenComingSoon,onOpenTradersInsight,onDemoLogin }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    applyPageSeo({
+      title: DEFAULT_TITLE,
+      description: DEFAULT_DESCRIPTION,
+      path: '/',
+      type: 'website',
+      keywords: [
+        'Chart Replay',
+        'free FX Replay alternative',
+        'forex backtesting simulator',
+        'prop firm challenge simulator',
+        'XAUUSD bar replay',
+        'South Africa forex trading simulator',
+      ],
+      jsonLd: buildHomeJsonLd(),
+    });
+  }, []);
+
+  const handleInsightClick = (e: React.MouseEvent<HTMLAnchorElement>, slug: string | null = null) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    setMobileNavOpen(false);
+    if (onOpenTradersInsight) {
+      onOpenTradersInsight(slug);
+    } else {
+      window.location.href = slug ? `/traders-insight/${slug}` : '/traders-insight';
+    }
+  };
 
   const scrollToSection = (id: string) => {
     setMobileNavOpen(false);
@@ -267,7 +301,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                 {l.label}
               </button>
             ))}
-            <button onClick={onOpenComingSoon} className="px-3 py-2 text-emerald-300 text-sm font-semibold text-left">Coming soon</button>
+            <a
+              href="/traders-insight"
+              onClick={(e) => handleInsightClick(e, null)}
+              className="px-3 py-2 rounded-lg text-emerald-300 hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5 font-semibold"
+            >
+              <BookOpen className="w-4 h-4 text-emerald-400" />
+              <span>Trader&apos;s Insight</span>
+            </a>
             <a href="/partners" className="px-3 py-2 rounded-lg hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5">
               <Handshake className="w-4 h-4 text-emerald-400" />
               Partner with Us
@@ -309,8 +350,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                   {l.label}
                 </button>
               ))}
-              <button onClick={onOpenComingSoon} className="px-3 py-2 text-emerald-300 text-sm font-semibold text-left">Coming soon</button>
-            <a href="/partners" onClick={() => setMobileNavOpen(false)} className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition">
+              <a
+                href="/traders-insight"
+                onClick={(e) => handleInsightClick(e, null)}
+                className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-emerald-300 hover:bg-white/[0.06] transition"
+              >
+                <BookOpen className="w-4 h-4 text-emerald-400" />
+                <span>Trader&apos;s Insight (10 Blogs)</span>
+              </a>
+              <a href="/partners" onClick={() => setMobileNavOpen(false)} className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition">
                 <Handshake className="w-4 h-4 text-emerald-400" />
                 Partner with Us
               </a>
@@ -614,6 +662,79 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
           </div>
         </section>
 
+        {/* TRADER'S INSIGHT PREVIEW SECTION */}
+        <section id="traders-insight" className="max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/25 text-emerald-300 text-xs font-mono font-bold mb-3">
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>TRADER&apos;S INSIGHT · FOREX &amp; PROP FIRM RESEARCH</span>
+              </div>
+              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white">
+                Learn what{' '}
+                <span className="bg-gradient-to-r from-emerald-400 to-sky-400 bg-clip-text text-transparent">
+                  funded traders
+                </span>{' '}
+                search &amp; test
+              </h2>
+              <p className="mt-3 text-sm sm:text-base text-[#9ca3af] max-w-2xl">
+                Explore 10 comprehensive, ~1,150-word guides covering FTMO drawdown rules, XAUUSD Gold liquidity sweeps, ICT Silver Bullet backtesting, R-multiple math, and South African (SAST) session hours.
+              </p>
+            </div>
+            <a
+              href="/traders-insight"
+              onClick={(e) => handleInsightClick(e, null)}
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-emerald-400/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-sm font-bold text-emerald-300 transition shrink-0"
+            >
+              <span>View All 10 Blogs</span>
+              <ArrowRight className="w-4 h-4" />
+            </a>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+            {TRADERS_INSIGHT_ARTICLES.slice(0, 3).map((article) => (
+              <a
+                key={article.slug}
+                href={`/traders-insight/${article.slug}`}
+                onClick={(e) => handleInsightClick(e, article.slug)}
+                className="lp-card group flex flex-col justify-between text-left overflow-hidden"
+              >
+                <div className="lp-card-inner h-full flex flex-col justify-between overflow-hidden">
+                  <div>
+                    <img
+                      src={article.image}
+                      alt={article.imageAlt}
+                      loading="lazy"
+                      width={1200}
+                      height={630}
+                      className="w-full h-44 object-cover border-b border-white/10"
+                    />
+                    <div className="p-5 space-y-2.5">
+                      <div className="flex items-center justify-between text-[11px] font-mono text-emerald-400">
+                        <span>{article.category}</span>
+                        <span className="inline-flex items-center gap-1 text-slate-400">
+                          <Clock className="w-3 h-3" />
+                          {article.readingTimeMinutes}m read
+                        </span>
+                      </div>
+                      <h3 className="text-base sm:text-lg font-bold text-white group-hover:text-emerald-300 transition leading-snug">
+                        {article.title}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-[#9ca3af] line-clamp-3 leading-relaxed">
+                        {article.excerpt}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="px-5 pb-5 pt-2 flex items-center justify-between text-xs font-bold text-emerald-400">
+                    <span>Read Full Article Page</span>
+                    <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+
         {/* CTA */}
         <section id="get-started" className="max-w-[1400px] mx-auto py-16 sm:py-24 scroll-mt-20">
           <div className="lp-gradient-border rounded-3xl">
@@ -655,7 +776,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
           <span className="flex items-center gap-3"><ChartReplayLogo size={28} /><span className="hidden sm:inline">© Historical Trading Simulator</span></span>
           <span className="inline-flex items-center gap-2 font-semibold text-gray-400"><SAFlag className="w-5 h-[14px]" />Proudly made in South Africa</span>
           <div className="flex flex-wrap items-center justify-center gap-2 font-semibold">
-            <a href="/admin" className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2.5 text-xs font-bold text-emerald-200 hover:bg-emerald-400/20">Administrator Login</a>{import.meta.env.DEV&&['localhost','127.0.0.1','[::1]'].includes(window.location.hostname)&&<a href="/admin?preview=1" className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2.5 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20">Quick admin preview</a>}<button type="button" onClick={onDemoLogin} className="px-3 min-h-[44px] text-xs text-slate-400 hover:text-white">Try platform demo</button>
             <a href="/partners" className="px-3 min-h-[44px] inline-flex items-center hover:text-white transition">Partner with Us</a>
             <button onClick={() => openAuth('login')} className="px-3 min-h-[44px] hover:text-white transition">
               Sign In

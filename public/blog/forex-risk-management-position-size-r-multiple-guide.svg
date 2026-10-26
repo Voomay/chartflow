@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#060b13"/>
+      <stop offset="55%" stop-color="#0b1322"/>
+      <stop offset="100%" stop-color="#071a1e"/>
+    </linearGradient>
+    <linearGradient id="gradLine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#14b8a6"/>
+    </linearGradient>
+    <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#14b8a6" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#14b8a6" stop-opacity="0.0"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#1e293b" stroke-width="1" stroke-opacity="0.55"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+
+  <rect x="60" y="36" width="1080" height="118" rx="20" fill="#0d1626" fill-opacity="0.88" stroke="#1e293b" stroke-width="1.5"/>
+  <rect x="84" y="54" width="350" height="26" rx="13" fill="#14b8a6" fill-opacity="0.15" stroke="#14b8a6" stroke-opacity="0.45"/>
+  <text x="100" y="72" fill="#14b8a6" font-family="monospace" font-size="12" font-weight="bold" letter-spacing="1">QUANTITATIVE RISK &amp; POSITION SIZING</text>
+  <text x="1112" y="72" fill="#94a3b8" font-family="monospace" font-size="13" font-weight="bold" text-anchor="end">CHART REPLAY · TRADER'S INSIGHT</text>
+
+  <text x="84" y="110" fill="#f8fafc" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="800">R-Multiple Expectancy &amp; Drawdown Math</text>
+  <text x="84" y="136" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="15">How a 42% Win Rate Generates Consistent +2.5R Compounding Growth</text>
+
+  <rect x="60" y="170" width="1080" height="270" rx="20" fill="#090f1a" fill-opacity="0.9" stroke="#1e293b" stroke-width="1.5"/>
+  
+      <line x1="90" y1="200" x2="1110" y2="200" stroke="#10b981" stroke-width="1.5" stroke-dasharray="6 6" opacity="0.7"/>
+      <text x="1105" y="192" fill="#10b981" font-family="monospace" font-size="12" text-anchor="end" font-weight="bold">PROFIT TARGET (+10%)</text>
+      <line x1="90" y1="395" x2="1110" y2="395" stroke="#f43f5e" stroke-width="1.5" stroke-dasharray="6 6" opacity="0.65"/>
+      <text x="1105" y="387" fill="#f43f5e" font-family="monospace" font-size="12" text-anchor="end" font-weight="bold">MAX DRAWDOWN FLOOR (-5%)</text>
+      <path d="M90,340 L170,328 L240,345 L320,305 L400,290 L470,312 L560,268 L650,248 L730,260 L820,222 L910,210 L1000,192 L1110,175 L1110,420 L90,420 Z" fill="url(#gradArea)" opacity="0.35"/>
+      <path d="M90,340 L170,328 L240,345 L320,305 L400,290 L470,312 L560,268 L650,248 L730,260 L820,222 L910,210 L1000,192 L1110,175" fill="none" stroke="url(#gradLine)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="560" cy="268" r="6" fill="#10b981" stroke="#fff" stroke-width="2"/>
+      <circle cx="820" cy="222" r="6" fill="#10b981" stroke="#fff" stroke-width="2"/>
+      <circle cx="1110" cy="175" r="8" fill="#34d399" stroke="#fff" stroke-width="2.5"/>
+    
+
+  <g transform="translate(60, 460)">
+    <rect x="0" y="0" width="344" height="126" rx="18" fill="#0d1626" stroke="#1e293b" stroke-width="1.5"/>
+    <text x="24" y="42" fill="#94a3b8" font-family="monospace" font-size="12" font-weight="bold">WIN RATE NEEDED @ 1:3</text>
+    <text x="24" y="86" fill="#14b8a6" font-family="monospace" font-size="22" font-weight="800">Only 30%+ to Profit</text>
+
+    <rect x="368" y="0" width="344" height="126" rx="18" fill="#0d1626" stroke="#1e293b" stroke-width="1.5"/>
+    <text x="392" y="42" fill="#94a3b8" font-family="monospace" font-size="12" font-weight="bold">EXPECTANCY FORMULA</text>
+    <text x="392" y="86" fill="#f8fafc" font-family="monospace" font-size="22" font-weight="800">(W% x AvgW) - (L% x AvgL)</text>
+
+    <rect x="736" y="0" width="344" height="126" rx="18" fill="#0d1626" stroke="#1e293b" stroke-width="1.5"/>
+    <text x="760" y="42" fill="#94a3b8" font-family="monospace" font-size="12" font-weight="bold">SURVIVAL RULE</text>
+    <text x="760" y="86" fill="#6366f1" font-family="monospace" font-size="22" font-weight="800">Max 1% Risk / Setup</text>
+  </g>
+</svg>

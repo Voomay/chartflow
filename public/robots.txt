@@ -1,0 +1,45 @@
+# Chart Replay - robots.txt
+# Optimized for Google SEO, Google Gemini (Google-Extended), OpenAI ChatGPT (OAI-SearchBot, GPTBot, ChatGPT-User), Perplexity, Claude, and Bing
+
+User-agent: *
+Allow: /
+Allow: /traders-insight
+Allow: /traders-insight/
+Allow: /blog/
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: GoogleOther
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://chartreplay.co.za/sitemap.xml

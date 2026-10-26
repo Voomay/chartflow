@@ -1,0 +1,27 @@
+# Chart Replay (chartreplay.co.za)
+
+> Chart Replay is a 100% free, browser-based Forex, Gold (XAUUSD), and Indices historical bar replay backtesting simulator, Prop Firm Challenge evaluator (FTMO Phase 1, Phase 2 & Funded rules), and quantitative R-multiple trading journal proudly built in South Africa.
+
+## Core Platform Capabilities
+- **Historical Candlestick Bar Replay**: Step forward candle-by-candle across `1m`, `5m`, `15m`, `1h`, `4h`, and `1D` timeframes with zero future-candle lookahead bias on `XAUUSD` (Gold), `EURUSD`, `GBPUSD`, `USDJPY`, `NAS100`, and `US30`.
+- **Prop Firm Challenge Simulator**: Real-time tracking and automated rule enforcement for Phase 1 (`10%` profit target), Phase 2 (`5%` profit target), `5%` Maximum Daily Loss (balance/equity ceiling), and `10%` Maximum Total Drawdown.
+- **Dynamic Lot-Size & Risk Calculator**: Instant position size calculation from account balance, risk percentage (`0.25%` – `2.0%`), stop-loss distance in pips/points, and instrument contract specifications across `USD`, `ZAR`, `EUR`, and `GBP` accounts.
+- **Quantitative Trading Journal & Analytics**: Automated calculation of R-Multiple Expectancy (`E = (W * AvgWinR) - (L * AvgLossR)`), Profit Factor, System Quality Number (SQN), Equity & Drawdown Curves, Session Killzone Breakdowns, and CSV Trade Ledger export.
+- **100% Free FX Replay Alternative**: No subscription paywalls or credit card required. Installable as a Progressive Web App (PWA) on Desktop, Android, and iOS.
+
+## Primary Pages
+- [Chart Replay Home & Simulator](https://chartreplay.co.za/): Free Forex backtesting workspace, Prop Firm Challenge simulator, and analytics hub.
+- [Trader's Insight Research Hub](https://chartreplay.co.za/traders-insight): 10 comprehensive, quantitative Forex and Prop Firm strategy guides (~1,150 words each).
+- [Complete AI Knowledge Base (llms-full.txt)](https://chartreplay.co.za/llms-full.txt): Full technical reference, formulas, comparisons, and summaries of all 10 Trader's Insight articles.
+
+## Trader's Insight – 10 Dedicated Forex & Prop Firm Guides
+1. [How to Pass a Prop Firm Challenge in 2026: The Mathematical FTMO Phase 1 & Phase 2 Blueprint](https://chartreplay.co.za/traders-insight/how-to-pass-prop-firm-challenge-ftmo-rules-guide): Asymmetric drawdown math, dynamic risk throttling (`0.5%`–`0.75%` per trade), daily loss circuit breakers, and a 3-stage Chart Replay pre-challenge verification protocol.
+2. [Best Free FX Replay Alternative in 2026: Manual Forex Backtesting & Bar Replay Compared](https://chartreplay.co.za/traders-insight/best-free-fx-replay-alternative-forex-backtesting): Side-by-side comparison of Chart Replay vs FX Replay vs TradingView Bar Replay vs MT4/MT5 Strategy Tester.
+3. [XAUUSD Gold Trading Strategy: Best Sessions, Liquidity Sweeps & Volatility Rules](https://chartreplay.co.za/traders-insight/xauusd-gold-trading-strategy-sessions-liquidity-guide): Asian session range sweeps, London/NY overlap volatility, ATR-adjusted stop placement, and Gold contract math (`1 lot = 100 oz`).
+4. [Smart Money Concepts (SMC) & ICT Silver Bullet: How to Backtest Order Blocks & Fair Value Gaps](https://chartreplay.co.za/traders-insight/smart-money-concepts-ict-silver-bullet-backtesting-guide): Mechanical rules for the 3 ICT Silver Bullet windows (`03:00–04:00`, `10:00–11:00`, `14:00–15:00` NY EST), Displacement, MSS, and FVG entries.
+5. [Forex Risk Management & Position Sizing: Why R-Multiple Expectancy Beats High Win Rate](https://chartreplay.co.za/traders-insight/forex-risk-management-position-size-r-multiple-guide): Universal lot-size formula, R-multiple expectancy equation, and 10,000-trial Monte Carlo risk-of-ruin probabilities.
+6. [Best Forex Trading Sessions in South Africa (SAST Timezone): London, New York & ZAR Volatility](https://chartreplay.co.za/traders-insight/best-forex-trading-sessions-south-africa-sast-guide): Complete `SAST (UTC+2)` session schedule across US/UK Daylight Saving shifts, peak `15:00–18:00 SAST` London-NY overlap, and `USDZAR` / SARB event management.
+7. [Forex Trading Psychology: How to Stop Revenge Trading, FOMO & Overtrading Using Replay Drills](https://chartreplay.co.za/traders-insight/forex-trading-psychology-stop-revenge-trading-fomo): Neurological mechanics of amygdala hijack, the 2-Loss / `-1.5R` Daily Circuit Breaker, and deliberate Chart Replay desensitization drills.
+8. [How to Build a Data-Driven Forex Trading Journal: 7 Metrics That Actually Predict Profitability](https://chartreplay.co.za/traders-insight/how-to-build-forex-trading-journal-metrics-expectancy): Net R-Expectancy, Profit Factor, MAE/MFE, Sharpe/SQN, Holding Time Efficiency, Session Matrix, and Rule Compliance Score.
+9. [Price Action vs Lagging Indicators: What 500 Backtested Forex Trades Reveal About Market Edge](https://chartreplay.co.za/traders-insight/price-action-vs-indicators-forex-backtest-study): Quantitative 500-trade study comparing pure indicator crossovers (`0.91` Profit Factor) vs Price Action structure (`1.68` Profit Factor) vs Price Action + ATR/VWAP regime filter (`1.94` Profit Factor).
+10. [Trading US30, NAS100 & GBPUSD at the New York Open: Opening Range Breakout vs First Pullback](https://chartreplay.co.za/traders-insight/us30-nas100-gbpusd-opening-range-breakout-pullback-strategy): Mechanical comparison of the `09:30 EST` (`15:30/16:30 SAST`) 15-minute Opening Range Breakout (`+0.31R` expectancy) vs First Pullback (`+0.58R` expectancy).

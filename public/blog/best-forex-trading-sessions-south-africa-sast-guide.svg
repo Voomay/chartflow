@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#060b13"/>
+      <stop offset="55%" stop-color="#0b1322"/>
+      <stop offset="100%" stop-color="#071a1e"/>
+    </linearGradient>
+    <linearGradient id="gradLine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0.0"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#1e293b" stroke-width="1" stroke-opacity="0.55"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+
+  <rect x="60" y="36" width="1080" height="118" rx="20" fill="#0d1626" fill-opacity="0.88" stroke="#1e293b" stroke-width="1.5"/>
+  <rect x="84" y="54" width="350" height="26" rx="13" fill="#10b981" fill-opacity="0.15" stroke="#10b981" stroke-opacity="0.45"/>
+  <text x="100" y="72" fill="#10b981" font-family="monospace" font-size="12" font-weight="bold" letter-spacing="1">SOUTH AFRICA (SAST / UTC+2) SESSION CLOCK</text>
+  <text x="1112" y="72" fill="#94a3b8" font-family="monospace" font-size="13" font-weight="bold" text-anchor="end">CHART REPLAY · TRADER'S INSIGHT</text>
+
+  <text x="84" y="110" fill="#f8fafc" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="800">Tokyo, London &amp; New York Overlap in SAST</text>
+  <text x="84" y="136" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="15">Exact Institutional Killzones for South African Forex &amp; Gold Traders</text>
+
+  <rect x="60" y="170" width="1080" height="270" rx="20" fill="#090f1a" fill-opacity="0.9" stroke="#1e293b" stroke-width="1.5"/>
+  
+      <rect x="100" y="230" width="280" height="150" rx="10" fill="#38bdf8" fill-opacity="0.08" stroke="#38bdf8" stroke-opacity="0.4" stroke-dasharray="5 5"/>
+      <text x="116" y="254" fill="#38bdf8" font-family="monospace" font-size="13" font-weight="bold">ASIAN RANGE (02:00-09:00 SAST)</text>
+      <rect x="410" y="195" width="320" height="195" rx="10" fill="#10b981" fill-opacity="0.10" stroke="#10b981" stroke-opacity="0.5"/>
+      <text x="426" y="219" fill="#34d399" font-family="monospace" font-size="13" font-weight="bold">LONDON KILLZONE (09:00-12:00 SAST)</text>
+      <rect x="760" y="170" width="340" height="225" rx="10" fill="#f59e0b" fill-opacity="0.11" stroke="#f59e0b" stroke-opacity="0.55"/>
+      <text x="776" y="194" fill="#fbbf24" font-family="monospace" font-size="13" font-weight="bold">NY OVERLAP (14:30-18:00 SAST)</text>
+      <path d="M120,320 L190,305 L260,330 L350,310 L430,355 L500,255 L580,235 L680,270 L780,300 L860,210 L960,185 L1075,205" fill="none" stroke="url(#gradLine)" stroke-width="4" stroke-linecap="round"/>
+    
+
+  <g transform="translate(60, 460)">
+    <rect x="0" y="0" width="344" height="126" rx="18" fill="#0d1626" stroke="#1e293b" stroke-width="1.5"/>
+    <text x="24" y="42" fill="#94a3b8" font-family="monospace" font-size="12" font-weight="bold">LONDON OPEN (SAST)</text>
+    <text x="24" y="86" fill="#10b981" font-family="monospace" font-size="22" font-weight="800">09:00 - 12:00 SAST</text>
+
+    <rect x="368" y="0" width="344" height="126" rx="18" fill="#0d1626" stroke="#1e293b" stroke-width="1.5"/>
+    <text x="392" y="42" fill="#94a3b8" font-family="monospace" font-size="12" font-weight="bold">NY OVERLAP (SAST)</text>
+    <text x="392" y="86" fill="#f8fafc" font-family="monospace" font-size="22" font-weight="800">14:30 - 18:00 SAST</text>
+
+    <rect x="736" y="0" width="344" height="126" rx="18" fill="#0d1626" stroke="#1e293b" stroke-width="1.5"/>
+    <text x="760" y="42" fill="#94a3b8" font-family="monospace" font-size="12" font-weight="bold">BEST PAIRS</text>
+    <text x="760" y="86" fill="#f59e0b" font-family="monospace" font-size="22" font-weight="800">XAUUSD · GBPUSD · US30</text>
+  </g>
+</svg>

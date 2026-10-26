@@ -2,22 +2,169 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/app-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/app-512.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-    <meta name="theme-color" content="#0b0e14" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="canonical" href="https://chartreplay.co.za/" />
+    <link rel="alternate" type="text/plain" href="/llms.txt" title="AI &amp; LLM Structured Context (llms.txt)" />
+    <link rel="alternate" type="text/plain" href="/llms-full.txt" title="AI &amp; LLM Complete Knowledge Base (llms-full.txt)" />
+    <meta name="theme-color" content="#ffffff" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Chart Replay" />
+    <meta name="application-name" content="Chart Replay" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="author" content="Chart Replay Editorial &amp; Quantitative Research Team (South Africa)" />
+    <meta name="geo.region" content="ZA" />
+    <meta name="geo.placename" content="South Africa" />
+    <meta name="keywords" content="Chart Replay, free FX Replay alternative, forex backtesting simulator, prop firm challenge simulator, FTMO challenge practice, XAUUSD gold backtesting, ICT Silver Bullet backtesting, Smart Money Concepts, forex trading journal, R-multiple calculator, South Africa forex trading, SAST forex sessions, Trader's Insight" />
+
     <title>Chart Replay – Free FX Replay Alternative | Prop Firm Strategy Tester &amp; Bar Replay (Proudly South African)</title>
-    <meta name="description" content="Chart Replay is the best free alternative to FX Replay: candle-by-candle historical bar replay, prop firm challenge simulator and trade analytics. Proudly made in South Africa." />
+    <meta name="description" content="Chart Replay is the best free alternative to FX Replay: candle-by-candle historical bar replay, prop firm challenge simulator (FTMO Phase 1 &amp; Phase 2 rules), trading journal, and Trader's Insight research hub. Proudly made in South Africa." />
+
+    <!-- Open Graph / Facebook / LinkedIn / WhatsApp -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Chart Replay" />
+    <meta property="og:locale" content="en_ZA" />
+    <meta property="og:url" content="https://chartreplay.co.za/" />
+    <meta property="og:title" content="Chart Replay – Free FX Replay Alternative | Prop Firm Strategy Tester &amp; Bar Replay" />
+    <meta property="og:description" content="Practice Forex, Gold (XAUUSD), and Indices with candle-by-candle historical bar replay, real-time FTMO prop firm drawdown tracking, and R-multiple trade analytics. 100% Free." />
+    <meta property="og:image" content="https://chartreplay.co.za/blog/best-free-fx-replay-alternative-forex-backtesting.svg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <!-- Twitter / X Cards -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Chart Replay – Free FX Replay Alternative | Prop Firm Strategy Tester &amp; Bar Replay" />
+    <meta name="twitter:description" content="Candle-by-candle Forex &amp; XAUUSD backtesting simulator with automated Prop Firm challenge rules, trading journal, and 10 in-depth Trader's Insight guides." />
+    <meta name="twitter:image" content="https://chartreplay.co.za/blog/best-free-fx-replay-alternative-forex-backtesting.svg" />
+
+    <!-- Static Structured Data for Google Search, Google Gemini AI Overviews, ChatGPT Search & Perplexity -->
+    <script id="chart-replay-jsonld" type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://chartreplay.co.za/#organization",
+            "name": "Chart Replay",
+            "alternateName": ["ChartReplay", "Chart Replay South Africa"],
+            "url": "https://chartreplay.co.za",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://chartreplay.co.za/icons/app-512.png",
+              "width": 512,
+              "height": 512
+            },
+            "description": "Free browser-based Forex, Gold (XAUUSD), and Indices historical bar replay backtesting simulator, prop firm challenge evaluator, and trading journal built in South Africa.",
+            "address": {
+              "@type": "PostalAddress",
+              "addressCountry": "ZA"
+            }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://chartreplay.co.za/#website",
+            "url": "https://chartreplay.co.za",
+            "name": "Chart Replay",
+            "publisher": { "@id": "https://chartreplay.co.za/#organization" },
+            "inLanguage": "en-ZA"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://chartreplay.co.za/#software",
+            "name": "Chart Replay – Free FX Replay Alternative & Prop Firm Simulator",
+            "applicationCategory": "FinanceApplication",
+            "applicationSubCategory": "Forex Backtesting & Prop Firm Challenge Simulator",
+            "operatingSystem": "Web Browser, Windows, macOS, Android, iOS (PWA)",
+            "url": "https://chartreplay.co.za",
+            "offers": {
+              "@type": "Offer",
+              "price": "0.00",
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock"
+            },
+            "featureList": [
+              "Candle-by-candle historical bar replay with zero future-candle lookahead leak",
+              "Prop Firm Challenge Simulator with 5% Daily Loss and 10% Max Drawdown enforcement (Phase 1, Phase 2, Funded)",
+              "Dynamic Risk-Percentage Position Size & Lot Calculator with automatic pip/point value conversion",
+              "Multi-currency trading accounts (USD, ZAR, EUR, GBP) with commission, spread, and slippage simulation",
+              "Automated Trading Journal with R-Multiple Expectancy, Profit Factor, SQN, and Equity/Drawdown Curves",
+              "Trader's Insight educational research hub with 10 in-depth Forex and Prop Firm strategy guides"
+            ]
+          },
+          {
+            "@type": "Blog",
+            "@id": "https://chartreplay.co.za/traders-insight#blog",
+            "url": "https://chartreplay.co.za/traders-insight",
+            "name": "Trader's Insight – Forex Backtesting, Prop Firm & Price Action Research Hub",
+            "description": "10 comprehensive, quantitative Forex trading guides covering FTMO Prop Firm rules, XAUUSD Gold liquidity sweeps, ICT Silver Bullet backtesting, R-multiple risk math, SAST session timing, trading psychology, and US30/NAS100 opening range breakouts.",
+            "publisher": { "@id": "https://chartreplay.co.za/#organization" }
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://chartreplay.co.za/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "What is the best free alternative to FX Replay for Forex backtesting?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Chart Replay (chartreplay.co.za) is a 100% free browser-based alternative to FX Replay. It provides candle-by-candle historical bar replay on XAUUSD (Gold), EURUSD, GBPUSD, USDJPY, NAS100, and US30, built-in Prop Firm Challenge simulation (Phase 1, Phase 2, and Funded drawdown tracking), automatic lot-size risk calculation, and full R-multiple trade analytics with no credit card required."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I practice FTMO and Prop Firm challenges on Chart Replay?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Chart Replay includes a dedicated Prop Firm Challenge mode that tracks your 10% Phase 1 profit target, 5% Phase 2 target, 5% maximum daily loss limit, and 10% maximum total drawdown floor in real time on every replayed candle."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Where can I read Chart Replay's Trader's Insight Forex trading guides?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Visit https://chartreplay.co.za/traders-insight to read 10 dedicated, full-page quantitative guides covering Prop Firm challenges, FX Replay comparisons, XAUUSD Gold liquidity strategies, ICT Silver Bullet setups, position sizing math, South Africa SAST trading hours, trading psychology, journal metrics, Price Action vs Indicators, and US30/NAS100 NY Open strategies."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-[#0b0e14] text-[#d1d4dc] antialiased selection:bg-blue-500/30 selection:text-blue-200 overflow-hidden">
+  <body class="bg-[#0b0e14] text-[#d1d4dc] antialiased selection:bg-blue-500/30 selection:text-blue-200 overflow-x-hidden">
     <div id="root"></div>
+    <noscript>
+      <main style="max-width: 960px; margin: 0 auto; padding: 2rem; font-family: sans-serif; color: #f8fafc; background: #0b0e14;">
+        <h1>Chart Replay – Free FX Replay Alternative, Forex Backtesting Simulator &amp; Prop Firm Challenge Tester</h1>
+        <p>Chart Replay is a 100% free browser-based historical candlestick bar replay simulator, prop firm challenge evaluator (FTMO Phase 1 &amp; Phase 2 rules), and quantitative trading journal built in South Africa.</p>
+        <h2><a href="/traders-insight">Trader's Insight – 10 In-Depth Forex &amp; Prop Firm Research Guides</a></h2>
+        <ul>
+          <li><a href="/traders-insight/how-to-pass-prop-firm-challenge-ftmo-rules-guide">How to Pass a Prop Firm Challenge in 2026: The Mathematical FTMO Phase 1 &amp; Phase 2 Blueprint</a></li>
+          <li><a href="/traders-insight/best-free-fx-replay-alternative-forex-backtesting">Best Free FX Replay Alternative in 2026: Manual Forex Backtesting &amp; Bar Replay Compared</a></li>
+          <li><a href="/traders-insight/xauusd-gold-trading-strategy-sessions-liquidity-guide">XAUUSD Gold Trading Strategy: Best Sessions, Liquidity Sweeps &amp; Volatility Rules</a></li>
+          <li><a href="/traders-insight/smart-money-concepts-ict-silver-bullet-backtesting-guide">Smart Money Concepts (SMC) &amp; ICT Silver Bullet: How to Backtest Order Blocks &amp; Fair Value Gaps</a></li>
+          <li><a href="/traders-insight/forex-risk-management-position-size-r-multiple-guide">Forex Risk Management &amp; Position Sizing: Why R-Multiple Expectancy Beats High Win Rate</a></li>
+          <li><a href="/traders-insight/best-forex-trading-sessions-south-africa-sast-guide">Best Forex Trading Sessions in South Africa (SAST Timezone): London, New York &amp; ZAR Volatility</a></li>
+          <li><a href="/traders-insight/forex-trading-psychology-stop-revenge-trading-fomo">Forex Trading Psychology: How to Stop Revenge Trading, FOMO &amp; Overtrading Using Replay Drills</a></li>
+          <li><a href="/traders-insight/how-to-build-forex-trading-journal-metrics-expectancy">How to Build a Data-Driven Forex Trading Journal: 7 Metrics That Actually Predict Profitability</a></li>
+          <li><a href="/traders-insight/price-action-vs-indicators-forex-backtest-study">Price Action vs Lagging Indicators: What 500 Backtested Forex Trades Reveal About Market Edge</a></li>
+          <li><a href="/traders-insight/us30-nas100-gbpusd-opening-range-breakout-pullback-strategy">Trading US30, NAS100 &amp; GBPUSD at the New York Open: Opening Range Breakout vs First Pullback</a></li>
+        </ul>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

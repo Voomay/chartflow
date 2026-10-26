@@ -107,6 +107,7 @@ interface AnalyticsDashboardPageProps {
   initialSection?: HubSidebarSection;
   onReturnToChart: () => void;
   onOpenLanding?: () => void;
+  onOpenTradersInsight?: () => void;
 }
 
 export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
@@ -131,6 +132,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   initialSection = 'dashboard',
   onReturnToChart,
   onOpenLanding,
+  onOpenTradersInsight,
 }) => {
   const announcementUser=currentUser?.email||'guest';
   const [announcementPending,setAnnouncementPending]=useState(()=>!hasSeenChartAnnouncement(announcementUser));
@@ -484,6 +486,28 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               </button>
             );
           })}
+          {onOpenTradersInsight && (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenTradersInsight();
+              }}
+              className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition ${
+                isLight
+                  ? 'text-slate-600 hover:bg-slate-100 border border-transparent'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+              }`}
+            >
+              <span className="flex items-center gap-2.5">
+                <BookOpen className="w-4 h-4 text-emerald-400" />
+                <span>Trader&apos;s Insight</span>
+              </span>
+              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">
+                10 Blogs
+              </span>
+            </button>
+          )}
         </nav>
       </div>
 
@@ -519,7 +543,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   );
 
   return (
-    <div data-hub-theme={isLight?'light':'dark'} className={`h-screen w-screen flex overflow-hidden hub-modern ${bgMain}`}>
+    <div data-hub-theme={isLight?'light':'dark'} className={`h-[100dvh] w-full max-w-full flex overflow-hidden hub-modern ${bgMain}`}>
       <ChartAnnouncement open={(announcementPending||announcementManual)&&sidebarSection==='dashboard'&&!isSessionSetupOpen} onClose={closeAnnouncement}/>
       {/* DESKTOP SIDEBAR */}
       <aside className={`hidden md:flex w-64 border-r flex-col justify-between shrink-0 ${sidebarBg}`}>
@@ -540,7 +564,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
       )}
 
       {/* MAIN WORKSPACE CONTENT */}
-      <main ref={workspaceRef} className="min-w-0 flex-1 flex flex-col overflow-y-auto custom-scrollbar">
+      <main ref={workspaceRef} className="min-w-0 max-w-full flex-1 flex flex-col overflow-y-auto overflow-x-hidden custom-scrollbar">
         {/* Top Bar inside Hub */}
         <header
           className={`sticky top-0 z-20 min-h-16 py-3 px-4 sm:px-8 border-b backdrop-blur-xl flex items-center justify-between gap-2 shrink-0 ${sidebarBg}`}
@@ -606,17 +630,17 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* SECTION 1 & 2: DASHBOARD & SESSIONS VIEW */}
         {(sidebarSection === 'dashboard' || sidebarSection === 'sessions') && (
-          <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
+          <div className="px-3.5 sm:px-8 py-5 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 overflow-x-hidden mx-auto">
             {sidebarSection === 'dashboard' && (
               <DashboardOverview name={currentUser?.name} sessions={sessions} activeSession={activeSession} strategyCount={strategies.length} isLight={isLight} onResume={onReturnToChart} onCreate={onOpenCreateSessionModal} onNotes={()=>setSidebarSection('notes')} onGuide={()=>setSidebarSection('guide')} />
             )}
-            <div className="flex items-end justify-between gap-3 pt-2">
-              <div><h2 className="text-base font-semibold tracking-tight">{sidebarSection==='dashboard'?'Your sessions':'All sessions'}</h2><p className="text-xs opacity-50 mt-1">Pick up where you left off.</p></div>
-              <label className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${subCardBg}`}><Search className="w-4 h-4 opacity-50"/><input aria-label="Search sessions" value={sessionSearch} onChange={event=>setSessionSearch(event.target.value)} placeholder="Search sessions..." className="bg-transparent outline-none w-28 sm:w-44"/></label>
+            <div className="flex flex-wrap items-end justify-between gap-2.5 pt-2">
+              <div className="min-w-0"><h2 className="text-base font-semibold tracking-tight">{sidebarSection==='dashboard'?'Your sessions':'All sessions'}</h2><p className="text-xs opacity-50 mt-1">Pick up where you left off.</p></div>
+              <label className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs min-w-0 max-w-full ${subCardBg}`}><Search className="w-4 h-4 opacity-50 shrink-0"/><input aria-label="Search sessions" value={sessionSearch} onChange={event=>setSessionSearch(event.target.value)} placeholder="Search sessions..." className="bg-transparent outline-none w-28 sm:w-44 min-w-0"/></label>
             </div>
 
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 min-w-0">
                 {(
                   [
                     { id: 'ALL', label: `All Sessions (${sessions.length})` },
@@ -633,7 +657,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   <button
                     key={tab.id}
                     onClick={() => setDashboardModeTab(tab.id)}
-                    className={`px-3.5 py-1.5 rounded-full whitespace-nowrap text-xs font-semibold border transition ${
+                    className={`px-2.5 sm:px-3.5 py-1.5 rounded-full whitespace-nowrap text-[11px] sm:text-xs font-semibold border transition ${
                       dashboardModeTab === tab.id
                         ? 'bg-[#252a34] text-white border-[#3a404f]'
                         : `${subCardBg} opacity-75 hover:opacity-100`
@@ -646,14 +670,14 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
               <button
                 onClick={() => onOpenCreateSessionModal()}
-                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"
+                className="px-3.5 py-2 sm:py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" /> Create Session
               </button>
             </div>
 
             {/* Sessions Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-w-0">
               {displayedDashboardSessions.map((sess) => {
                 const metrics = computeLiveSessionMetrics(sess);
                 const isProp = sess.mode === 'PROP_FIRM';
@@ -681,7 +705,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 return (
                   <div
                     key={sess.id}
-                    className={`hub-session-card p-4 sm:p-5 rounded-2xl border flex flex-col justify-between space-y-4 transition-colors hover:border-emerald-500/30 ${
+                    className={`hub-session-card min-w-0 max-w-full overflow-hidden p-4 sm:p-5 rounded-2xl border flex flex-col justify-between space-y-4 transition-colors hover:border-emerald-500/30 ${
                       status === 'FAILED'
                         ? 'border-rose-500/60 ring-1 ring-rose-500/20'
                         : isCurrent
@@ -689,9 +713,9 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                         : ''
                     } ${cardBg}`}
                   >
-                    <div className="space-y-2.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
+                    <div className="space-y-2.5 min-w-0">
+                      <div className="flex items-start justify-between gap-2 min-w-0">
+                        <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span
                               className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded uppercase ${
@@ -719,10 +743,10 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                               {status}
                             </span>
                           </div>
-                          <h4 className="text-sm font-extrabold mt-1.5">
+                          <h4 className="text-sm font-extrabold mt-1.5 truncate">
                             {sess.name}
                           </h4>
-                          <p className="text-[11px] opacity-65">
+                          <p className="text-[11px] opacity-65 truncate">
                             Strategy: {sess.strategyName || 'Discretionary'}
                           </p>
                         </div>
@@ -733,7 +757,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                             setEditSessionStrategy(sess.strategyName || '');
                             setEditSessionDesc(sess.description || '');
                           }}
-                          className="p-1.5 rounded-lg hover:bg-gray-500/15 opacity-70 hover:opacity-100"
+                          className="p-1.5 rounded-lg hover:bg-gray-500/15 opacity-70 hover:opacity-100 shrink-0"
                           title="Session Settings"
                         >
                           <Settings className="w-4 h-4" />
@@ -741,7 +765,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                       </div>
 
                       {/* Instruments & Last Replay Date */}
-                      <div className="flex items-center justify-between text-[11px] font-mono pt-1">
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] font-mono pt-1">
                         <div className="flex items-center gap-1 flex-wrap">
                           {sess.assets.map((sym) => (
                             <span
@@ -752,7 +776,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                             </span>
                           ))}
                         </div>
-                        <span className="opacity-70 text-[10px]">
+                        <span className="opacity-70 text-[10px] truncate">
                           Clock:{' '}
                           {formatTimestampInTimezone(
                             sessReplayTs,
@@ -837,12 +861,12 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                     </div>
 
                     {/* Actions: Resume, Analytics, Settings / New Attempt */}
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-1 min-w-0">
                       <button
                         onClick={() => onSelectSessionAndResume(sess.id)}
-                        className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white keep-white text-xs font-extrabold flex items-center justify-center gap-1.5 transition"
+                        className="flex-1 min-w-[100px] py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white keep-white text-xs font-extrabold flex items-center justify-center gap-1.5 transition"
                       >
-                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <Play className="w-3.5 h-3.5 fill-current shrink-0" />
                         <span>Resume</span>
                       </button>
                       <button
@@ -853,7 +877,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                         }}
                         className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition ${subCardBg} hover:border-emerald-500/60`}
                       >
-                        <BarChart2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <BarChart2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                         <span>Analytics</span>
                       </button>
                       {isProp &&
@@ -914,28 +938,28 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* SECTION 9: ANALYTICS VIEW */}
         {sidebarSection === 'analytics' && (
-          <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
+          <div className="px-3.5 sm:px-8 py-5 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 overflow-x-hidden mx-auto">
             <div><h2 className="text-2xl lg:text-3xl font-semibold tracking-tight">Performance analytics</h2><p className="text-sm opacity-60 mt-2">Understand your edge. Improve every session.</p></div>
             {/* Filters Bar */}
-            <div className="hub-surface p-4 rounded-2xl space-y-3">
+            <div className="hub-surface p-3.5 sm:p-4 rounded-2xl space-y-3 min-w-0 max-w-full overflow-hidden">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider">
                   <Filter className="w-4 h-4 text-[#2962ff]" />
                   <span>Analytics Filters</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => setShowFormulaModal(true)}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 ${subCardBg}`}
+                    className={`px-2.5 sm:px-3 py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold flex items-center gap-1.5 ${subCardBg}`}
                   >
-                    <Info className="w-3.5 h-3.5 text-[#2962ff]" />
+                    <Info className="w-3.5 h-3.5 text-[#2962ff] shrink-0" />
                     <span>Metric Formulas</span>
                   </button>
                   <button
                     onClick={handleExportCsv}
-                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow transition"
+                    className="px-3 sm:px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-extrabold flex items-center gap-1.5 shadow transition"
                   >
-                    <Download className="w-3.5 h-3.5" />
+                    <Download className="w-3.5 h-3.5 shrink-0" />
                     <span>
                       Export CSV ({report.filteredClosedTrades.length} trades)
                     </span>
@@ -1360,7 +1384,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             </div>
 
             {/* Balance & Equity Curve + Drawdown Over Time Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 min-w-0">
               {(() => {
                 const pts = report.equityCurve;
                 const initBal = report.startingBalance;
@@ -1391,7 +1415,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 return (
                   <>
                     <div
-                      className={`lg:col-span-8 relative overflow-hidden p-4 sm:p-5 rounded-2xl border space-y-4 ${cardBg}`}
+                      className={`lg:col-span-8 min-w-0 relative overflow-hidden p-4 sm:p-5 rounded-2xl border space-y-4 ${cardBg}`}
                     >
                       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-500/70 to-transparent" />
                       <div className="pointer-events-none absolute -top-24 -right-24 h-56 w-56 rounded-full bg-blue-500/10 blur-3xl" />
@@ -1465,7 +1489,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                     </div>
 
                     {/* Drawdown Over Time & Outcome Distribution */}
-                    <div className="lg:col-span-4 flex flex-col gap-4">
+                    <div className="lg:col-span-4 min-w-0 flex flex-col gap-4">
                       <div
                         className={`relative overflow-hidden p-4 rounded-2xl border space-y-3 ${cardBg}`}
                       >
@@ -1583,9 +1607,9 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             </details>
 
             {/* Daily P&L Calendar & Breakdowns by Instrument / Strategy / Hour */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 min-w-0">
               {/* Daily P&L Calendar */}
-              <div className={`lg:col-span-6 p-4 rounded-2xl border space-y-3 ${cardBg}`}>
+              <div className={`lg:col-span-6 min-w-0 overflow-hidden p-4 rounded-2xl border space-y-3 ${cardBg}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <CalendarIcon className="w-4 h-4 text-[#2962ff]" />
@@ -1669,7 +1693,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               </div>
 
               {/* Performance by Instrument, Strategy, Direction & Hour */}
-              <div className={`lg:col-span-6 p-4 rounded-2xl border space-y-4 ${cardBg}`}>
+              <div className={`lg:col-span-6 min-w-0 overflow-hidden p-4 rounded-2xl border space-y-4 ${cardBg}`}>
                 <h3 className="text-xs font-extrabold uppercase tracking-wider">
                   Performance Breakdowns (Instrument · Strategy · Direction · Month)
                 </h3>
@@ -1779,7 +1803,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             </div>
 
             {/* SEARCHABLE TRADE TABLE */}
-            <div className={`p-4 rounded-2xl border space-y-3 ${cardBg}`}>
+            <div className={`min-w-0 max-w-full overflow-hidden p-4 rounded-2xl border space-y-3 ${cardBg}`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h3 className="text-xs font-extrabold uppercase tracking-wider">

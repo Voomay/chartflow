@@ -1,5 +1,6 @@
 import {TradingMindset} from './components/TradingMindset';
 import {PartnerPage} from './components/PartnerPage';
+import {TradersInsightPage} from './components/TradersInsightPage';
 import {usePlatformActivity} from './services/usePlatformActivity';
 import {AnimatedOrderPanel} from './components/AnimatedOrderPanel';
 import {AdminDashboard} from './components/AdminDashboard';
@@ -130,36 +131,32 @@ export function App() {
 
   const userEmail = currentUser?.email || 'trader@chartflow.io';
   const readLegalPage=():LegalDocumentKey|null=>{const page=new URLSearchParams(window.location.search).get('legal');return page==='terms'||page==='privacy'||page==='popia'?page:null;};
+  const readInsightRoute=():{active:boolean;slug:string|null}=>{
+    const p=window.location.pathname.replace(/\/+$/,'');
+    if(p==='/traders-insight')return {active:true,slug:null};
+    if(p.startsWith('/traders-insight/')){
+      const slug=decodeURIComponent(p.slice('/traders-insight/'.length));
+      return {active:true,slug:slug||null};
+    }
+    return {active:false,slug:null};
+  };
   const [partnerPage,setPartnerPage]=useState(()=>window.location.pathname==='/partners');
   const [adminPage,setAdminPage]=useState(()=>window.location.pathname==='/admin');
   const [comingSoon,setComingSoon]=useState(()=>window.location.pathname==='/coming-soon');
+  const [insightRoute,setInsightRoute]=useState<{active:boolean;slug:string|null}>(readInsightRoute);
   const [legalPage,setLegalPage]=useState<LegalDocumentKey|null>(readLegalPage);
-  useEffect(()=>{const back=()=>{setPartnerPage(window.location.pathname==='/partners');setLegalPage(readLegalPage());setComingSoon(window.location.pathname==='/coming-soon');setAdminPage(window.location.pathname==='/admin');};window.addEventListener('popstate',back);return()=>window.removeEventListener('popstate',back);},[]);
+  useEffect(()=>{const back=()=>{setPartnerPage(window.location.pathname==='/partners');setLegalPage(readLegalPage());setComingSoon(window.location.pathname==='/coming-soon');setAdminPage(window.location.pathname==='/admin');setInsightRoute(readInsightRoute());};window.addEventListener('popstate',back);return()=>window.removeEventListener('popstate',back);},[]);
   const [balanceHidden,setBalanceHidden]=useState(false);
   const toggleBalance=()=>setBalanceHidden(previous=>!previous);
 
 
-  // 2. View Navigation State (persisted so refresh resumes accurately)
+  // 2. View Navigation State (always open on the landing / home page)
   const [activeView, setActiveView] = useState<
     'terminal' | 'dashboard' | 'analytics_page' | 'login' | 'landing'
   >(() => {
     purgeBrowserSensitiveStorage();
     try {
-      const savedView = localStorage.getItem('chart_replay_active_view_v2') as
-        | 'terminal'
-        | 'dashboard'
-        | 'analytics_page'
-        | 'login'
-        | 'landing'
-        | null;
-      if (
-        savedView &&
-        ['terminal', 'dashboard', 'analytics_page', 'login', 'landing'].includes(
-          savedView
-        )
-      ) {
-        return savedView;
-      }
+      localStorage.removeItem('chart_replay_active_view_v2');
     } catch {
       // ignore
     }
@@ -315,11 +312,6 @@ export function App() {
 
   useEffect(() => {
     purgeBrowserSensitiveStorage();
-    try {
-      localStorage.setItem('chart_replay_active_view_v2', activeView);
-    } catch {
-      // ignore
-    }
   }, [activeView, currentUser?.email, activeSession?.id]);
 
   const updateActiveSession = useCallback(
@@ -1337,9 +1329,49 @@ export function App() {
   const signOut=()=>{setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
   const openComingSoon=()=>{window.history.pushState({},'','/coming-soon');setComingSoon(true);};
   const closeComingSoon=()=>{window.history.pushState({},'','/');setComingSoon(false);setActiveView('landing');};
+  const openTradersInsight=(slug:string|null=null)=>{
+    const path=slug?`/traders-insight/${slug}`:'/traders-insight';
+    window.history.pushState({},'',path);
+    setInsightRoute({active:true,slug});
+  };
+  const closeTradersInsight=()=>{
+    window.history.pushState({},'','/');
+    setInsightRoute({active:false,slug:null});
+    setActiveView('landing');
+  };
   const enterDemo=()=>{const result=authenticateUserAccount('trader@chartflow.io','demo1234');const user=result.user||{id:'user-demo-trader',name:'Alex Mercer',email:'trader@chartflow.io',passwordHash:'',plan:'FREE_FOREVER' as const,joinedAt:new Date().toISOString()};setActiveLoggedInUser(user);resetMotivationVisit(user.email);setCurrentUser({id:user.id,name:user.name,email:user.email,plan:user.plan,joinedAt:user.joinedAt});setHubInitialSection('dashboard');setActiveView('dashboard');};
   if(legalPage)return <LegalPage page={legalPage} onNavigate={openLegal} onBack={closeLegal}/>;
 
+  if(insightRoute.active)return (
+    <TradersInsightPage
+      activeSlug={insightRoute.slug}
+      onSelectArticle={(slug)=>openTradersInsight(slug)}
+      onBackToHome={closeTradersInsight}
+      onOpenLegal={openLegal}
+      onLaunchSimulator={(action)=>{
+        window.history.pushState({},'','/');
+        setInsightRoute({active:false,slug:null});
+        if(action==='prop_firm'){
+          setCreateSessionModalMode('PROP_FIRM');
+          setIsCreateSessionModalOpen(true);
+          setActiveView('terminal');
+          return;
+        }
+        if(action==='new_backtest'){
+          setCreateSessionModalMode('BACKTESTING');
+          setIsCreateSessionModalOpen(true);
+          setActiveView('terminal');
+          return;
+        }
+        if(action==='analytics'){
+          setHubInitialSection('analytics');
+          setActiveView('analytics_page');
+          return;
+        }
+        setActiveView('terminal');
+      }}
+    />
+  );
   if(partnerPage)return <PartnerPage onBack={()=>{window.history.pushState({},'','/');setPartnerPage(false);setActiveView('landing');}} onOpenLegal={openLegal}/>;
   if(adminPage)return <AdminDashboard onBack={()=>{window.history.pushState({},'','/');setAdminPage(false);setActiveView('landing');}}/>;
   if(comingSoon)return <ComingSoonPage onBack={closeComingSoon} onOpenLegal={openLegal}/>;
@@ -1347,7 +1379,7 @@ export function App() {
   // VIEW 1: LANDING PAGE (HOMEPAGE)
   if (activeView === 'landing') {
     return (
-      <LandingPage onDemoLogin={enterDemo} onOpenComingSoon={openComingSoon} onOpenLegal={openLegal}
+      <LandingPage onDemoLogin={enterDemo} onOpenComingSoon={openComingSoon} onOpenTradersInsight={openTradersInsight} onOpenLegal={openLegal}
         onLaunchTerminal={(action) => {
           if (action === 'prop_firm') {
             setCreateSessionModalMode('PROP_FIRM');
@@ -1401,7 +1433,7 @@ export function App() {
         onLogout={() => {
           setActiveLoggedInUser(null);
           setCurrentUser(null);
-          setActiveView('login');
+          setActiveView('landing');
         }}
         currentUser={currentUser}
         onBackToLanding={() => setActiveView('landing')}
@@ -1479,6 +1511,7 @@ export function App() {
           }
           onReturnToChart={() => setActiveView('terminal')}
           onOpenLanding={() => setActiveView('landing')}
+          onOpenTradersInsight={() => openTradersInsight()}
         />
 
         <CreateSessionModal

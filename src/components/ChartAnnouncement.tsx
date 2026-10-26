@@ -3,9 +3,17 @@ import {ArrowRight,Mail,X} from 'lucide-react';
 import {ChartReplayMark} from './ChartReplayLogo';
 
 const memoryAnnouncementSeen = new Set<string>();
-export const announcementKey=(userKey:string)=>`chartflow_chart_announcement_v1:${encodeURIComponent(userKey.toLowerCase())}`;
-export function hasSeenChartAnnouncement(userKey:string){return memoryAnnouncementSeen.has(announcementKey(userKey));}
-export function markChartAnnouncementSeen(userKey:string){memoryAnnouncementSeen.add(announcementKey(userKey));}
+export const announcementKey=(userKey:string)=>`chartflow_chart_announcement_v1:${encodeURIComponent((userKey||'guest').trim().toLowerCase())}`;
+export function hasSeenChartAnnouncement(userKey:string){
+  const key=announcementKey(userKey);
+  if(memoryAnnouncementSeen.has(key))return true;
+  try{return typeof localStorage!=='undefined'&&localStorage.getItem(key)!==null;}catch{return false;}
+}
+export function markChartAnnouncementSeen(userKey:string){
+  const key=announcementKey(userKey);
+  memoryAnnouncementSeen.add(key);
+  try{if(typeof localStorage!=='undefined')localStorage.setItem(key,'seen');}catch{/* Ignore storage restrictions. */}
+}
 
 export function ChartAnnouncement({open,onClose}:{open:boolean;onClose:()=>void}){
   const dialog=useRef<HTMLDialogElement>(null);

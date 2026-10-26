@@ -1,6 +1,6 @@
 import {createDefaultSessionsForUser} from '../storageAndAnalytics';
 import {beforeEach,describe,expect,it} from 'vitest';
-import {aggregateCandlesToTimeframe,getReplayWeekdayTarget,getHistoricalReplayAvailability,clearRealCandleCache,setHistoricalCandles,getProviderChartCandles,setCachedRealCandles,getMarketFeedLabel} from '../goldDataService';
+import {aggregateCandlesToTimeframe,getReplayWeekdayTarget,getHistoricalReplayAvailability,clearRealCandleCache,setHistoricalCandles,getProviderChartCandles,setCachedRealCandles,getMarketFeedLabel,getInstrumentHistoricalCoverage,snapToOpenTradingDate,findExactCandleByTime,findFirstCandleAfterTime} from '../goldDataService';
 import {advanceOrRewindSessionToTimestamp,closeOrCancelPosition,modifyPositionOrOrder,validateAndPlaceOrder,evaluateSessionAt1mTimestamp,validateSessionHistoricalData,getLatest1mCandleAtClock,get1mExecutionSlice,getDay1mCandles,getAggregatedCandlesUpToClock} from '../simulationEngine';
 import {Candle} from '../../types/trading';
 const t=Date.parse('2015-01-05T08:00:00Z')/1000;
@@ -136,5 +136,62 @@ describe('Original historical replay archives',()=>{
   const monday=Date.parse('2015-01-05T00:00:00Z')/1000,sunday=monday+6*86400+22*3600;
   setHistoricalCandles('EURUSD',{'1W':[bar(monday,1.1)],'1D':[bar(monday-86400,1.09),...Array.from({length:7},(_,i)=>bar(monday+i*86400,1.1+i*.01))]},'Archive');
   expect(getProviderChartCandles('EURUSD','1W',sunday)[0].time).toBe(monday);
+ });
+ it('enforces per-instrument archive year and date coverage and rejects unsupported years like 2010',()=>{
+  const usdjpyCov=getInstrumentHistoricalCoverage('USDJPY');
+  expect(usdjpyCov.minYear).toBe(2015);
+  expect(usdjpyCov.maxYear).toBe(2026);
+  expect(usdjpyCov.isYearSupported(2010)).toBe(false);
+  expect(usdjpyCov.isYearSupported(2014)).toBe(false);
+  expect(usdjpyCov.isYearSupported(2018)).toBe(true);
+  expect(validateSessionHistoricalData('2010-09-15','2010-10-15','08:00',['USDJPY']).valid).toBe(false);
+
+  const ethCov=getInstrumentHistoricalCoverage('ETHUSD');
+  expect(ethCov.minDate).toBe('2016-06-01');
+  expect(ethCov.isMonthSupported('2016-05')).toBe(false);
+  expect(ethCov.isMonthSupported('2016-06')).toBe(true);
+
+  const oilCov=getInstrumentHistoricalCoverage('USOIL');
+  expect(oilCov.isYearSupported(2024)).toBe(false);
+  expect(oilCov.isYearSupported(2025)).toBe(false);
+  expect(oilCov.isDateSupported('2026-06-15')).toBe(true);
+ });
+ it('jumps weekends and fixed holidays like 2018-01-01 to the next open trading day on USDJPY',()=>{
+  const jan1=snapToOpenTradingDate('2018-01-01','USDJPY','forward');
+  expect(jan1.adjusted).toBe(true);
+  expect(jan1.date).toBe('2018-01-02');
+  expect(jan1.reason).toContain("New Year's Day");
+
+  const saturday=snapToOpenTradingDate('2018-01-06','USDJPY','forward');
+  expect(saturday.adjusted).toBe(true);
+  expect(saturday.date).toBe('2018-01-08');
+  expect(saturday.reason).toContain('Monday 2018-01-08');
+
+  const validated=validateSessionHistoricalData('2018-01-01','2018-01-31','08:00',['USDJPY']);
+  expect(validated.valid).toBe(true);
+  expect(validated.initialReplayTimestamp).toBe(Date.parse('2018-01-02T08:00:00Z')/1000);
+ });
+ it('fast-forwards from Friday 10:00 directly to Monday 10:00 in O(log N) using binary search without freezing',()=>{
+  const fri10=Date.parse('2024-03-01T08:00:00Z')/1000; // Friday 10:00 SAST (08:00 UTC)
+  const friClose=Date.parse('2024-03-01T21:59:00Z')/1000;
+  const monOpen=Date.parse('2024-03-04T00:00:00Z')/1000;
+  const mon10=Date.parse('2024-03-04T08:00:00Z')/1000; // Monday 10:00 SAST (08:00 UTC)
+  const bars:Candle[]=[];
+  for(let ts=fri10;ts<=friClose;ts+=60)bars.push(bar(ts,2040));
+  for(let ts=monOpen;ts<=mon10+3600;ts+=60)bars.push(bar(ts,2055));
+  setHistoricalCandles('XAUUSD',{'1m':bars},'HistData',fri10,mon10+3600);
+
+  expect(findExactCandleByTime(bars,fri10)?.time).toBe(fri10);
+  expect(findExactCandleByTime(bars,friClose+60)).toBeUndefined();
+  expect(findFirstCandleAfterTime(bars,friClose)?.time).toBe(monOpen);
+
+  const original=createDefaultSessionsForUser('friday-skip-test')[0];
+  const session={...original,status:'ACTIVE' as const,mode:'BACKTESTING' as const,positions:[],realizedPnL:0,replayTimestamp:fri10,startTimestamp:fri10,endTimestamp:mon10+86400,activeAsset:'XAUUSD' as const,assets:['XAUUSD' as const]};
+  const startMs=performance.now();
+  const outcome=advanceOrRewindSessionToTimestamp(session,mon10);
+  const elapsedMs=performance.now()-startMs;
+  expect(outcome.rewindBlockedReason).toBeUndefined();
+  expect(outcome.session.replayTimestamp).toBe(mon10);
+  expect(elapsedMs).toBeLessThan(250);
  });
 });

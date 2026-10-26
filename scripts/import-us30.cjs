@@ -55,115 +55,194 @@ function save(file, rows) {
   fs.writeFileSync(file, z.gzipSync(JSON.stringify(rows), { level: 1 }));
 }
 
-const m1Path = path.join(rawDir, 'USA30IDXUSD_M1.csv');
-const m1Bytes = fs.readFileSync(m1Path);
-const m1Lines = m1Bytes.toString('utf8').trim().split(/\r?\n/);
+function parseCsvFile(filePath, stepSeconds) {
+  const bytes = fs.readFileSync(filePath);
+  const lines = bytes.toString('utf8').trim().split(/\r?\n/);
+  const unique = new Map();
+  let invalid = 0;
+  let duplicates = 0;
 
-const unique = new Map();
-let invalid = 0;
-let duplicates = 0;
-
-for (let i = 1; i < m1Lines.length; i++) {
-  const line = m1Lines[i].trim();
-  if (!line) continue;
-  const parts = line.split('\t');
-  const stamp = Date.parse(parts[0].replace(' ', 'T') + 'Z') / 1000;
-  const o = Number(parts[1]);
-  const h = Number(parts[2]);
-  const l = Number(parts[3]);
-  const c = Number(parts[4]);
-  const v = Number(parts[5]);
-  if (
-    !Number.isFinite(stamp) ||
-    stamp % 60 ||
-    ![o, h, l, c, v].every(Number.isFinite) ||
-    Math.min(o, h, l, c) <= 0 ||
-    h < Math.max(o, c) ||
-    l > Math.min(o, c) ||
-    h < l ||
-    v < 0
-  ) {
-    invalid++;
-    continue;
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const parts = line.split('\t');
+    const stamp = Date.parse(parts[0].replace(' ', 'T') + 'Z') / 1000;
+    const o = Number(parts[1]);
+    const h = Number(parts[2]);
+    const l = Number(parts[3]);
+    const c = Number(parts[4]);
+    const v = Number(parts[5]);
+    if (
+      !Number.isFinite(stamp) ||
+      stamp % stepSeconds ||
+      ![o, h, l, c, v].every(Number.isFinite) ||
+      Math.min(o, h, l, c) <= 0 ||
+      h < Math.max(o, c) ||
+      l > Math.min(o, c) ||
+      h < l ||
+      v < 0
+    ) {
+      invalid++;
+      continue;
+    }
+    if (unique.has(stamp)) duplicates++;
+    unique.set(stamp, [stamp, o, h, l, c, v]);
   }
-  if (unique.has(stamp)) duplicates++;
-  unique.set(stamp, [stamp, o, h, l, c, v]);
+
+  if (!unique.size || invalid > 0) {
+    throw new Error(`US30 CSV validation failed (${path.basename(filePath)}): rows=${unique.size}, invalid=${invalid}`);
+  }
+
+  return {
+    bars: [...unique.values()].sort((a, b) => a[0] - b[0]),
+    invalid,
+    duplicates,
+    sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+  };
 }
 
-if (!unique.size || invalid > 0) {
-  throw new Error(`US30 M1 validation failed: rows=${unique.size}, invalid=${invalid}`);
+const tfSources = [
+  ['1m', 'USA30IDXUSD_M1.csv', 60],
+  ['5m', 'USA30IDXUSD_M5.csv', 300],
+  ['15m', 'USA30IDXUSD_M15.csv', 900],
+  ['30m', 'USA30IDXUSD_M30.csv', 1800],
+  ['1H', 'USA30IDXUSD_H1.csv', 3600],
+  ['4H', 'USA30IDXUSD_H4.csv', 14400],
+  ['1D', 'USA30IDXUSD_D1.csv', 86400],
+];
+
+const parsedByTf = {};
+for (const [tf, fileName, stepSec] of tfSources) {
+  parsedByTf[tf] = parseCsvFile(path.join(rawDir, fileName), stepSec);
 }
 
-const bars = [...unique.values()].sort((a, b) => a[0] - b[0]);
-const steps = { '5m': 300, '15m': 900, '30m': 1800, '1H': 3600, '4H': 14400, '1D': 86400 };
+const m1Bars = parsedByTf['1m'].bars;
 const months = new Map();
-const maps = Object.fromEntries([...Object.keys(steps), '1W', '1M'].map(tf => [tf, new Map()]));
-const gaps = [];
-
-for (let i = 0; i < bars.length; i++) {
-  const b = bars[i];
-  const t = b[0];
-  const date = new Date(t * 1000);
-  const month = date.toISOString().slice(0, 7);
+for (const b of m1Bars) {
+  const month = new Date(b[0] * 1000).toISOString().slice(0, 7);
   if (!months.has(month)) months.set(month, []);
   months.get(month).push(b);
-
-  if (i && t - bars[i - 1][0] > 60) {
-    gaps.push([bars[i - 1][0], t, t - bars[i - 1][0]]);
-  }
-
-  for (const [tf, map] of Object.entries(maps)) {
-    const bucket = steps[tf]
-      ? Math.floor(t / steps[tf]) * steps[tf]
-      : tf === '1W'
-      ? (Math.floor(t / 86400) - ((date.getUTCDay() + 6) % 7)) * 86400
-      : Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
-    const old = map.get(bucket);
-    if (old) {
-      old[2] = Math.max(old[2], b[2]);
-      old[3] = Math.min(old[3], b[3]);
-      old[4] = b[4];
-      old[5] += b[5];
-    } else {
-      map.set(bucket, [bucket, ...b.slice(1)]);
-    }
-  }
 }
-
 for (const [month, rows] of months) {
   save(path.join(storeDir, symbol, '1m', `${month}.json.gz`), rows);
 }
-save(path.join(storeDir, symbol, '1m', '2026.json.gz'), bars);
+save(path.join(storeDir, symbol, '1m', '2026.json.gz'), m1Bars);
 
-for (const [tf, map] of Object.entries(maps)) {
-  save(path.join(storeDir, symbol, tf, '2026.json.gz'), [...map.values()]);
+// Build 1W and 1M from 1D bars (which cover 2013-2026)
+const weeklyMap = new Map();
+const monthlyMap = new Map();
+for (const b of parsedByTf['1D'].bars) {
+  const t = b[0];
+  const date = new Date(t * 1000);
+  const wBucket = (Math.floor(t / 86400) - ((date.getUTCDay() + 6) % 7)) * 86400;
+  const mBucket = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
+
+  const oldW = weeklyMap.get(wBucket);
+  if (oldW) {
+    oldW[2] = Math.max(oldW[2], b[2]);
+    oldW[3] = Math.min(oldW[3], b[3]);
+    oldW[4] = b[4];
+    oldW[5] += b[5];
+  } else {
+    weeklyMap.set(wBucket, [wBucket, ...b.slice(1)]);
+  }
+
+  const oldM = monthlyMap.get(mBucket);
+  if (oldM) {
+    oldM[2] = Math.max(oldM[2], b[2]);
+    oldM[3] = Math.min(oldM[3], b[3]);
+    oldM[4] = b[4];
+    oldM[5] += b[5];
+  } else {
+    monthlyMap.set(mBucket, [mBucket, ...b.slice(1)]);
+  }
 }
+
+const allTfBars = {
+  '5m': parsedByTf['5m'].bars,
+  '15m': parsedByTf['15m'].bars,
+  '30m': parsedByTf['30m'].bars,
+  '1H': parsedByTf['1H'].bars,
+  '4H': parsedByTf['4H'].bars,
+  '1D': parsedByTf['1D'].bars,
+  '1W': [...weeklyMap.values()].sort((a, b) => a[0] - b[0]),
+  '1M': [...monthlyMap.values()].sort((a, b) => a[0] - b[0]),
+};
+
+for (const [tf, tfBars] of Object.entries(allTfBars)) {
+  const byYear = new Map();
+  for (const b of tfBars) {
+    const yr = String(new Date(b[0] * 1000).getUTCFullYear());
+    if (!byYear.has(yr)) byYear.set(yr, []);
+    byYear.get(yr).push(b);
+  }
+  for (const [yr, rows] of byYear) {
+    save(path.join(storeDir, symbol, tf, `${yr}.json.gz`), rows);
+  }
+}
+
+// Compute per-year manifest metadata across all available timeframes (2013-2026)
+const yearsMeta = {};
+const finestByYear = new Map();
+for (const [tf, fileName] of tfSources) {
+  for (const b of parsedByTf[tf].bars) {
+    const yr = String(new Date(b[0] * 1000).getUTCFullYear());
+    if (!finestByYear.has(yr)) {
+      finestByYear.set(yr, { tf, fileName, sha256: parsedByTf[tf].sha256, bars: [] });
+    }
+  }
+}
+// Populate each year using the finest timeframe that has coverage in that year
+for (const [yr, info] of [...finestByYear.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+  // Choose finest timeframe with bars in this year
+  let chosenTf = '1D';
+  let chosenFile = 'USA30IDXUSD_D1.csv';
+  let chosenBars = [];
+  for (const [tf, fileName] of tfSources) {
+    const yrBars = parsedByTf[tf].bars.filter(b => String(new Date(b[0] * 1000).getUTCFullYear()) === yr);
+    if (yrBars.length > chosenBars.length) {
+      chosenTf = tf;
+      chosenFile = fileName;
+      chosenBars = yrBars;
+    }
+  }
+  let first = Infinity;
+  let last = -Infinity;
+  for (const [tf] of tfSources) {
+    for (const b of parsedByTf[tf].bars) {
+      if (String(new Date(b[0] * 1000).getUTCFullYear()) === yr) {
+        if (b[0] < first) first = b[0];
+        if (b[0] > last) last = b[0];
+      }
+    }
+  }
+  yearsMeta[yr] = {
+    rows: chosenBars.length,
+    first,
+    last,
+    finestTimeframe: chosenTf,
+    invalidRows: 0,
+    duplicates: 0,
+    sourceSha256: parsedByTf[chosenTf].sha256,
+    sourceUrl: `https://evtradelabs.com/data (${chosenFile})`,
+  };
+}
+
+const allFirst = Math.min(...Object.values(yearsMeta).map(y => y.first));
+const allLast = Math.max(...Object.values(yearsMeta).map(y => y.last));
+const totalRows = Object.values(yearsMeta).reduce((s, y) => s + y.rows, 0);
 
 const manifestPath = path.join(storeDir, 'manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-const yearItem = {
-  rows: bars.length,
-  first: bars[0][0],
-  last: bars.at(-1)[0],
-  invalidRows: invalid,
-  duplicates,
-  gapsOverOneMinute: gaps.length,
-  largestGapSeconds: Math.max(0, ...gaps.map(g => g[2])),
-  largestGaps: gaps.sort((a, b) => b[2] - a[2]).slice(0, 10),
-  sourceSha256: crypto.createHash('sha256').update(m1Bytes).digest('hex'),
-  sourceUrl: 'https://evtradelabs.com/data (USA30IDXUSD_M1.csv)',
-};
 
 manifest.symbols[symbol] = {
   sourceSymbol,
-  provider: 'EV Trading Labs',
+  provider: 'EV Trading Labs (Dukascopy)',
   priceBasis: 'bid',
-  first: bars[0][0],
-  last: bars.at(-1)[0],
-  rows: bars.length,
-  years: {
-    '2026': yearItem,
-  },
+  first: allFirst,
+  last: allLast,
+  rows: totalRows,
+  years: yearsMeta,
 };
 
 fs.writeFileSync(manifestPath + '.tmp', JSON.stringify(manifest));
@@ -172,9 +251,10 @@ fs.renameSync(manifestPath + '.tmp', manifestPath);
 console.log(
   JSON.stringify({
     symbol,
-    rows: bars.length,
-    months: [...months.keys()],
-    first: new Date(bars[0][0] * 1000).toISOString(),
-    last: new Date(bars.at(-1)[0] * 1000).toISOString(),
-  })
+    totalRows,
+    years: Object.keys(yearsMeta),
+    months1m: [...months.keys()],
+    first: new Date(allFirst * 1000).toISOString(),
+    last: new Date(allLast * 1000).toISOString(),
+  }, null, 2)
 );

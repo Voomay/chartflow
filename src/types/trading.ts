@@ -570,6 +570,104 @@ export type DrawingTool =
   | 'long_position'
   | 'short_position';
 
+export interface FibLevelConfig {
+  level: number;
+  color: string;
+  enabled: boolean;
+}
+
+export type FibLevelsFormat = 'values' | 'percent';
+export type FibLabelsPosition = 'left' | 'center' | 'right';
+export type FibLabelsAlign = 'top' | 'middle' | 'bottom';
+
+export interface FibSettings {
+  levels: FibLevelConfig[];
+  showTrendLine?: boolean;
+  trendLineColor?: string;
+  trendLineStyle?: LineStyleType;
+  trendLineWidth?: number;
+  extendLeft?: boolean;
+  extendRight?: boolean;
+  reverse?: boolean;
+  showPrices?: boolean;
+  showLevels?: boolean;
+  levelsFormat?: FibLevelsFormat;
+  labelsPosition?: FibLabelsPosition;
+  labelsAlign?: FibLabelsAlign;
+  showBackground?: boolean;
+  backgroundOpacity?: number;
+  useSingleColor?: boolean;
+  singleColor?: string;
+}
+
+export type MovingAverageMethod = 'EMA' | 'SMA' | 'WMA';
+export type IndicatorPriceSource = 'close' | 'open' | 'high' | 'low' | 'hl2' | 'hlc3';
+
+export interface MovingAverageIndicatorConfig {
+  id: string;
+  method: MovingAverageMethod;
+  period: number;
+  source: IndicatorPriceSource;
+  color: string;
+  lineWidth: number;
+  lineStyle: LineStyleType;
+  enabled?: boolean;
+}
+
+export interface VWAPIndicatorConfig {
+  color: string;
+  lineWidth: number;
+  lineStyle: LineStyleType;
+}
+
+export interface BollingerIndicatorConfig {
+  period: number;
+  stdDev: number;
+  upperColor: string;
+  middleColor: string;
+  lowerColor: string;
+  lineWidth: number;
+  lineStyle: LineStyleType;
+  showFill: boolean;
+  fillOpacity: number;
+}
+
+export interface RSIIndicatorConfig {
+  period: number;
+  color: string;
+  lineWidth: number;
+  overbought: number;
+  oversold: number;
+}
+
+export interface MACDIndicatorConfig {
+  fastPeriod: number;
+  slowPeriod: number;
+  signalPeriod: number;
+  macdColor: string;
+  signalColor: string;
+  lineWidth: number;
+}
+
+export interface VolumeIndicatorConfig {
+  maPeriod: number;
+  showMA: boolean;
+  maColor: string;
+}
+
+export interface ChartIndicatorConfigs {
+  maConfigs: Record<string, MovingAverageIndicatorConfig>;
+  customMAs: MovingAverageIndicatorConfig[];
+  vwap: VWAPIndicatorConfig;
+  boll: BollingerIndicatorConfig;
+  rsi: RSIIndicatorConfig;
+  macd: MACDIndicatorConfig;
+  vol: VolumeIndicatorConfig;
+  engulfing: { upColor: string; downColor: string };
+  momentum: { fastColor: string; slowColor: string; lineWidth: number };
+  forecast: { lookback: number; horizon: number; primaryColor: string; secondaryColor: string };
+}
+
 export interface ChartDrawing {
   id: string;
   type:
@@ -615,6 +713,9 @@ export interface ChartDrawing {
   locked?: boolean;
   fontSize?: number;
   labelPosition?: 'top' | 'middle' | 'bottom';
+  labelAlign?: 'left' | 'center' | 'right';
+  textColor?: string;
+  fibSettings?: FibSettings;
 }
 
 export interface GoldNewsItem {

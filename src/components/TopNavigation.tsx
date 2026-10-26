@@ -8,6 +8,7 @@ import {
   BarChart3,
   BookOpen,
   BrainCircuit,
+  Camera,
   CandlestickChart,
   ChevronDown,
   Clock,
@@ -17,12 +18,14 @@ import {
   Maximize2,
   Minimize2,
   Moon,
+  Plus,
   Radio,
   Scissors,
   Search,
   Settings,
   StickyNote,
   Sun,
+  Trash2,
   Trophy,
   User,
   LogOut,
@@ -32,6 +35,7 @@ import {
 } from 'lucide-react';
 import {
   CandleColorStyle,
+  ChartIndicatorConfigs,
   DisplayTimezone,
   CustomCandleColors,
   InstrumentCategory,
@@ -42,6 +46,7 @@ import {
   Timeframe,
   TradingSession,
 } from '../types/trading';
+import { DEFAULT_INDICATOR_CONFIGS } from '../services/chartDrawingGeometry';
 import {
   getCachedRealCandles,
   getInstrumentConfig,
@@ -117,6 +122,10 @@ interface TopNavigationProps {
   isPlanPinned?: boolean;
   indicators?: ChartIndicatorsState;
   onToggleIndicator?: (key: keyof ChartIndicatorsState) => void;
+  indicatorConfigs?: ChartIndicatorConfigs;
+  onUpdateIndicatorConfigs?: (updater: (prev: ChartIndicatorConfigs) => ChartIndicatorConfigs) => void;
+  onOpenIndicatorSettings?: (indicatorId: string) => void;
+  onTakeScreenshot?: () => void;
   onStartTour?: () => void;
   onLogout?:()=>void;
   balanceHidden?:boolean;
@@ -178,6 +187,10 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   isPlanPinned = false,
   indicators,
   onToggleIndicator,
+  indicatorConfigs,
+  onUpdateIndicatorConfigs,
+  onOpenIndicatorSettings,
+  onTakeScreenshot,
   onStartTour,
   onLogout,
   balanceHidden=false,
@@ -570,78 +583,250 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                       ...indicatorsMenuPosition,
                       maxHeight: Math.max(180, window.innerHeight - indicatorsMenuPosition.top - 12),
                     }}
-                    className={`fixed w-60 overflow-y-auto rounded-xl border p-1.5 z-[71] text-xs shadow-2xl ${
+                    className={`fixed w-72 overflow-y-auto rounded-xl border p-2 z-[71] text-xs shadow-2xl ${
                       isLight
                         ? 'bg-white border-[#e0e3eb] text-[#131722]'
                         : 'bg-[#1a1e26] border-[#2a2e39] text-[#d1d4dc]'
                     }`}
                   >
-                    <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider opacity-60">
-                      Overlays
-                    </div>
-                    {(
-                      [
-                        ['EMA 20', 'showEMA20', '#06b6d4'],
-                        ['EMA 50', 'showEMA50', '#f59e0b'],
-                        ['EMA 200', 'showEMA200', '#a855f7'],
-                        ['SMA 20', 'showSMA20', '#ec4899'],
-                        ['VWAP', 'showVWAP', '#3b82f6'],
-                        ['Bollinger Bands', 'showBOLL', '#9333ea'],
-                        ['__sub__', null, ''],
-                        ['Volume', 'showVOL', '#6366f1'],
-                        ['MACD', 'showMACD', '#0ea5e9'],
-                        ['RSI', 'showRSI', '#14b8a6'],
-                        ['__ai__', null, ''],
-                        ['Engulfing Vol / Momentum', 'showEngulfing', '#10b981'],
-                        ['Momentum Pullback · 2R', 'showMomentum', '#34d399'],
-                        ['Forecaster', 'showForecast', '#8b5cf6'],
-                      ] as Array<[string, keyof ChartIndicatorsState | null, string]>
-                    ).map(([label, key, color]) =>
-                      key === null ? (
-                        <div
-                          key={label}
-                          className="px-2 pt-2 pb-1 text-[9px] font-bold uppercase tracking-wider opacity-60"
-                        >
-                          {label === '__sub__' ? 'Sub-panes' : 'Analysis'}
-                        </div>
-                      ) : (
-                        <button
-                          key={label}
-                          type="button"
-                          onClick={() => onToggleIndicator(key)}
-                          className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded text-[11px] font-semibold transition ${
-                            isLight ? 'hover:bg-[#f0f3fa]' : 'hover:bg-[#242832]'
-                          }`}
-                        >
-                          <span className="flex items-center gap-2">
-                            {label === 'Forecaster' ? (
-                              <Wand2 className="w-3 h-3" style={{ color }} />
+                    {(() => {
+                      const cfg = indicatorConfigs || DEFAULT_INDICATOR_CONFIGS;
+                      const ma20 = cfg.maConfigs.showEMA20 || DEFAULT_INDICATOR_CONFIGS.maConfigs.showEMA20;
+                      const ma50 = cfg.maConfigs.showEMA50 || DEFAULT_INDICATOR_CONFIGS.maConfigs.showEMA50;
+                      const ma200 = cfg.maConfigs.showEMA200 || DEFAULT_INDICATOR_CONFIGS.maConfigs.showEMA200;
+                      const sma20 = cfg.maConfigs.showSMA20 || DEFAULT_INDICATOR_CONFIGS.maConfigs.showSMA20;
+
+                      const rows: Array<{
+                        label: string;
+                        key: keyof ChartIndicatorsState | null;
+                        color: string;
+                        settingsId?: string;
+                      }> = [
+                        { label: `${ma20.method} ${ma20.period}`, key: 'showEMA20', color: ma20.color, settingsId: 'showEMA20' },
+                        { label: `${ma50.method} ${ma50.period}`, key: 'showEMA50', color: ma50.color, settingsId: 'showEMA50' },
+                        { label: `${ma200.method} ${ma200.period}`, key: 'showEMA200', color: ma200.color, settingsId: 'showEMA200' },
+                        { label: `${sma20.method} ${sma20.period}`, key: 'showSMA20', color: sma20.color, settingsId: 'showSMA20' },
+                        { label: 'VWAP', key: 'showVWAP', color: cfg.vwap.color, settingsId: 'showVWAP' },
+                        { label: `Bollinger Bands (${cfg.boll.period}, ${cfg.boll.stdDev})`, key: 'showBOLL', color: cfg.boll.upperColor, settingsId: 'showBOLL' },
+                        { label: '__sub__', key: null, color: '' },
+                        { label: `Volume (MA ${cfg.vol.maPeriod})`, key: 'showVOL', color: cfg.vol.maColor, settingsId: 'showVOL' },
+                        { label: `MACD (${cfg.macd.fastPeriod}, ${cfg.macd.slowPeriod}, ${cfg.macd.signalPeriod})`, key: 'showMACD', color: cfg.macd.macdColor, settingsId: 'showMACD' },
+                        { label: `RSI (${cfg.rsi.period})`, key: 'showRSI', color: cfg.rsi.color, settingsId: 'showRSI' },
+                        { label: '__ai__', key: null, color: '' },
+                        { label: 'Engulfing Vol / Momentum', key: 'showEngulfing', color: cfg.engulfing.upColor, settingsId: 'showEngulfing' },
+                        { label: 'Momentum Pullback · 2R', key: 'showMomentum', color: cfg.momentum.fastColor, settingsId: 'showMomentum' },
+                        { label: 'Forecaster', key: 'showForecast', color: cfg.forecast.secondaryColor, settingsId: 'showForecast' },
+                      ];
+
+                      return (
+                        <>
+                          <div className="px-2 py-1 flex items-center justify-between text-[9px] font-bold uppercase tracking-wider opacity-60">
+                            <span>Overlays & Moving Averages</span>
+                            <span>Click ⚙ or Line to Edit</span>
+                          </div>
+                          {rows.map(({ label, key, color, settingsId }) =>
+                            key === null ? (
+                              <div
+                                key={label}
+                                className="px-2 pt-2 pb-1 text-[9px] font-bold uppercase tracking-wider opacity-60 border-t border-gray-500/15 mt-1"
+                              >
+                                {label === '__sub__' ? 'Sub-panes' : 'Analysis'}
+                              </div>
                             ) : (
-                              <span
-                                className="w-2.5 h-2.5 rounded-full"
-                                style={{ background: color }}
-                              />
-                            )}
-                            {label}
-                          </span>
-                          <span
-                            className={`relative w-7 h-4 rounded-full transition ${
-                              indicators[key]
-                                ? 'bg-emerald-500'
-                                : isLight
-                                ? 'bg-gray-300'
-                                : 'bg-gray-600'
-                            }`}
-                          >
-                            <span
-                              className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${
-                                indicators[key] ? 'left-3.5' : 'left-0.5'
-                              }`}
-                            />
-                          </span>
-                        </button>
-                      )
-                    )}
+                              <div
+                                key={key}
+                                className={`w-full flex items-center justify-between gap-1 px-2 py-1.5 rounded text-[11px] font-semibold transition ${
+                                  isLight ? 'hover:bg-[#f0f3fa]' : 'hover:bg-[#242832]'
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleIndicator(key)}
+                                  className="flex-1 flex items-center gap-2 text-left min-w-0"
+                                >
+                                  {key === 'showForecast' ? (
+                                    <Wand2 className="w-3 h-3 shrink-0" style={{ color }} />
+                                  ) : (
+                                    <span
+                                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                                      style={{ background: color }}
+                                    />
+                                  )}
+                                  <span className="truncate">{label}</span>
+                                </button>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {settingsId && onOpenIndicatorSettings && (
+                                    <button
+                                      type="button"
+                                      aria-label={`Configure ${label}`}
+                                      title={`Change ${label} period, EMA/SMA type, color & style`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!indicators[key]) {
+                                          onToggleIndicator(key);
+                                        }
+                                        onOpenIndicatorSettings(settingsId);
+                                        setIsIndicatorsMenuOpen(false);
+                                      }}
+                                      className="p-1 rounded hover:bg-blue-500/15 text-slate-400 hover:text-[#2962ff] transition"
+                                    >
+                                      <Settings className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    aria-label={`Toggle ${label}`}
+                                    onClick={() => onToggleIndicator(key)}
+                                    className={`relative w-7 h-4 rounded-full transition ${
+                                      indicators[key]
+                                        ? 'bg-emerald-500'
+                                        : isLight
+                                        ? 'bg-gray-300'
+                                        : 'bg-gray-600'
+                                    }`}
+                                  >
+                                    <span
+                                      className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${
+                                        indicators[key] ? 'left-3.5' : 'left-0.5'
+                                      }`}
+                                    />
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          )}
+
+                          {/* Custom Added Moving Averages */}
+                          {cfg.customMAs.length > 0 && (
+                            <div className="pt-1.5 mt-1 border-t border-gray-500/15 space-y-0.5">
+                              <div className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider opacity-60">
+                                Custom Moving Averages
+                              </div>
+                              {cfg.customMAs.map((cma) => (
+                                <div
+                                  key={cma.id}
+                                  className={`w-full flex items-center justify-between gap-1 px-2 py-1.5 rounded text-[11px] font-semibold transition ${
+                                    isLight ? 'hover:bg-[#f0f3fa]' : 'hover:bg-[#242832]'
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onUpdateIndicatorConfigs?.((prev) => ({
+                                        ...prev,
+                                        customMAs: prev.customMAs.map((m) =>
+                                          m.id === cma.id ? { ...m, enabled: m.enabled === false } : m
+                                        ),
+                                      }))
+                                    }
+                                    className="flex-1 flex items-center gap-2 text-left min-w-0"
+                                  >
+                                    <span
+                                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                                      style={{ background: cma.color }}
+                                    />
+                                    <span className="truncate">
+                                      {cma.method} {cma.period}
+                                    </span>
+                                  </button>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    {onOpenIndicatorSettings && (
+                                      <button
+                                        type="button"
+                                        title={`Configure ${cma.method} ${cma.period}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onOpenIndicatorSettings(cma.id);
+                                          setIsIndicatorsMenuOpen(false);
+                                        }}
+                                        className="p-1 rounded hover:bg-blue-500/15 text-slate-400 hover:text-[#2962ff] transition"
+                                      >
+                                        <Settings className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      title="Remove custom Moving Average"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onUpdateIndicatorConfigs?.((prev) => ({
+                                          ...prev,
+                                          customMAs: prev.customMAs.filter((m) => m.id !== cma.id),
+                                        }));
+                                      }}
+                                      className="p-1 rounded hover:bg-rose-500/15 text-slate-400 hover:text-rose-500 transition"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onUpdateIndicatorConfigs?.((prev) => ({
+                                          ...prev,
+                                          customMAs: prev.customMAs.map((m) =>
+                                            m.id === cma.id ? { ...m, enabled: m.enabled === false } : m
+                                          ),
+                                        }))
+                                      }
+                                      className={`relative w-7 h-4 rounded-full transition ${
+                                        cma.enabled !== false
+                                          ? 'bg-emerald-500'
+                                          : isLight
+                                          ? 'bg-gray-300'
+                                          : 'bg-gray-600'
+                                      }`}
+                                    >
+                                      <span
+                                        className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${
+                                          cma.enabled !== false ? 'left-3.5' : 'left-0.5'
+                                        }`}
+                                      />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {onUpdateIndicatorConfigs && (
+                            <div className="pt-1.5 mt-1 border-t border-gray-500/15 px-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newId = `custom_ma_${Date.now()}`;
+                                  const palette = ['#38bdf8', '#fbbf24', '#34d399', '#f472b6', '#818cf8', '#fb7185'];
+                                  const nextColor = palette[cfg.customMAs.length % palette.length];
+                                  onUpdateIndicatorConfigs((prev) => ({
+                                    ...prev,
+                                    customMAs: [
+                                      ...prev.customMAs,
+                                      {
+                                        id: newId,
+                                        method: 'EMA',
+                                        period: 45,
+                                        source: 'close',
+                                        color: nextColor,
+                                        lineWidth: 1.5,
+                                        lineStyle: 'solid',
+                                        enabled: true,
+                                      },
+                                    ],
+                                  }));
+                                  if (onOpenIndicatorSettings) {
+                                    onOpenIndicatorSettings(newId);
+                                    setIsIndicatorsMenuOpen(false);
+                                  }
+                                }}
+                                className="w-full py-1.5 px-2 rounded-lg bg-[#2962ff]/15 hover:bg-[#2962ff]/25 text-[#2962ff] font-bold text-[11px] flex items-center justify-center gap-1.5 transition"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Add Custom EMA / SMA</span>
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </>,
                 document.body
@@ -688,6 +873,19 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
               <Sun className="w-3.5 h-3.5 text-amber-400" />
             )}
           </button>
+
+          {/* Chart Screenshot (Camera) */}
+          {onTakeScreenshot && (
+            <button
+              type="button"
+              onClick={onTakeScreenshot}
+              aria-label="Take chart screenshot"
+              className={`p-1.5 rounded border transition shrink-0 ${cardBg}`}
+              title="Take a snapshot / screenshot of the current chart (PNG)"
+            >
+              <Camera className="w-3.5 h-3.5 text-sky-400" />
+            </button>
+          )}
 
           {/* Browser Full Screen */}
           <button

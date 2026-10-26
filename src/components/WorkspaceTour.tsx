@@ -4,13 +4,23 @@ import {GuidedTour,TourCloseReason,TourStep} from './GuidedTour';
 import type {HubSidebarSection} from './AnalyticsDashboardPage';
 
 interface WorkspaceTourProps {
- blocked?:boolean;userKey:string;name?:string;section:HubSidebarSection;isSessionSetupOpen:boolean;
+ blocked?:boolean;isReturning?:boolean;userKey:string;name?:string;section:HubSidebarSection;isSessionSetupOpen:boolean;
  onNavigate:(section:HubSidebarSection)=>void;onOpenSessionSetup:()=>void;onCloseSessionSetup:()=>void;
 }
 const memoryWorkspaceTourSeen = new Set<string>();
-export const WorkspaceTour:React.FC<WorkspaceTourProps>=({blocked=false,userKey,name,section,isSessionSetupOpen,onNavigate,onOpenSessionSetup,onCloseSessionSetup})=>{
+export const workspaceTourKey=(userKey:string)=>`chartflow_workspace_tour_v1:${encodeURIComponent((userKey||'guest').trim().toLowerCase())}`;
+export function hasSeenWorkspaceTour(userKey:string):boolean{
+ const key=workspaceTourKey(userKey);
+ if(memoryWorkspaceTourSeen.has(key))return true;
+ try{return typeof localStorage!=='undefined'&&localStorage.getItem(key)!==null;}catch{return false;}
+}
+export function markWorkspaceTourSeen(userKey:string,reason:TourCloseReason='completed'):void{
+ const key=workspaceTourKey(userKey);
+ memoryWorkspaceTourSeen.add(key);
+ try{if(typeof localStorage!=='undefined')localStorage.setItem(key,JSON.stringify({reason,at:new Date().toISOString()}));}catch{/* Manual replay still works when browser storage is unavailable. */}
+}
+export const WorkspaceTour:React.FC<WorkspaceTourProps>=({blocked=false,isReturning=false,userKey,name,section,isSessionSetupOpen,onNavigate,onOpenSessionSetup,onCloseSessionSetup})=>{
  const [open,setOpen]=useState(false);
- const key=`chartflow_workspace_tour_v1:${encodeURIComponent(userKey.toLowerCase())}`;
  const firstName=name?.trim().split(/\s+/)[0];
  const steps=useMemo<TourStep[]>(()=>[
   {id:'welcome',title:`Greetings${firstName?`, ${firstName}`:''}.`,body:'Welcome to your trading workspace. Let’s take a quick look at creating a session, setting it up, reviewing your progress, and opening the charts.'},
@@ -24,15 +34,20 @@ export const WorkspaceTour:React.FC<WorkspaceTourProps>=({blocked=false,userKey,
   {id:'charts',target:'hub-chart',title:'You’re ready for the charts',body:'Open Chart Workspace to continue your active session. To start fresh, finish this tour and create your session. The chart also has a Tour button for its trading tools.',placement:'bottom'},
  ],[firstName]);
  const start=()=>{onCloseSessionSetup();onNavigate('dashboard');setOpen(true);};
- const close=useCallback((_reason:TourCloseReason)=>{
-  memoryWorkspaceTourSeen.add(key);
+ const close=useCallback((reason:TourCloseReason)=>{
+  markWorkspaceTourSeen(userKey,reason);
   setOpen(false);onCloseSessionSetup();
- },[key,onCloseSessionSetup]);
+ },[userKey,onCloseSessionSetup]);
  useEffect(()=>{
+  if(isReturning){markWorkspaceTourSeen(userKey);return;}
   if(blocked||section!=='dashboard'||open||isSessionSetupOpen)return;
-  if(memoryWorkspaceTourSeen.has(key))return;
-  const timer=setTimeout(()=>setOpen(true),800);return()=>clearTimeout(timer);
- },[key,section,open,isSessionSetupOpen,blocked]);
+  if(hasSeenWorkspaceTour(userKey))return;
+  const timer=setTimeout(()=>{
+   markWorkspaceTourSeen(userKey);
+   setOpen(true);
+  },800);
+  return()=>clearTimeout(timer);
+ },[userKey,section,open,isSessionSetupOpen,blocked,isReturning]);
  const changeStep=(step:TourStep)=>{
   if(step.id.startsWith('setup-')){if(!isSessionSetupOpen)onOpenSessionSetup();return;}
   onCloseSessionSetup();

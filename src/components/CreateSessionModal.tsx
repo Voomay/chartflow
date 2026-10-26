@@ -16,7 +16,12 @@ import {
   SessionAdvancedOptions,
   TradingSession,
 } from '../types/trading';
-import { getInstrumentConfig, INSTRUMENTS } from '../services/goldDataService';
+import {
+  getInstrumentConfig,
+  getInstrumentHistoricalCoverage,
+  INSTRUMENTS,
+  snapToOpenTradingDate,
+} from '../services/goldDataService';
 import {
   createInitialChallengeState,
   formatMoney,
@@ -189,22 +194,26 @@ const POPULAR_MARKETS: InstrumentSymbol[] = [
   'XAGUSD',
 ];
 
-function getDateRangePresets() {
-  const now = new Date();
-  const endDate = now.toLocaleDateString('en-CA');
+function getDateRangePresets(symbol: InstrumentSymbol = 'XAUUSD') {
+  const coverage = getInstrumentHistoricalCoverage(symbol);
+  const todayIso = new Date().toLocaleDateString('en-CA');
+  const endDate = coverage.maxDate < todayIso ? coverage.maxDate : todayIso;
+  const endAnchor = new Date(`${endDate}T00:00:00Z`);
   const monthsAgo = (count: number) => {
-    const first = new Date(now.getFullYear(), now.getMonth() - count, 1);
-    const lastDay = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
-    first.setDate(Math.min(now.getDate(), lastDay));
-    return first.toLocaleDateString('en-CA');
+    const first = new Date(Date.UTC(endAnchor.getUTCFullYear(), endAnchor.getUTCMonth() - count, 1));
+    const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+    first.setUTCDate(Math.min(endAnchor.getUTCDate(), lastDay));
+    const rawIso = first.toISOString().slice(0, 10);
+    return snapToOpenTradingDate(rawIso, symbol, 'forward').date;
   };
-  const week = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+  const week = new Date(Date.UTC(endAnchor.getUTCFullYear(), endAnchor.getUTCMonth(), endAnchor.getUTCDate() - 7));
+  const weekIso = snapToOpenTradingDate(week.toISOString().slice(0, 10), symbol, 'forward').date;
   return [
     {id:'1Y',label:'1 Year Ago → Now',startDate:monthsAgo(12),endDate},
     {id:'6M',label:'6 Months Ago → Now',startDate:monthsAgo(6),endDate},
     {id:'3M',label:'3 Months Ago → Now',startDate:monthsAgo(3),endDate},
     {id:'1M',label:'1 Month Ago → Now',startDate:monthsAgo(1),endDate},
-    {id:'7D',label:'Last 7 Days',startDate:week.toLocaleDateString('en-CA'),endDate},
+    {id:'7D',label:'Last 7 Days',startDate:weekIso,endDate},
   ];
 }
 
@@ -266,9 +275,14 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   const [assetCategory, setAssetCategory] = useState<InstrumentCategory>('ALL');
 
   // Historical Date & Time Range State (Defaults to 1 Year Ago -> Now so users have full history ready immediately)
-  const DATE_RANGE_PRESETS = useMemo(() => getDateRangePresets(), [isOpen]);
-  const [startDate, setStartDate] = useState<string>(() => getDateRangePresets()[0].startDate);
-  const [endDate, setEndDate] = useState<string>(() => getDateRangePresets()[0].endDate);
+  const primarySelectedAsset: InstrumentSymbol = selectedAssets[0] || 'XAUUSD';
+  const DATE_RANGE_PRESETS = useMemo(
+    () => getDateRangePresets(primarySelectedAsset),
+    [isOpen, primarySelectedAsset]
+  );
+  const [startDate, setStartDate] = useState<string>(() => getDateRangePresets('XAUUSD')[0].startDate);
+  const [endDate, setEndDate] = useState<string>(() => getDateRangePresets('XAUUSD')[0].endDate);
+  const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
   const [replayStartTime, setReplayStartTime] = useState<string>('08:00');
   const [selectedQuickStart, setSelectedQuickStart] = useState<string | null>(null);
   const [customStartTime, setCustomStartTime] = useState('08:00');
@@ -330,20 +344,27 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const toggleAsset = (sym: InstrumentSymbol) => {
-    if(isInstrumentComingSoon(sym))return;
+  const applyAssetSelection = (sym: InstrumentSymbol) => {
+    if (isInstrumentComingSoon(sym)) return;
     setSelectedAssets([sym]);
-    if (sym === 'US30' && startDate < '2026-03-26') {
-      setStartDate('2026-03-26');
+    const cov = getInstrumentHistoricalCoverage(sym);
+    const snapped = snapToOpenTradingDate(startDate, sym, 'forward');
+    const nextStart = snapped.date;
+    let nextEnd = endDate > cov.maxDate ? cov.maxDate : endDate;
+    if (nextEnd <= nextStart) {
+      nextEnd = cov.maxDate;
     }
+    setStartDate(nextStart);
+    setEndDate(nextEnd);
+    setScheduleNotice(snapped.adjusted && snapped.reason ? snapped.reason : null);
+  };
+
+  const toggleAsset = (sym: InstrumentSymbol) => {
+    applyAssetSelection(sym);
   };
 
   const selectSinglePrimaryAsset = (sym: InstrumentSymbol) => {
-    if(isInstrumentComingSoon(sym))return;
-    setSelectedAssets([sym]);
-    if (sym === 'US30' && startDate < '2026-03-26') {
-      setStartDate('2026-03-26');
-    }
+    applyAssetSelection(sym);
   };
 
   const handleSelectExampleProfile = (presetId: Exclude<PropFirmPresetId, 'CUSTOM'>) => {
@@ -388,11 +409,13 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
     if (!dataValidation.valid) return;
 
     const primaryAsset = selectedAssets[0] || 'XAUUSD';
+    const snappedStart = snapToOpenTradingDate(startDate, primaryAsset, 'forward');
+    const effectiveStartDate = snappedStart.date <= endDate ? snappedStart.date : startDate;
     const finalName =
       sessionName.trim() ||
       (mode === 'PROP_FIRM'
         ? `${propFirmRules.firmName} ${formatMoney(effectiveBalance, accountCurrency)} (${primaryAsset})`
-        : `${primaryAsset} Backtest (${startDate} → ${endDate})`);
+        : `${primaryAsset} Backtest (${effectiveStartDate} → ${endDate})`);
 
     const finalSpecs: Partial<Record<InstrumentSymbol, InstrumentSpecOverride>> = {};
     for (const sym of selectedAssets) {
@@ -405,7 +428,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       startingBalance: effectiveBalance,
       accountCurrency,
       assets: selectedAssets,
-      startDate,
+      startDate: effectiveStartDate,
       endDate,
       replayStartTime,
       displayTimezone,
@@ -420,7 +443,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       description:
         mode === 'PROP_FIRM'
           ? `Prop Firm Evaluation (${propFirmRules.firmName}) on ${selectedAssets.join(', ')}.`
-          : `Strategy backtest on ${selectedAssets.join(', ')} from ${startDate} ${replayStartTime} to ${endDate}.`,
+          : `Strategy backtest on ${selectedAssets.join(', ')} from ${effectiveStartDate} ${replayStartTime} to ${endDate}.`,
       mode,
       startingBalance: effectiveBalance,
       accountCurrency,
@@ -429,7 +452,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       assets: selectedAssets.length > 0 ? selectedAssets : ['XAUUSD'],
       activeAsset: primaryAsset,
       activeTimeframe: '15m',
-      startDate,
+      startDate: effectiveStartDate,
       endDate,
       replayStartTime,
       displayTimezone,
@@ -925,8 +948,16 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                 </div>
 
                 <SessionScheduleFields
+                  symbol={primarySelectedAsset}
                   start={startDate} end={endDate} time={replayStartTime} timezone={displayTimezone} zones={TIMEZONE_OPTIONS}
-                  onStart={value => {setStartDate(value); if (endDate < value) setEndDate(value);}}
+                  scheduleNotice={scheduleNotice}
+                  onScheduleNotice={setScheduleNotice}
+                  onStart={value => {
+                    const snapped = snapToOpenTradingDate(value, primarySelectedAsset, 'forward');
+                    setStartDate(snapped.date);
+                    if (endDate < snapped.date) setEndDate(snapped.date);
+                    setScheduleNotice(snapped.adjusted && snapped.reason ? snapped.reason : null);
+                  }}
                   onEnd={setEndDate}
                   onTime={value => {setReplayStartTime(value); setCustomStartTime(value); setSelectedQuickStart(null);}}
                   onTimezone={setDisplayTimezone}

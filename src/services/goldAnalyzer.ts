@@ -2,8 +2,10 @@ import {
   Candle,
   GoldIndicatorReport,
   GoldNewsItem,
+  IndicatorPriceSource,
   InstrumentSymbol,
   MacroEnvironment,
+  MovingAverageMethod,
   SessionConfig,
 } from '../types/trading';
 import { getActiveSessionsAtTime, getInstrumentConfig } from './goldDataService';
@@ -87,6 +89,88 @@ export const DEFAULT_MACRO_ENV: MacroEnvironment = {
   centralBankDemand: 'RECORD HIGH',
 };
 
+export function getCandleSourcePrice(c: Candle, source: IndicatorPriceSource = 'close'): number {
+  switch (source) {
+    case 'open':
+      return c.open;
+    case 'high':
+      return c.high;
+    case 'low':
+      return c.low;
+    case 'hl2':
+      return (c.high + c.low) / 2;
+    case 'hlc3':
+      return (c.high + c.low + c.close) / 3;
+    case 'close':
+    default:
+      return c.close;
+  }
+}
+
+/**
+ * Computes Moving Average (EMA, SMA, or WMA) series for an array of candles.
+ */
+export function computeMovingAverageSeries(
+  candles: Candle[],
+  options: {
+    method: MovingAverageMethod;
+    period: number;
+    source?: IndicatorPriceSource;
+  },
+  decimals = 5
+): { time: number; value: number }[] {
+  if (candles.length === 0) return [];
+  const safePeriod = Math.max(1, Math.min(500, Math.round(options.period || 20)));
+  const source = options.source || 'close';
+  const method = options.method || 'EMA';
+
+  if (method === 'EMA') {
+    const k = 2 / (safePeriod + 1);
+    const result: { time: number; value: number }[] = [];
+    let ema = getCandleSourcePrice(candles[0], source);
+    for (let i = 0; i < candles.length; i++) {
+      const c = candles[i];
+      const val = getCandleSourcePrice(c, source);
+      ema = i === 0 ? val : val * k + ema * (1 - k);
+      result.push({ time: c.time, value: Number(ema.toFixed(decimals)) });
+    }
+    return result;
+  }
+
+  if (method === 'WMA') {
+    const result: { time: number; value: number }[] = [];
+    const weightSum = (safePeriod * (safePeriod + 1)) / 2;
+    for (let i = safePeriod - 1; i < candles.length; i++) {
+      let weighted = 0;
+      for (let j = 0; j < safePeriod; j++) {
+        weighted += getCandleSourcePrice(candles[i - safePeriod + 1 + j], source) * (j + 1);
+      }
+      result.push({
+        time: candles[i].time,
+        value: Number((weighted / weightSum).toFixed(decimals)),
+      });
+    }
+    return result;
+  }
+
+  // SMA
+  const result: { time: number; value: number }[] = [];
+  let sum = 0;
+  for (let i = 0; i < candles.length; i++) {
+    sum += getCandleSourcePrice(candles[i], source);
+    if (i >= safePeriod) {
+      sum -= getCandleSourcePrice(candles[i - safePeriod], source);
+    }
+    if (i >= safePeriod - 1) {
+      result.push({
+        time: candles[i].time,
+        value: Number((sum / safePeriod).toFixed(decimals)),
+      });
+    }
+  }
+  return result;
+}
+
 /**
  * Computes Exponential Moving Average series for an array of candles.
  */
@@ -95,15 +179,41 @@ export function computeEMASeries(
   period: number,
   decimals = 5
 ): { time: number; value: number }[] {
-  if (candles.length === 0) return [];
-  const k = 2 / (period + 1);
-  const result: { time: number; value: number }[] = [];
-  let ema = candles[0].close;
+  return computeMovingAverageSeries(candles, { method: 'EMA', period, source: 'close' }, decimals);
+}
 
-  for (let i = 0; i < candles.length; i++) {
-    const c = candles[i];
-    ema = i === 0 ? c.close : c.close * k + ema * (1 - k);
-    result.push({ time: c.time, value: Number(ema.toFixed(decimals)) });
+/**
+ * Computes Bollinger Bands series (upper, middle, lower) for an array of candles.
+ */
+export function computeBollingerSeries(
+  candles: Candle[],
+  period = 20,
+  stdDevMultiplier = 2,
+  decimals = 5
+): { time: number; upper: number; middle: number; lower: number }[] {
+  if (candles.length === 0) return [];
+  const safePeriod = Math.max(2, Math.min(200, Math.round(period || 20)));
+  const mult = Math.max(0.1, stdDevMultiplier || 2);
+  const result: { time: number; upper: number; middle: number; lower: number }[] = [];
+
+  for (let i = safePeriod - 1; i < candles.length; i++) {
+    let sum = 0;
+    for (let j = i - safePeriod + 1; j <= i; j++) {
+      sum += candles[j].close;
+    }
+    const mean = sum / safePeriod;
+    let sqSum = 0;
+    for (let j = i - safePeriod + 1; j <= i; j++) {
+      const d = candles[j].close - mean;
+      sqSum += d * d;
+    }
+    const std = Math.sqrt(sqSum / safePeriod);
+    result.push({
+      time: candles[i].time,
+      upper: Number((mean + mult * std).toFixed(decimals)),
+      middle: Number(mean.toFixed(decimals)),
+      lower: Number((mean - mult * std).toFixed(decimals)),
+    });
   }
   return result;
 }

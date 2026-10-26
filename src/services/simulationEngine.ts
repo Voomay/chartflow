@@ -25,11 +25,14 @@ import {
 } from '../types/trading';
 import {
   fetchGoldCandles,
+  findExactCandleByTime,
   getActiveSessionsAtTime,
   getCanonicalBucketTime,
   getTimeframeEndTime,
   getCachedRealCandles,
   getHistoricalCandles,
+  getInstrumentHistoricalCoverage,
+  getReplayWeekdayTarget,
   hasHistoricalArchive,
   getProviderChartCandles,
   getInstrumentConfig,
@@ -37,6 +40,7 @@ import {
   INSTRUMENTS,
   isWeekendClosedTimestamp,
   setCachedRealCandles,
+  snapToOpenTradingDate,
   TIMEFRAME_CONFIG,
 } from './goldDataService';
 
@@ -260,8 +264,13 @@ export function validateSessionHistoricalData(
   const endTs = Math.floor(Date.parse(`${endDate}T23:59:00Z`) / 1000);
   const replayStartTs = Math.floor(Date.parse(`${startDate}T${timeStr}:00Z`) / 1000);
 
-  const minSupportedTs = Math.floor(Date.parse('2010-01-01T00:00:00Z') / 1000);
-  const maxSupportedTs = Math.floor(Date.now()/86400000)*86400+86399;
+  const primaryAsset: InstrumentSymbol = assets && assets.length > 0 ? assets[0] : 'XAUUSD';
+  const coverage = getInstrumentHistoricalCoverage(primaryAsset);
+  const minSupportedTs = Math.floor(Date.parse(`${coverage.minDate}T00:00:00Z`) / 1000);
+  const maxSupportedTs = Math.floor(Date.now() / 86400000) * 86400 + 86399;
+
+  let effectiveStartTs = startTs;
+  let effectiveReplayStartTs = replayStartTs;
 
   if (Number.isNaN(startTs) || Number.isNaN(endTs)) {
     errors.push('Invalid calendar date provided.');
@@ -271,7 +280,16 @@ export function validateSessionHistoricalData(
     }
     if (startTs < minSupportedTs) {
       errors.push(
-        `Choose a date from 2010 onward; original archive coverage is checked when the chart loads (requested ${startDate}).`
+        `Historical archive for ${primaryAsset} starts on ${coverage.minDate} (requested ${startDate}). Please choose a supported year from ${coverage.minYear} onward.`
+      );
+    }
+    if (
+      coverage.missingRange &&
+      startDate >= coverage.missingRange.start &&
+      startDate <= coverage.missingRange.end
+    ) {
+      errors.push(
+        `Historical archive for ${primaryAsset} is unavailable between ${coverage.missingRange.label} (requested ${startDate}).`
       );
     }
     if (endTs > maxSupportedTs) {
@@ -286,6 +304,25 @@ export function validateSessionHistoricalData(
     if (replayStartTs < startTs || replayStartTs > endTs) {
       errors.push('Replay starting time must fall within the selected Start and End dates.');
     }
+
+    if (errors.length === 0) {
+      const snapped = snapToOpenTradingDate(startDate, primaryAsset, 'forward');
+      if (snapped.adjusted) {
+        const snappedStartTs = Math.floor(Date.parse(`${snapped.date}T00:00:00Z`) / 1000);
+        const snappedReplayTs = Math.floor(Date.parse(`${snapped.date}T${timeStr}:00Z`) / 1000);
+        if (snappedReplayTs <= endTs) {
+          effectiveStartTs = snappedStartTs;
+          effectiveReplayStartTs = snappedReplayTs;
+          if (snapped.reason) {
+            warnings.push(snapped.reason);
+          }
+        }
+      }
+      const weekdayTargetTs = getReplayWeekdayTarget(primaryAsset, effectiveReplayStartTs);
+      if (weekdayTargetTs > effectiveReplayStartTs && weekdayTargetTs <= endTs) {
+        effectiveReplayStartTs = weekdayTargetTs;
+      }
+    }
   }
 
   for (const sym of assets) {
@@ -294,18 +331,18 @@ export function validateSessionHistoricalData(
     }
   }
 
-  const dataSourceLabel = 'Original historical archive (coverage checked on load)';
+  const dataSourceLabel = `Original historical archive (${coverage.minDate} to ${coverage.maxDate})`;
   warnings.push('Replay requires original provider minute data. Missing dates and source gaps remain unavailable.');
 
-  const spanMinutes = Math.max(0, Math.floor((endTs - startTs) / 60));
+  const spanMinutes = Math.max(0, Math.floor((endTs - effectiveStartTs) / 60));
 
   return {
     valid: errors.length === 0,
     errors,
     warnings,
-    startTimestamp: Number.isNaN(startTs) ? 0 : startTs,
+    startTimestamp: Number.isNaN(effectiveStartTs) ? 0 : effectiveStartTs,
     endTimestamp: Number.isNaN(endTs) ? 0 : endTs,
-    initialReplayTimestamp: Number.isNaN(replayStartTs) ? startTs : replayStartTs,
+    initialReplayTimestamp: Number.isNaN(effectiveReplayStartTs) ? effectiveStartTs : effectiveReplayStartTs,
     estimated1mBarsPerAsset: spanMinutes,
     dataSourceLabel,
   };
@@ -958,7 +995,7 @@ export function getLatest1mCandleAtClock(
   }
   if(hasHistoricalArchive(symbol)) {
     const wanted=Math.floor(timestampSec/60)*60-(completedArchiveBar?60:0);
-    const exact=(getHistoricalCandles('1m',symbol)||[]).find(c=>c.time===wanted);
+    const exact=findExactCandleByTime(getHistoricalCandles('1m',symbol),wanted);
     if(!exact)return null;
     return completedArchiveBar?exact:{...exact,high:exact.open,low:exact.open,close:exact.open,volume:0};
   }

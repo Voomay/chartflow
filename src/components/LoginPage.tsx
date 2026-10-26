@@ -1,4 +1,6 @@
 import {platformRequest,serverAccountRequest} from '../services/platformAccounts';
+import {hasSeenChartAnnouncement} from './ChartAnnouncement';
+import {hasSeenWorkspaceTour} from './WorkspaceTour';
 import {LegalLinks,LegalDocumentKey} from './LegalLinks';
 import React, { useEffect, useState } from 'react';
 import { ChartReplayLogo } from './ChartReplayLogo';
@@ -77,7 +79,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   const handleCompleteUser = (u: RegisteredUser, isReturning = mode === 'login') => {
     const returning =
-      isReturning || (typeof u.loginCount === 'number' && u.loginCount > 1);
+      isReturning ||
+      (typeof u.loginCount === 'number' && u.loginCount > 1) ||
+      hasSeenChartAnnouncement(u.email) ||
+      hasSeenWorkspaceTour(u.email);
     onSuccessAuth({
       id: u.id,
       name: u.name,

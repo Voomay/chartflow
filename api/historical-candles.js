@@ -95,7 +95,7 @@ export async function loadHistoricalWindow(symbol,clock,limit=45000){
  const info=manifest.symbols[symbol];if(!info)return null;
  const values=Object.values(info.years);info.first=Math.min(...values.map(v=>v.first));info.last=Math.max(...values.map(v=>v.last));info.rows=values.reduce((sum,v)=>sum+v.rows,0);
  const refClock=Math.min(Math.max(clock,info.first),info.last);
- const end=Math.max(clock,refClock)+3*86400;const year=new Date(refClock*1000).getUTCFullYear();
+ const end=Math.max(clock,refClock)+7*86400;const year=new Date(refClock*1000).getUTCFullYear();
  const all={};
  for(const tf of tfs){
   let parts;

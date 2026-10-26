@@ -2,10 +2,24 @@ import {MomentumStudy} from './MomentumStudy';
 import {computeMomentumPullback,MOMENTUM_DEFAULTS,MomentumOptions} from '../services/momentumPullback';
 import {computeEngulfingVolumeMomentum,EngulfingFilter} from '../services/engulfingVolumeMomentum';
 import {interpolateRevealedCandle,revealedHistorySamplesMatch} from '../services/replayPresentation';
-import {clipExtendedLine,isPatternTool,PATTERN_LABELS,formatChartCrosshairTime} from '../services/chartDrawingGeometry';
+import {
+  clipExtendedLine,
+  isPatternTool,
+  PATTERN_LABELS,
+  formatChartCrosshairTime,
+  computeFibLevelPrice,
+  formatFibLevelLabel,
+  getEffectiveFibSettings,
+  loadDefaultFibSettings,
+  saveDefaultFibSettings,
+  loadSavedIndicatorConfigs,
+  saveIndicatorConfigs,
+} from '../services/chartDrawingGeometry';
 import {formatTimestampInTimezone} from '../services/simulationEngine';
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { TradeReactions } from './TradeReactions';
+import { FibonacciSettingsModal } from './FibonacciSettingsModal';
+import { IndicatorSettingsModal } from './IndicatorSettingsModal';
 import { computeForecast } from '../services/forecaster';
 import {
   init,
@@ -26,10 +40,13 @@ import {
   Candle,
   CandleColorStyle,
   ChartDrawing,
+  ChartIndicatorConfigs,
   CustomCandleColors,
   DrawingTool,
+  FibSettings,
   InstrumentSymbol,
   LineStyleType,
+  MovingAverageIndicatorConfig,
   SessionBox,
   SessionConfig,
   ThemeMode,
@@ -37,13 +54,19 @@ import {
   DisplayTimezone,
   TradingSession,
 } from '../types/trading';
-import { computeEMASeries, computeVWAPSeries } from '../services/goldAnalyzer';
+import {
+  computeEMASeries,
+  computeMovingAverageSeries,
+  computeVWAPSeries,
+} from '../services/goldAnalyzer';
 import {
   computeSessionBoxes,
   getInstrumentConfig,
   TIMEFRAME_CONFIG,
 } from '../services/goldDataService';
 import {
+  ArrowUpDown,
+  Camera,
   Check,
   ChevronDown,
   Clock,
@@ -58,6 +81,7 @@ import {
   Palette,
   RotateCcw,
   Scissors,
+  Settings2,
   Sliders,
   Trash2,
   Unlock,
@@ -140,6 +164,14 @@ interface TradingChartProps {
   onTogglePositionBox?: (id:string,hidden:boolean)=>void;
   indicators?: ChartIndicatorsState;
   onToggleIndicator?: (key: keyof ChartIndicatorsState) => void;
+  indicatorConfigs?: ChartIndicatorConfigs;
+  onUpdateIndicatorConfigs?: (
+    updater: (prev: ChartIndicatorConfigs) => ChartIndicatorConfigs
+  ) => void;
+  activeIndicatorSettingsId?: string | null;
+  onChangeActiveIndicatorSettingsId?: (id: string | null) => void;
+  onTakeScreenshotRef?: React.MutableRefObject<(() => void) | null>;
+  viewportFocusVersion?: number;
 }
 
 type BoxHandleType =
@@ -383,6 +415,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   onTogglePositionBox,
   indicators,
   onToggleIndicator,
+  indicatorConfigs: propIndicatorConfigs,
+  onUpdateIndicatorConfigs,
+  activeIndicatorSettingsId: propActiveIndicatorSettingsId,
+  onChangeActiveIndicatorSettingsId,
+  onTakeScreenshotRef,
+  viewportFocusVersion,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const reactionAnchorRef = useRef<HTMLDivElement>(null);
@@ -397,10 +435,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   useEffect(()=>()=>cancelAnimationFrame(replayAnimationFrame.current),[]);
   const subscribeBarCallbackRef = useRef<((data: KLineData) => void) | null>(null);
 
+  const prevFocusVersionRef = useRef<number>(viewportFocusVersion ?? 0);
   const prevSeriesMetaRef = useRef<{
     symbol: InstrumentSymbol;
     timeframe: Timeframe;
     firstTime: number;
+    lastTime: number;
     firstClose: number;
     midClose: number;
     lastClose: number;
@@ -409,6 +449,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     symbol,
     timeframe,
     firstTime: 0,
+    lastTime: 0,
     firstClose: 0,
     midClose: 0,
     lastClose: 0,
@@ -442,6 +483,49 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const [localMACD, setLocalMACD] = useState(false);
   const [localRSI, setLocalRSI] = useState(false);
 
+  const [localIndicatorConfigs, setLocalIndicatorConfigs] = useState<ChartIndicatorConfigs>(() =>
+    loadSavedIndicatorConfigs()
+  );
+  const effectiveIndicatorConfigs = propIndicatorConfigs || localIndicatorConfigs;
+  const handleUpdateIndicatorConfigs = useCallback(
+    (updater: (prev: ChartIndicatorConfigs) => ChartIndicatorConfigs) => {
+      if (onUpdateIndicatorConfigs) {
+        onUpdateIndicatorConfigs(updater);
+      } else {
+        setLocalIndicatorConfigs((prev) => {
+          const next = updater(prev);
+          saveIndicatorConfigs(next);
+          return next;
+        });
+      }
+    },
+    [onUpdateIndicatorConfigs]
+  );
+
+  const [localActiveIndicatorSettingsId, setLocalActiveIndicatorSettingsId] = useState<string | null>(
+    null
+  );
+  const effectiveActiveIndicatorSettingsId =
+    propActiveIndicatorSettingsId !== undefined
+      ? propActiveIndicatorSettingsId
+      : localActiveIndicatorSettingsId;
+  const setEffectiveActiveIndicatorSettingsId = useCallback(
+    (id: string | null) => {
+      if (onChangeActiveIndicatorSettingsId) {
+        onChangeActiveIndicatorSettingsId(id);
+      } else {
+        setLocalActiveIndicatorSettingsId(id);
+      }
+    },
+    [onChangeActiveIndicatorSettingsId]
+  );
+
+  const [hoveredIndicatorId, setHoveredIndicatorId] = useState<string | null>(null);
+  const [defaultFibSettings, setDefaultFibSettings] = useState<Required<FibSettings>>(() =>
+    loadDefaultFibSettings()
+  );
+  const [fibSettingsModalDrawingId, setFibSettingsModalDrawingId] = useState<string | null>(null);
+
   const showEMA20 = indicators ? indicators.showEMA20 : localEMA20;
   const showEMA50 = indicators ? indicators.showEMA50 : localEMA50;
   const showEMA200 = indicators ? indicators.showEMA200 : localEMA200;
@@ -454,6 +538,61 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const showMomentum = indicators ? indicators.showMomentum : localMomentum;
   const showForecast = indicators ? indicators.showForecast : localForecast;
   const showEngulfing = indicators ? indicators.showEngulfing : localEngulfing;
+
+  const handleHideOrRemoveIndicator = useCallback(
+    (indId: string) => {
+      if (indId.startsWith('custom_ma_')) {
+        handleUpdateIndicatorConfigs((prev) => ({
+          ...prev,
+          customMAs: prev.customMAs.filter((m) => m.id !== indId),
+        }));
+        return;
+      }
+      if (onToggleIndicator && indId in (indicators || {})) {
+        onToggleIndicator(indId as keyof ChartIndicatorsState);
+        return;
+      }
+      switch (indId) {
+        case 'showEMA20':
+          setLocalEMA20(false);
+          break;
+        case 'showEMA50':
+          setLocalEMA50(false);
+          break;
+        case 'showEMA200':
+          setLocalEMA200(false);
+          break;
+        case 'showSMA20':
+          setLocalSMA20(false);
+          break;
+        case 'showVWAP':
+          setLocalVWAP(false);
+          break;
+        case 'showBOLL':
+          setLocalBOLL(false);
+          break;
+        case 'showVOL':
+          setLocalVOL(false);
+          break;
+        case 'showMACD':
+          setLocalMACD(false);
+          break;
+        case 'showRSI':
+          setLocalRSI(false);
+          break;
+        case 'showMomentum':
+          setLocalMomentum(false);
+          break;
+        case 'showForecast':
+          setLocalForecast(false);
+          break;
+        case 'showEngulfing':
+          setLocalEngulfing(false);
+          break;
+      }
+    },
+    [handleUpdateIndicatorConfigs, indicators, onToggleIndicator]
+  );
 
   const toggleForecast = () => {
     if (onToggleIndicator) onToggleIndicator('showForecast');
@@ -495,11 +634,17 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     () =>
       showForecast
         ? computeForecast(candles, TIMEFRAME_CONFIG[timeframe]?.seconds || 900, {
-            lookback: 50,
-            horizon: 24,
+            lookback: effectiveIndicatorConfigs.forecast.lookback || 50,
+            horizon: effectiveIndicatorConfigs.forecast.horizon || 24,
           })
         : null,
-    [showForecast, candles, timeframe]
+    [
+      showForecast,
+      candles,
+      timeframe,
+      effectiveIndicatorConfigs.forecast.lookback,
+      effectiveIndicatorConfigs.forecast.horizon,
+    ]
   );
 
   const [hoveredCandle, setHoveredCandle] = useState<Candle | null>(null);
@@ -599,6 +744,141 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
   const instConfig = getInstrumentConfig(symbol);
 
+  const activeOverlayMASeries = useMemo(() => {
+    if (candles.length < 2) return [];
+    const list: {
+      id: string;
+      label: string;
+      config: MovingAverageIndicatorConfig;
+      points: { time: number; value: number }[];
+    }[] = [];
+    const pushIfActive = (enabled: boolean, key: string) => {
+      if (!enabled) return;
+      const cfg = effectiveIndicatorConfigs.maConfigs[key];
+      if (!cfg) return;
+      list.push({
+        id: key,
+        label: `${cfg.method} ${cfg.period}`,
+        config: cfg,
+        points: computeMovingAverageSeries(candles, cfg, instConfig.decimals),
+      });
+    };
+    pushIfActive(showEMA20, 'showEMA20');
+    pushIfActive(showEMA50, 'showEMA50');
+    pushIfActive(showEMA200, 'showEMA200');
+    pushIfActive(showSMA20, 'showSMA20');
+    for (const custom of effectiveIndicatorConfigs.customMAs) {
+      if (custom.enabled === false) continue;
+      list.push({
+        id: custom.id,
+        label: `${custom.method} ${custom.period}`,
+        config: custom,
+        points: computeMovingAverageSeries(candles, custom, instConfig.decimals),
+      });
+    }
+    return list;
+  }, [
+    candles,
+    showEMA20,
+    showEMA50,
+    showEMA200,
+    showSMA20,
+    effectiveIndicatorConfigs.maConfigs,
+    effectiveIndicatorConfigs.customMAs,
+    instConfig.decimals,
+  ]);
+
+  const activeVWAPSeries = useMemo(
+    () => (showVWAP && candles.length > 1 ? computeVWAPSeries(candles, instConfig.decimals) : []),
+    [showVWAP, candles, instConfig.decimals]
+  );
+
+  // 1-Click Composite Chart Screenshot (KLineChart Canvases + Custom Overlay Canvas)
+  const handleTakeChartScreenshot = useCallback(() => {
+    const container = containerRef.current;
+    const overlay = overlayCanvasRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+    outCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+    const outCtx = outCanvas.getContext('2d');
+    if (!outCtx) return;
+
+    // 1) Background fill
+    outCtx.fillStyle = theme === 'light' ? '#ffffff' : '#0b0e14';
+    outCtx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+
+    // 2) Composite all KLineChart sub-canvases at their exact bounding rects
+    const innerCanvases = container.querySelectorAll('canvas');
+    innerCanvases.forEach((c) => {
+      if (c === overlay) return;
+      const cRect = c.getBoundingClientRect();
+      if (cRect.width <= 0 || cRect.height <= 0) return;
+      const dx = (cRect.left - rect.left) * dpr;
+      const dy = (cRect.top - rect.top) * dpr;
+      const dw = cRect.width * dpr;
+      const dh = cRect.height * dpr;
+      try {
+        outCtx.drawImage(c, dx, dy, dw, dh);
+      } catch {
+        // ignore tainted canvas if any
+      }
+    });
+
+    // 3) Composite our synchronized custom overlay canvas (Drawings, Fibonacci, EMAs, Positions)
+    if (overlay && overlay.width > 0 && overlay.height > 0) {
+      const oRect = overlay.getBoundingClientRect();
+      const dx = (oRect.left - rect.left) * dpr;
+      const dy = (oRect.top - rect.top) * dpr;
+      const dw = oRect.width * dpr;
+      const dh = oRect.height * dpr;
+      try {
+        outCtx.drawImage(overlay, dx, dy, dw, dh);
+      } catch {
+        // ignore
+      }
+    }
+
+    // 4) Crisp Header Badge on Screenshot
+    outCtx.save();
+    outCtx.scale(dpr, dpr);
+    const title = `${instConfig.name} (${symbol}) · ${timeframe}`;
+    outCtx.font = 'bold 12px Inter, JetBrains Mono, sans-serif';
+    const tw = outCtx.measureText(title).width + 20;
+    outCtx.fillStyle = theme === 'light' ? 'rgba(255,255,255,0.92)' : 'rgba(19,23,34,0.92)';
+    outCtx.strokeStyle = theme === 'light' ? '#cbd5e1' : '#2a2e39';
+    outCtx.lineWidth = 1;
+    outCtx.beginPath();
+    outCtx.roundRect(12, 12, tw, 26, 6);
+    outCtx.fill();
+    outCtx.stroke();
+    outCtx.fillStyle = theme === 'light' ? '#0f172a' : '#f8fafc';
+    outCtx.fillText(title, 22, 29);
+    outCtx.restore();
+
+    try {
+      const dataUrl = outCanvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      link.download = `${symbol}_${timeframe}_${stamp}.png`;
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      // ignore in headless/test env
+    }
+  }, [instConfig.name, symbol, theme, timeframe]);
+
+  useEffect(() => {
+    if (onTakeScreenshotRef) {
+      onTakeScreenshotRef.current = handleTakeChartScreenshot;
+    }
+  }, [handleTakeChartScreenshot, onTakeScreenshotRef]);
+
   const stateRef = useRef({
     symbol,
     instConfig,
@@ -620,6 +900,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     draftDrawing,
     selectedId,
     hoveredId,
+    hoveredIndicatorId,
+    effectiveActiveIndicatorSettingsId,
+    effectiveIndicatorConfigs,
+    activeOverlayMASeries,
+    activeVWAPSeries,
+    defaultFibSettings,
     textEditor,
     candleRemainingText,
     isReplayMode,
@@ -665,6 +951,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     draftDrawing,
     selectedId,
     hoveredId,
+    hoveredIndicatorId,
+    effectiveActiveIndicatorSettingsId,
+    effectiveIndicatorConfigs,
+    activeOverlayMASeries,
+    activeVWAPSeries,
+    defaultFibSettings,
     textEditor,
     candleRemainingText,
     isReplayMode,
@@ -694,6 +986,32 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     if (!editorToCommit) return;
     const curr = stateRef.current;
     const trimmed = editorToCommit.text.trim();
+    if (editorToCommit.mode === 'edit' && editorToCommit.drawingId) {
+      const existing = curr.drawings.find((d) => d.id === editorToCommit.drawingId);
+      if (existing) {
+        if (existing.type !== 'text') {
+          curr.onUpdateDrawing({
+            ...existing,
+            label: trimmed,
+            textColor: editorToCommit.color,
+            labelPosition: existing.labelPosition ?? 'middle',
+            locked: editorToCommit.locked,
+          });
+        } else if (trimmed) {
+          curr.onUpdateDrawing({
+            ...existing,
+            label: trimmed,
+            color: editorToCommit.color,
+            locked: editorToCommit.locked,
+          });
+        }
+      }
+      setTextEditor(null);
+      if (!curr.stayInDrawingMode) {
+        curr.onSelectTool('cursor');
+      }
+      return;
+    }
     if (!trimmed) {
       setTextEditor(null);
       if (!curr.stayInDrawingMode) {
@@ -701,30 +1019,18 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       }
       return;
     }
-    if (editorToCommit.mode === 'edit' && editorToCommit.drawingId) {
-      const existing = curr.drawings.find((d) => d.id === editorToCommit.drawingId);
-      if (existing) {
-        curr.onUpdateDrawing({
-          ...existing,
-          label: trimmed,
-          color: editorToCommit.color,
-          locked: editorToCommit.locked,
-        });
-      }
-    } else {
-      const newD: ChartDrawing = {
-        id: `text-${Date.now()}`,
-        type: 'text',
-        time1: editorToCommit.time,
-        price1: editorToCommit.price,
-        label: trimmed,
-        color: editorToCommit.color,
-        lineWidth: curr.drawingLineWidth,
-        locked: editorToCommit.locked,
-      };
-      curr.onAddDrawing(newD);
-      setSelectedId(newD.id);
-    }
+    const newD: ChartDrawing = {
+      id: `text-${Date.now()}`,
+      type: 'text',
+      time1: editorToCommit.time,
+      price1: editorToCommit.price,
+      label: trimmed,
+      color: editorToCommit.color,
+      lineWidth: curr.drawingLineWidth,
+      locked: editorToCommit.locked,
+    };
+    curr.onAddDrawing(newD);
+    setSelectedId(newD.id);
     setTextEditor(null);
     if (!curr.stayInDrawingMode) {
       curr.onSelectTool('cursor');
@@ -922,7 +1228,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     []
   );
 
-  // Draw sleek TradingView Handle Dot (r = 3.5px circle, white center, #2962ff border)
+  // Draw sleek TradingView Handle Dot (hollow circle, white/dark center, #2962ff border)
   const drawSmallDot = (
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -931,12 +1237,13 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     const isCoarsePointer =
       typeof window !== 'undefined' &&
       (window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 768);
-    const dotRadius = isCoarsePointer ? 5.5 : 3.5;
+    const dotRadius = isCoarsePointer ? 6 : 4.5;
 
     ctx.save();
-    ctx.fillStyle = '#ffffff';
+    ctx.setLineDash([]);
+    ctx.fillStyle = stateRef.current.theme === 'light' ? '#ffffff' : '#0d0f13';
     ctx.strokeStyle = '#2962ff';
-    ctx.lineWidth = isCoarsePointer ? 2.0 : 1.5;
+    ctx.lineWidth = isCoarsePointer ? 2.0 : 1.75;
     ctx.beginPath();
     ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
     ctx.fill();
@@ -990,15 +1297,17 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       draftDrawing: currDraft,
       selectedId: currSelectedId,
       hoveredId: currHoveredId,
+      hoveredIndicatorId: currHoveredIndicatorId,
+      effectiveActiveIndicatorSettingsId: currActiveIndicatorSettingsId,
+      effectiveIndicatorConfigs: currIndicatorConfigs,
+      activeOverlayMASeries: currActiveOverlayMASeries,
+      activeVWAPSeries: currActiveVWAPSeries,
+      defaultFibSettings: currDefaultFibSettings,
       candleRemainingText: currRemaining,
       isReplayMode: currReplay,
       hideDrawings: currHideDrawings,
       theme: currTheme,
-      showEMA20: currShowEMA20,
-      showEMA50: currShowEMA50,
-      showEMA200: currShowEMA200,
       showVWAP: currShowVWAP,
-      showSMA20: currShowSMA20,
       momentum: currMomentum,
       engulfingStudy: currEngulfing,
       forecast: currForecast,
@@ -1062,20 +1371,26 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     for(let y=80;y<chartPlotHeight;y+=80){ctx.moveTo(0,y+0.5);ctx.lineTo(chartPlotWidth,y+0.5);}
     ctx.stroke();ctx.restore();
 
-    // 0. Render EMA 20 / EMA 50 / EMA 200 / VWAP Overlay Curves inside Main Candle Pane
+    // 0. Render Customizable EMA / SMA / WMA / VWAP Overlay Curves inside Main Candle Pane
     const renderIndicatorSeries = (
       seriesData: { time: number; value: number }[],
       color: string,
       lineWidth: number,
-      dashed = false
+      lineStyle: LineStyleType = 'solid',
+      isHighlighted = false
     ) => {
       if (seriesData.length < 2) return;
       ctx.save();
       ctx.strokeStyle = color;
-      ctx.lineWidth = lineWidth;
-      if (dashed) ctx.setLineDash([5, 4]);
+      ctx.lineWidth = isHighlighted ? lineWidth + 0.9 : lineWidth;
+      if (isHighlighted) {
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 6;
+      }
+      applyCanvasLineStyle(ctx, lineStyle, false);
       ctx.beginPath();
       let started = false;
+      const visiblePts: { x: number; y: number }[] = [];
       for (let i = 0; i < seriesData.length; i++) {
         const pt = seriesData[i];
         const x = resolveTimeToX(pt.time, currCandles, chart);
@@ -1087,57 +1402,59 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         } else {
           ctx.lineTo(x, y);
         }
+        if (x >= 10 && x <= chartPlotWidth - 10 && y >= 10 && y <= chartPlotHeight - 10) {
+          visiblePts.push({ x, y });
+        }
       }
       ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.setLineDash([]);
+      if (isHighlighted && visiblePts.length > 0) {
+        const step = Math.max(1, Math.floor(visiblePts.length / 6));
+        for (let i = visiblePts.length - 1; i >= 0; i -= step) {
+          drawSmallDot(ctx, visiblePts[i].x, visiblePts[i].y);
+        }
+      }
       ctx.restore();
     };
 
     if (currCandles.length > 1) {
-      if (currShowEMA20) {
+      for (const maItem of currActiveOverlayMASeries) {
+        const isHighlighted =
+          currHoveredIndicatorId === maItem.id || currActiveIndicatorSettingsId === maItem.id;
         renderIndicatorSeries(
-          computeEMASeries(currCandles, 20, decimals),
-          '#06b6d4',
-          1.3
+          maItem.points,
+          maItem.config.color,
+          maItem.config.lineWidth,
+          maItem.config.lineStyle,
+          isHighlighted
         );
       }
-      if (currShowEMA50) {
+      if (currShowVWAP && currActiveVWAPSeries.length > 1) {
+        const isHighlighted =
+          currHoveredIndicatorId === 'showVWAP' || currActiveIndicatorSettingsId === 'showVWAP';
         renderIndicatorSeries(
-          computeEMASeries(currCandles, 50, decimals),
-          '#f59e0b',
-          1.3
+          currActiveVWAPSeries,
+          currIndicatorConfigs.vwap.color,
+          currIndicatorConfigs.vwap.lineWidth,
+          currIndicatorConfigs.vwap.lineStyle,
+          isHighlighted
         );
-      }
-      if (currShowEMA200) {
-        renderIndicatorSeries(
-          computeEMASeries(currCandles, 200, decimals),
-          '#a855f7',
-          2.0
-        );
-      }
-      if (currShowVWAP) {
-        renderIndicatorSeries(
-          computeVWAPSeries(currCandles, decimals),
-          '#3b82f6',
-          1.3,
-          true
-        );
-      }
-      if (currShowSMA20) {
-        const sma: { time: number; value: number }[] = [];
-        let sum = 0;
-        for (let i = 0; i < currCandles.length; i++) {
-          sum += currCandles[i].close;
-          if (i >= 20) sum -= currCandles[i - 20].close;
-          if (i >= 19) sma.push({ time: currCandles[i].time, value: sum / 20 });
-        }
-        renderIndicatorSeries(sma, '#ec4899', 1.3);
       }
     }
 
     // Causal momentum study: curves and confirmed continuation markers, no future candles.
     if (currMomentum) {
-      renderIndicatorSeries(currMomentum.points.map(p => ({ time: p.time, value: p.fast })), '#22d3ee', 1.2);
-      renderIndicatorSeries(currMomentum.points.map(p => ({ time: p.time, value: p.slow })), '#a78bfa', 1.2);
+      renderIndicatorSeries(
+        currMomentum.points.map((p) => ({ time: p.time, value: p.fast })),
+        currIndicatorConfigs.momentum.fastColor || '#22d3ee',
+        currIndicatorConfigs.momentum.lineWidth || 1.2
+      );
+      renderIndicatorSeries(
+        currMomentum.points.map((p) => ({ time: p.time, value: p.slow })),
+        currIndicatorConfigs.momentum.slowColor || '#a78bfa',
+        currIndicatorConfigs.momentum.lineWidth || 1.2
+      );
       for (const signal of currMomentum.setups) {
         const x = resolveTimeToX(signal.time, currCandles, chart), y = priceToY(signal.entry, chart);
         if (x === null || y === null || x < 0 || x > chartPlotWidth) continue;
@@ -1169,8 +1486,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
         const isUpSig = sig.direction === 'UP';
         const isStrong = sig.strength === 'STRONG';
-        const mainColor = isUpSig ? '#10b981' : '#f43f5e';
-        const brightColor = isUpSig ? '#34d399' : '#fb7185';
+        const mainColor = isUpSig
+          ? currIndicatorConfigs.engulfing.upColor || '#10b981'
+          : currIndicatorConfigs.engulfing.downColor || '#f43f5e';
+        const brightColor = isUpSig
+          ? currIndicatorConfigs.engulfing.upColor || '#34d399'
+          : currIndicatorConfigs.engulfing.downColor || '#fb7185';
         const auraRgba = isUpSig
           ? isStrong
             ? 'rgba(16, 185, 129, 0.22)'
@@ -1734,147 +2055,290 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         ctx.font='bold 11px Inter, sans-serif';ctx.textAlign='center';
         d.points.forEach((point,index)=>{const x=resolveTimeToX(point.time,currCandles,chart),y=priceToY(point.price,chart);if(x===null||y===null)return;ctx.fillStyle=currTheme==='light'?'#ffffff':'#0b0e14';ctx.beginPath();ctx.arc(x,y,8,0,Math.PI*2);ctx.fill();ctx.fillStyle=d.color;ctx.fillText(PATTERN_LABELS[d.type]?.[index]??'',x,y+4);if(showDetails)drawSmallDot(ctx,x,y+(index%2===0?13:-13));});
       } else if (d.type === 'hline' && y1 !== null) {
+        const customText = d.label && d.label !== 'LEVEL' ? d.label.trim() : '';
+        const pos = d.labelPosition ?? 'middle';
+        const align = d.labelAlign ?? (pos === 'middle' ? 'center' : 'left');
+        const fontSize = d.fontSize ?? 13;
+        const textFont = `600 ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, sans-serif`;
+
+        ctx.save();
+        ctx.font = textFont;
+        const tw = customText ? ctx.measureText(customText).width : 0;
+        ctx.restore();
+
+        const handleX =
+          x1 !== null && x1 > 20 && x1 < chartPlotWidth - 20
+            ? x1
+            : chartPlotWidth / 2;
+
+        const anchorX = customText
+          ? align === 'left'
+            ? Math.min(chartPlotWidth - tw / 2 - 20, Math.max(24 + tw / 2, x1 !== null && x1 < chartPlotWidth * 0.65 ? x1 + tw / 2 + 14 : 44 + tw / 2))
+            : align === 'right'
+            ? Math.max(24 + tw / 2, chartPlotWidth - 44 - tw / 2)
+            : handleX
+          : handleX;
+
         ctx.strokeStyle = d.color;
         ctx.lineWidth = lw;
         applyCanvasLineStyle(ctx, d.lineStyle, isPreview);
         ctx.beginPath();
-        ctx.moveTo(0, y1);
-        ctx.lineTo(chartPlotWidth, y1);
+        if (customText && pos === 'middle') {
+          const gapHalf = tw / 2 + 8;
+          const gStart = Math.max(0, anchorX - gapHalf);
+          const gEnd = Math.min(chartPlotWidth, anchorX + gapHalf);
+          if (gStart > 0) {
+            ctx.moveTo(0, y1);
+            ctx.lineTo(gStart, y1);
+          }
+          if (gEnd < chartPlotWidth) {
+            ctx.moveTo(gEnd, y1);
+            ctx.lineTo(chartPlotWidth, y1);
+          }
+        } else {
+          ctx.moveTo(0, y1);
+          ctx.lineTo(chartPlotWidth, y1);
+        }
         ctx.stroke();
         ctx.setLineDash([]);
 
-        const pos = d.labelPosition ?? 'top';
-        const customText = d.label && d.label !== 'LEVEL' ? d.label : '';
-        const label = customText ? `${customText} · ${d.price1.toFixed(decimals)}` : d.price1.toFixed(decimals);
-        const tw = ctx.measureText(label).width + 12;
-        const boxH = 15;
-        const boxX = 20;
-        const boxY = pos === 'middle' ? y1 - boxH / 2 : pos === 'bottom' ? y1 + 3 : y1 - boxH - 3;
-
-        ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
-        ctx.fillRect(boxX, boxY, tw, boxH);
-        ctx.strokeStyle = d.color;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(boxX, boxY, tw, boxH);
-        ctx.fillStyle = d.color;
-        ctx.font = 'bold 9.5px JetBrains Mono, monospace';
-        ctx.fillText(label, boxX + 6, boxY + 11);
+        if (customText) {
+          ctx.save();
+          ctx.font = textFont;
+          ctx.fillStyle = d.textColor || '#0d7a68';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const textY =
+            pos === 'middle'
+              ? y1
+              : pos === 'top'
+              ? y1 - (lw / 2 + 10)
+              : y1 + (lw / 2 + 11);
+          ctx.fillText(customText, anchorX, textY);
+          ctx.restore();
+        } else if (showDetails) {
+          const priceLabel = d.price1.toFixed(decimals);
+          ctx.save();
+          ctx.font = '600 10px JetBrains Mono, monospace';
+          ctx.fillStyle = d.color;
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(priceLabel, chartPlotWidth - 8, y1 - 4);
+          ctx.restore();
+        }
 
         if (showDetails) {
-          drawSmallDot(
-            ctx,
-            x1 !== null && x1 > 20 && x1 < chartPlotWidth - 20
-              ? x1
-              : chartPlotWidth / 2,
-            y1
-          );
+          drawSmallDot(ctx, handleX, y1);
         }
       } else if (d.type === 'vline' && x1 !== null) {
+        const customText = d.label && d.label !== 'TIME' ? d.label.trim() : '';
+        const pos = d.labelPosition ?? 'middle';
+        const align = d.labelAlign ?? (pos === 'middle' ? 'center' : 'left');
+        const fontSize = d.fontSize ?? 13;
+        const textFont = `600 ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, sans-serif`;
+
+        ctx.save();
+        ctx.font = textFont;
+        const tw = customText ? ctx.measureText(customText).width : 0;
+        ctx.restore();
+
+        const handleY = y1 !== null ? y1 : chartPlotHeight / 2;
+        const anchorY = customText
+          ? align === 'left'
+            ? Math.min(chartPlotHeight - tw / 2 - 24, Math.max(24 + tw / 2, chartPlotHeight - 56 - tw / 2))
+            : align === 'right'
+            ? Math.max(24 + tw / 2, 56 + tw / 2)
+            : handleY
+          : handleY;
+
         ctx.strokeStyle = d.color;
         ctx.lineWidth = lw;
         applyCanvasLineStyle(ctx, d.lineStyle, isPreview);
         ctx.beginPath();
-        ctx.moveTo(x1, 0);
-        ctx.lineTo(x1, chartPlotHeight);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        const dateStr = formatChartCrosshairTime(d.time1*1000,currDisplayTimezone);
-        const vLabel = `${d.label && d.label !== 'TIME' ? d.label + ' · ' : ''}${dateStr}`;
-        const tw = ctx.measureText(vLabel).width + 10;
-        const pos = d.labelPosition ?? 'bottom';
-        const boxH = 15;
-        const pillX = Math.max(4, Math.min(chartPlotWidth - tw - 4, x1 - tw / 2));
-        const pillY =
-          pos === 'top'
-            ? 8
-            : pos === 'middle'
-            ? (y1 !== null ? y1 - boxH / 2 : chartPlotHeight / 2 - boxH / 2)
-            : chartPlotHeight - 18;
-
-        ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
-        ctx.fillRect(pillX, pillY, tw, boxH);
-        ctx.strokeStyle = d.color;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(pillX, pillY, tw, boxH);
-        ctx.fillStyle = d.color;
-        ctx.font = 'bold 9.5px JetBrains Mono, monospace';
-        ctx.fillText(vLabel, pillX + 5, pillY + 10.5);
-
-        if (showDetails) {
-          drawSmallDot(ctx, x1, y1 !== null ? y1 : chartPlotHeight / 2);
+        if (customText && pos === 'middle') {
+          const gapHalf = tw / 2 + 8;
+          const gStart = Math.max(0, anchorY - gapHalf);
+          const gEnd = Math.min(chartPlotHeight, anchorY + gapHalf);
+          if (gStart > 0) {
+            ctx.moveTo(x1, 0);
+            ctx.lineTo(x1, gStart);
+          }
+          if (gEnd < chartPlotHeight) {
+            ctx.moveTo(x1, gEnd);
+            ctx.lineTo(x1, chartPlotHeight);
+          }
+        } else {
+          ctx.moveTo(x1, 0);
+          ctx.lineTo(x1, chartPlotHeight);
         }
-      } else if (
-        (d.type === 'trendline'||d.type==='ray'||d.type==='extended_line') &&
-        x1 !== null &&
-        y1 !== null &&
-        x2 !== null &&
-        y2 !== null
-      ) {
-        ctx.strokeStyle = d.color;
-        ctx.lineWidth = lw;
-        applyCanvasLineStyle(ctx, d.lineStyle, isPreview);
-        ctx.beginPath();
-        const extended=d.type==='ray'||d.type==='extended_line'||d.extendRight;
-        const endpoints=extended?clipExtendedLine({x:x1,y:y1},{x:x2,y:y2},chartPlotWidth,chartPlotHeight,d.type!=='extended_line'):null;
-        ctx.moveTo(endpoints?.[0].x??x1,endpoints?.[0].y??y1);
-        ctx.lineTo(endpoints?.[1].x??x2,endpoints?.[1].y??y2);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        if (d.label) {
-          const midX = (x1 + x2) / 2;
-          const midY = (y1 + y2) / 2;
-          const tw = ctx.measureText(d.label).width + 8;
-          const pos = d.labelPosition ?? 'top';
-          const tX = Math.max(4, Math.min(chartPlotWidth - tw - 4, midX - tw / 2));
-          const tY = pos === 'middle' ? midY - 7 : pos === 'bottom' ? midY + 4 : midY - 18;
-
+        if (customText) {
+          ctx.save();
+          ctx.translate(x1, anchorY);
+          ctx.rotate(-Math.PI / 2);
+          ctx.font = textFont;
+          ctx.fillStyle = d.textColor || '#0d7a68';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const localY =
+            pos === 'middle'
+              ? 0
+              : pos === 'top'
+              ? -(lw / 2 + 10)
+              : lw / 2 + 11;
+          ctx.fillText(customText, 0, localY);
+          ctx.restore();
+        } else if (showDetails) {
+          const dateStr = formatChartCrosshairTime(d.time1 * 1000, currDisplayTimezone);
+          ctx.save();
+          ctx.font = '600 9.5px JetBrains Mono, monospace';
+          const dtw = ctx.measureText(dateStr).width + 10;
+          const pillX = Math.max(4, Math.min(chartPlotWidth - dtw - 4, x1 - dtw / 2));
+          const pillY = chartPlotHeight - 18;
           ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
-          ctx.fillRect(tX, tY, tw, 14);
+          ctx.fillRect(pillX, pillY, dtw, 15);
           ctx.strokeStyle = d.color;
-          ctx.lineWidth = 0.8;
-          ctx.strokeRect(tX, tY, tw, 14);
+          ctx.lineWidth = 1;
+          ctx.strokeRect(pillX, pillY, dtw, 15);
           ctx.fillStyle = d.color;
-          ctx.font = 'bold 9.5px JetBrains Mono, monospace';
-          ctx.fillText(d.label, tX + 4, tY + 10);
+          ctx.fillText(dateStr, pillX + 5, pillY + 10.5);
+          ctx.restore();
         }
 
         if (showDetails) {
-          drawSmallDot(ctx, x1, y1);
-          drawSmallDot(ctx, x2, y2);
+          drawSmallDot(ctx, x1, handleY);
         }
       } else if (
-        d.type === 'arrow' &&
+        (d.type === 'trendline' || d.type === 'ray' || d.type === 'extended_line' || d.type === 'arrow') &&
         x1 !== null &&
         y1 !== null &&
         x2 !== null &&
         y2 !== null
       ) {
+        const extended = d.type === 'ray' || d.type === 'extended_line' || (d.type === 'trendline' && d.extendRight);
+        const endpoints = extended
+          ? clipExtendedLine(
+              { x: x1, y: y1 },
+              { x: x2, y: y2 },
+              chartPlotWidth,
+              chartPlotHeight,
+              d.type !== 'extended_line'
+            )
+          : null;
+        const sx1 = endpoints?.[0].x ?? x1;
+        const sy1 = endpoints?.[0].y ?? y1;
+        const sx2 = endpoints?.[1].x ?? x2;
+        const sy2 = endpoints?.[1].y ?? y2;
+
+        const customText = d.label ? d.label.trim() : '';
+        const pos = d.labelPosition ?? 'middle';
+        const align = d.labelAlign ?? (pos === 'middle' ? 'center' : 'left');
+        const fontSize = d.fontSize ?? 13;
+        const textFont = `600 ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, sans-serif`;
+
+        // Order handle points left-to-right so text angle is always upright in [-PI/2, PI/2]
+        const isLeftToRight = x1 < x2 || (x1 === x2 && y1 <= y2);
+        const lx1 = isLeftToRight ? x1 : x2;
+        const ly1 = isLeftToRight ? y1 : y2;
+        const lx2 = isLeftToRight ? x2 : x1;
+        const ly2 = isLeftToRight ? y2 : y1;
+        const ldx = lx2 - lx1;
+        const ldy = ly2 - ly1;
+        const lLen = Math.hypot(ldx, ldy);
+        const textAngle = Math.atan2(ldy, ldx);
+
+        let tw = 0;
+        if (customText) {
+          ctx.save();
+          ctx.font = textFont;
+          tw = ctx.measureText(customText).width;
+          ctx.restore();
+        }
+
+        let anchorX = (lx1 + lx2) / 2;
+        let anchorY = (ly1 + ly2) / 2;
+        if (customText && lLen > 1) {
+          const ux = ldx / lLen;
+          const uy = ldy / lLen;
+          const pad = 16;
+          if (align === 'left') {
+            const dist = Math.min(lLen / 2, pad + tw / 2);
+            anchorX = lx1 + ux * dist;
+            anchorY = ly1 + uy * dist;
+          } else if (align === 'right') {
+            const dist = Math.max(lLen / 2, lLen - (pad + tw / 2));
+            anchorX = lx1 + ux * dist;
+            anchorY = ly1 + uy * dist;
+          }
+        }
+
         ctx.strokeStyle = d.color;
         ctx.fillStyle = d.color;
         ctx.lineWidth = lw;
         applyCanvasLineStyle(ctx, d.lineStyle, isPreview);
         ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
+
+        const sdx = sx2 - sx1;
+        const sdy = sy2 - sy1;
+        const sLen = Math.hypot(sdx, sdy);
+        if (customText && pos === 'middle' && sLen > tw + 16) {
+          const sux = sdx / sLen;
+          const suy = sdy / sLen;
+          const proj = (anchorX - sx1) * sux + (anchorY - sy1) * suy;
+          const gapHalf = tw / 2 + 8;
+          const gStart = Math.max(0, proj - gapHalf);
+          const gEnd = Math.min(sLen, proj + gapHalf);
+          if (gStart > 0) {
+            ctx.moveTo(sx1, sy1);
+            ctx.lineTo(sx1 + sux * gStart, sy1 + suy * gStart);
+          }
+          if (gEnd < sLen) {
+            ctx.moveTo(sx1 + sux * gEnd, sy1 + suy * gEnd);
+            ctx.lineTo(sx2, sy2);
+          }
+        } else {
+          ctx.moveTo(sx1, sy1);
+          ctx.lineTo(sx2, sy2);
+        }
         ctx.stroke();
         ctx.setLineDash([]);
 
-        const angle = Math.atan2(y2 - y1, x2 - x1);
-        const headLen = Math.max(9, lw * 3.5);
-        ctx.beginPath();
-        ctx.moveTo(x2, y2);
-        ctx.lineTo(
-          x2 - headLen * Math.cos(angle - Math.PI / 6),
-          y2 - headLen * Math.sin(angle - Math.PI / 6)
-        );
-        ctx.lineTo(
-          x2 - headLen * Math.cos(angle + Math.PI / 6),
-          y2 - headLen * Math.sin(angle + Math.PI / 6)
-        );
-        ctx.closePath();
-        ctx.fill();
+        if (d.type === 'arrow') {
+          const arrowAngle = Math.atan2(y2 - y1, x2 - x1);
+          const headLen = Math.max(9, lw * 3.5);
+          ctx.beginPath();
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(
+            x2 - headLen * Math.cos(arrowAngle - Math.PI / 6),
+            y2 - headLen * Math.sin(arrowAngle - Math.PI / 6)
+          );
+          ctx.lineTo(
+            x2 - headLen * Math.cos(arrowAngle + Math.PI / 6),
+            y2 - headLen * Math.sin(arrowAngle + Math.PI / 6)
+          );
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        if (customText) {
+          ctx.save();
+          ctx.translate(anchorX, anchorY);
+          ctx.rotate(textAngle);
+          ctx.font = textFont;
+          ctx.fillStyle = d.textColor || '#0d7a68';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const localY =
+            pos === 'middle'
+              ? 0
+              : pos === 'top'
+              ? -(lw / 2 + 10)
+              : lw / 2 + 11;
+          ctx.fillText(customText, 0, localY);
+          ctx.restore();
+        }
 
         if (showDetails) {
           drawSmallDot(ctx, x1, y1);
@@ -1918,53 +2382,116 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         x2 !== null &&
         y2 !== null
       ) {
-        const left = Math.min(x1, x2);
-        const right = d.extendRight ? chartPlotWidth : Math.max(x1, x2, left + 130);
-        const priceDiff = d.price1 - (d.price2 ?? d.price1);
+        const fibCfg = getEffectiveFibSettings(d, currDefaultFibSettings);
+        const rawLeft = Math.min(x1, x2);
+        const rawRight = Math.max(x1, x2, rawLeft + 140);
+        const lineLeft = fibCfg.extendLeft ? 0 : rawLeft;
+        const lineRight = fibCfg.extendRight || d.extendRight ? chartPlotWidth : rawRight;
 
-        ctx.strokeStyle = '#787b86';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        // 1) Optional Diagonal Trend Line connecting Anchor 1 and Anchor 2
+        if (fibCfg.showTrendLine !== false) {
+          ctx.save();
+          ctx.strokeStyle = fibCfg.trendLineColor || '#787b86';
+          ctx.lineWidth = fibCfg.trendLineWidth || 1;
+          applyCanvasLineStyle(ctx, fibCfg.trendLineStyle || 'dashed', isPreview);
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.restore();
+        }
+
+        // 2) Sort enabled levels so background bands and lines render cleanly in order
+        const enabledLevels = fibCfg.levels
+          .filter((l) => l.enabled !== false)
+          .slice()
+          .sort((a, b) => a.level - b.level);
+
+        const resolveFibColor = (hex: string) => {
+          const baseHex = fibCfg.useSingleColor ? fibCfg.singleColor || d.color : hex;
+          const lower = baseHex.toLowerCase();
+          // Ensure black/charcoal levels remain visible when chart is in Dark Mode
+          if (currTheme !== 'light' && (lower === '#131722' || lower === '#000000')) {
+            return '#e2e8f0';
+          }
+          return baseHex;
+        };
 
         let prevY: number | null = null;
-        for (let i = 0; i < FIB_LEVELS.length; i++) {
-          const f = FIB_LEVELS[i];
-          const lvlPrice = (d.price2 ?? d.price1) + priceDiff * f.level;
+        for (let i = 0; i < enabledLevels.length; i++) {
+          const f = enabledLevels[i];
+          const lvlPrice = computeFibLevelPrice(
+            d.price1,
+            d.price2 ?? d.price1,
+            f.level,
+            fibCfg.reverse
+          );
           const lvlY = priceToY(lvlPrice, chart);
           if (lvlY === null) continue;
 
-          if (prevY !== null) {
-            ctx.fillStyle = hexToRgba(f.color, fillAlpha * 0.65);
+          const levelColor = resolveFibColor(f.color);
+
+          // Optional background fill between adjacent enabled Fib levels
+          if (fibCfg.showBackground && prevY !== null) {
+            ctx.fillStyle = hexToRgba(levelColor, fibCfg.backgroundOpacity ?? 0.12);
             ctx.fillRect(
-              left,
+              lineLeft,
               Math.min(prevY, lvlY),
-              right - left,
+              Math.max(2, lineRight - lineLeft),
               Math.abs(lvlY - prevY)
             );
           }
           prevY = lvlY;
 
-          ctx.strokeStyle = d.color !== '#089981' ? d.color : f.color;
+          // Horizontal Fib Level Line
+          ctx.strokeStyle = levelColor;
           ctx.lineWidth = lw;
           applyCanvasLineStyle(ctx, d.lineStyle, isPreview);
           ctx.beginPath();
-          ctx.moveTo(left, lvlY);
-          ctx.lineTo(right, lvlY);
+          ctx.moveTo(lineLeft, lvlY);
+          ctx.lineTo(lineRight, lvlY);
           ctx.stroke();
           ctx.setLineDash([]);
 
-          ctx.fillStyle = d.color !== '#089981' ? d.color : f.color;
-          ctx.font = '400 9.5px JetBrains Mono, monospace';
-          ctx.fillText(
-            `${f.level} (${lvlPrice.toFixed(decimals)})`,
-            left + 5,
-            lvlY - 3
-          );
+          // Formatted Level + Price Label (e.g. "61.80% (1.39988)" or "0.618 (1.39988)")
+          const labelText = formatFibLevelLabel(f.level, lvlPrice, decimals, fibCfg);
+          if (labelText) {
+            ctx.fillStyle = levelColor;
+            ctx.font = '600 10.5px Inter, JetBrains Mono, monospace';
+            const textW = ctx.measureText(labelText).width;
+            const pos = fibCfg.labelsPosition || 'right';
+            const align = fibCfg.labelsAlign || 'middle';
+
+            let labelX = lineLeft + 6;
+            if (pos === 'right') {
+              if (fibCfg.extendRight || d.extendRight) {
+                labelX = Math.max(lineLeft + 6, chartPlotWidth - textW - 8);
+              } else {
+                labelX = Math.min(chartPlotWidth - textW - 6, lineRight + 7);
+              }
+            } else if (pos === 'center') {
+              labelX = (rawLeft + rawRight) / 2 - textW / 2;
+            } else {
+              labelX = Math.max(6, lineLeft + 6);
+            }
+
+            let labelY = lvlY + 3.5;
+            if (align === 'top') {
+              labelY = lvlY - 4;
+            } else if (align === 'bottom') {
+              labelY = lvlY + 11;
+            } else {
+              // If middle-aligned but label sits directly over the line (left/center or extended right), place slightly above line
+              if (pos !== 'right' || fibCfg.extendRight || d.extendRight) {
+                labelY = lvlY - 4;
+              } else {
+                labelY = lvlY + 3.5;
+              }
+            }
+
+            ctx.fillText(labelText, labelX, labelY);
+          }
         }
 
         if (showDetails) {
@@ -2638,6 +3165,62 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             if(Math.hypot(mouseX-x2,mouseY-y2)<=dotR)return {...baseDrawHit,handle:'p2'};
             const endpoints=clipExtendedLine({x:x1,y:y1},{x:x2,y:y2},chartPlotWidth,chartPlotHeight,d.type==='ray');
             if(endpoints&&distToSegment(mouseX,mouseY,endpoints[0].x,endpoints[0].y,endpoints[1].x,endpoints[1].y)<=lineR)return {...baseDrawHit,handle:'body'};
+          } else if (
+            d.type === 'fib' &&
+            x1 !== null &&
+            y1 !== null &&
+            x2 !== null &&
+            y2 !== null
+          ) {
+            if (Math.hypot(mouseX - x1, mouseY - y1) <= dotR) {
+              return { ...baseDrawHit, handle: 'p1' };
+            }
+            if (Math.hypot(mouseX - x2, mouseY - y2) <= dotR) {
+              return { ...baseDrawHit, handle: 'p2' };
+            }
+            const fibCfg = getEffectiveFibSettings(d, stateRef.current.defaultFibSettings);
+            const rawLeft = Math.min(x1, x2);
+            const rawRight = Math.max(x1, x2, rawLeft + 140);
+            const lineLeft = fibCfg.extendLeft ? 0 : rawLeft;
+            const lineRight = fibCfg.extendRight || d.extendRight ? chartPlotWidth : rawRight;
+
+            if (
+              fibCfg.showTrendLine !== false &&
+              distToSegment(mouseX, mouseY, x1, y1, x2, y2) <= lineR
+            ) {
+              return { ...baseDrawHit, handle: 'body' };
+            }
+
+            let minLvlY = Math.min(y1, y2);
+            let maxLvlY = Math.max(y1, y2);
+            for (const f of fibCfg.levels) {
+              if (f.enabled === false) continue;
+              const lvlPrice = computeFibLevelPrice(
+                d.price1,
+                d.price2 ?? d.price1,
+                f.level,
+                fibCfg.reverse
+              );
+              const lvlY = priceToY(lvlPrice, chart);
+              if (lvlY === null) continue;
+              minLvlY = Math.min(minLvlY, lvlY);
+              maxLvlY = Math.max(maxLvlY, lvlY);
+              if (
+                mouseX >= lineLeft - lineR &&
+                mouseX <= Math.min(chartPlotWidth, lineRight + 135) &&
+                Math.abs(mouseY - lvlY) <= lineR + 2
+              ) {
+                return { ...baseDrawHit, handle: 'body' };
+              }
+            }
+            if (
+              mouseX >= rawLeft &&
+              mouseX <= rawRight &&
+              mouseY >= minLvlY &&
+              mouseY <= maxLvlY
+            ) {
+              return { ...baseDrawHit, handle: 'body' };
+            }
           } else if (x1 !== null && y1 !== null) {
             if (Math.hypot(mouseX - x1, mouseY - y1) <= dotR) {
               return { ...baseDrawHit, handle: 'p1' };
@@ -2670,6 +3253,71 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       return null;
     },
     [getCandlePaneMetrics, priceToY, resolveTimeToX, resolveXToTime, yToPrice]
+  );
+
+  // Hit-Test EMA / SMA / WMA / VWAP Overlay Curves so clicking on an indicator line opens its Settings!
+  const hitTestIndicatorCurves = useCallback(
+    (mouseX: number, mouseY: number): string | null => {
+      const chart = chartRef.current;
+      const container = containerRef.current;
+      if (!chart || !container) return null;
+
+      const rect = container.getBoundingClientRect();
+      const { chartPlotWidth, chartPlotHeight } = getCandlePaneMetrics(
+        chart,
+        rect.width,
+        rect.height
+      );
+      if (mouseX < 0 || mouseX > chartPlotWidth || mouseY < 0 || mouseY > chartPlotHeight) {
+        return null;
+      }
+
+      const currState = stateRef.current;
+      const currCandles = currState.candles;
+      if (currCandles.length < 2) return null;
+
+      const tolerance = 7.5;
+
+      const testSeries = (pts: { time: number; value: number }[]): boolean => {
+        if (pts.length < 2) return false;
+        let prevX: number | null = null;
+        let prevY: number | null = null;
+        for (let i = 0; i < pts.length; i++) {
+          const x = resolveTimeToX(pts[i].time, currCandles, chart);
+          if (x === null) continue;
+          if (x < mouseX - 60) {
+            prevX = x;
+            prevY = priceToY(pts[i].value, chart);
+            continue;
+          }
+          const y = priceToY(pts[i].value, chart);
+          if (y === null) continue;
+          if (prevX !== null && prevY !== null) {
+            if (distToSegment(mouseX, mouseY, prevX, prevY, x, y) <= tolerance) {
+              return true;
+            }
+          }
+          prevX = x;
+          prevY = y;
+          if (x > mouseX + 60) break;
+        }
+        return false;
+      };
+
+      for (let i = currState.activeOverlayMASeries.length - 1; i >= 0; i--) {
+        const maItem = currState.activeOverlayMASeries[i];
+        if (testSeries(maItem.points)) {
+          return maItem.id;
+        }
+      }
+
+      if (currState.showVWAP && testSeries(currState.activeVWAPSeries)) {
+        return 'showVWAP';
+      }
+
+      return null;
+    },
+    [getCandlePaneMetrics, priceToY, resolveTimeToX]
   );
 
   // Initialize KLineChart ONCE on mount + 60fps Viewport Matrix Sync Loop
@@ -3038,6 +3686,13 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         return;
       }
 
+      const indHit = hitTestIndicatorCurves(mouseX, mouseY);
+      if (indHit) {
+        setEffectiveActiveIndicatorSettingsId(indHit);
+        drawOverlay();
+        return;
+      }
+
       setContextMenu({
         x: mouseX,
         y: mouseY,
@@ -3052,8 +3707,21 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
       const hit = hitTestHandlesAndShapes(mouseX, mouseY);
-      if (hit && hit.kind === 'drawing_handle' && hit.origDrawing.type === 'text') {
+      if (
+        hit &&
+        hit.kind === 'drawing_handle' &&
+        ['text', 'hline', 'vline', 'trendline', 'ray', 'extended_line', 'arrow'].includes(
+          hit.origDrawing.type
+        )
+      ) {
         const d = hit.origDrawing;
+        const existingLabel =
+          d.type === 'text'
+            ? d.label || ''
+            : d.label && d.label !== 'LEVEL' && d.label !== 'TIME'
+            ? d.label
+            : '';
+        setSelectedId(d.id);
         setTextEditor({
           mode: 'edit',
           drawingId: d.id,
@@ -3061,10 +3729,20 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           y: Math.max(56, Math.min(rect.height - 160, mouseY)),
           time: d.time1,
           price: d.price1,
-          text: d.label || '',
-          color: d.color,
-          locked: d.locked ?? true,
+          text: existingLabel,
+          color: d.type === 'text' ? d.color : d.textColor || '#0d7a68',
+          locked: d.type === 'text' ? (d.locked ?? true) : (d.locked ?? false),
         });
+        return;
+      }
+      if (hit && hit.kind === 'drawing_handle' && hit.origDrawing.type === 'fib') {
+        setSelectedId(hit.drawingId);
+        setFibSettingsModalDrawingId(hit.drawingId);
+        return;
+      }
+      const indHit = hitTestIndicatorCurves(mouseX, mouseY);
+      if (indHit) {
+        setEffectiveActiveIndicatorSettingsId(indHit);
       }
     };
 
@@ -3150,6 +3828,17 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             chart.setScrollEnabled(false);
             dragRef.current = hit;
           }
+          drawOverlay();
+          return;
+        }
+      }
+
+      // 2b. Click directly on an EMA / SMA / WMA / VWAP curve in Cursor mode -> Open Indicator Settings Modal!
+      if (currState.activeTool === 'cursor') {
+        const indHit = hitTestIndicatorCurves(mouseX, mouseY);
+        if (indHit) {
+          e.stopPropagation();
+          setEffectiveActiveIndicatorSettingsId(indHit);
           drawOverlay();
           return;
         }
@@ -3269,6 +3958,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           startPrice: clickedPrice,
           points: [{ time: clickedTime, price: clickedPrice }],
         };
+        const clonedFibSettings =
+          currState.activeTool === 'fib'
+            ? (JSON.parse(JSON.stringify(currState.defaultFibSettings)) as FibSettings)
+            : undefined;
         setDraftDrawing({
           id: 'draft',
           type: currState.activeTool as ChartDrawing['type'],
@@ -3282,6 +3975,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           lineWidth: currState.drawingLineWidth,
           lineStyle: currState.drawingLineStyle,
           fillOpacity: 0.16,
+          fibSettings: clonedFibSettings,
         });
         return;
       }
@@ -3321,9 +4015,19 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           setHoveredId(nextHoverId);
         }
 
+        const nextIndHover =
+          !hoverHit && currState.activeTool === 'cursor'
+            ? hitTestIndicatorCurves(mouseX, mouseY)
+            : null;
+        if (nextIndHover !== currState.hoveredIndicatorId) {
+          setHoveredIndicatorId(nextIndHover);
+        }
+
         let nextCursor = 'cursor-crosshair';
         if (currState.activeTool === 'replay_cut') {
           nextCursor = 'cursor-col-resize';
+        } else if (nextIndHover) {
+          nextCursor = 'cursor-pointer';
         } else if (
           hoverHit &&
           (hoverHit.kind === 'position_handle' || hoverHit.kind === 'drawing_handle')
@@ -3824,8 +4528,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     drawOverlay,
     getCandlePaneMetrics,
     hitTestHandlesAndShapes,
+    hitTestIndicatorCurves,
     resolveXToLogical,
     resolveXToTime,
+    setEffectiveActiveIndicatorSettingsId,
     yToPrice,
   ]);
 
@@ -3905,53 +4611,104 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     drawOverlay();
   }, [theme, candleStyle, customCandleColors, drawOverlay]);
 
-  // Toggle KLineChart Native Sub-Pane & Overlay Indicators (BOLL, VOL, MACD, RSI)
+  // Toggle & Customize KLineChart Native Sub-Pane & Overlay Indicators (BOLL, VOL, MACD, RSI)
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     if (showBOLL) {
-      chart.createIndicator({ id: 'kl_boll', name: 'BOLL', paneId: 'candle_pane' }, true);
+      const b = effectiveIndicatorConfigs.boll;
+      const bollSpec = {
+        id: 'kl_boll',
+        name: 'BOLL',
+        paneId: 'candle_pane',
+        calcParams: [b.period, b.stdDev],
+        styles: {
+          lines: [
+            { color: b.upperColor, size: b.lineWidth, style: 'solid' as LineType },
+            { color: b.middleColor, size: b.lineWidth, style: 'solid' as LineType },
+            { color: b.lowerColor, size: b.lineWidth, style: 'solid' as LineType },
+          ],
+        },
+      };
+      chart.createIndicator(bollSpec, true);
+      chart.overrideIndicator?.(bollSpec);
     } else {
       chart.removeIndicator({ id: 'kl_boll' });
     }
     requestAnimationFrame(() => drawOverlay());
-  }, [showBOLL, drawOverlay]);
+  }, [showBOLL, effectiveIndicatorConfigs.boll, drawOverlay]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     if (showVOL) {
-      chart.createIndicator({ id: 'kl_vol', name: 'VOL', paneId: 'pane_vol' }, false);
+      const v = effectiveIndicatorConfigs.vol;
+      const volSpec = {
+        id: 'kl_vol',
+        name: 'VOL',
+        paneId: 'pane_vol',
+        calcParams: [v.maPeriod],
+        styles: {
+          lines: [{ color: v.maColor, size: 1.4, style: 'solid' as LineType }],
+        },
+      };
+      chart.createIndicator(volSpec, false);
+      chart.overrideIndicator?.(volSpec);
       chart.setPaneOptions({ id: 'pane_vol', height: 95, minHeight: 55 });
     } else {
       chart.removeIndicator({ id: 'kl_vol' });
     }
     requestAnimationFrame(() => drawOverlay());
-  }, [showVOL, drawOverlay]);
+  }, [showVOL, effectiveIndicatorConfigs.vol, drawOverlay]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     if (showMACD) {
-      chart.createIndicator({ id: 'kl_macd', name: 'MACD', paneId: 'pane_macd' }, false);
+      const m = effectiveIndicatorConfigs.macd;
+      const macdSpec = {
+        id: 'kl_macd',
+        name: 'MACD',
+        paneId: 'pane_macd',
+        calcParams: [m.fastPeriod, m.slowPeriod, m.signalPeriod],
+        styles: {
+          lines: [
+            { color: m.macdColor, size: m.lineWidth, style: 'solid' as LineType },
+            { color: m.signalColor, size: m.lineWidth, style: 'solid' as LineType },
+          ],
+        },
+      };
+      chart.createIndicator(macdSpec, false);
+      chart.overrideIndicator?.(macdSpec);
       chart.setPaneOptions({ id: 'pane_macd', height: 105, minHeight: 60 });
     } else {
       chart.removeIndicator({ id: 'kl_macd' });
     }
     requestAnimationFrame(() => drawOverlay());
-  }, [showMACD, drawOverlay]);
+  }, [showMACD, effectiveIndicatorConfigs.macd, drawOverlay]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     if (showRSI) {
-      chart.createIndicator({ id: 'kl_rsi', name: 'RSI', paneId: 'pane_rsi' }, false);
+      const r = effectiveIndicatorConfigs.rsi;
+      const rsiSpec = {
+        id: 'kl_rsi',
+        name: 'RSI',
+        paneId: 'pane_rsi',
+        calcParams: [r.period],
+        styles: {
+          lines: [{ color: r.color, size: r.lineWidth, style: 'solid' as LineType }],
+        },
+      };
+      chart.createIndicator(rsiSpec, false);
+      chart.overrideIndicator?.(rsiSpec);
       chart.setPaneOptions({ id: 'pane_rsi', height: 100, minHeight: 60 });
     } else {
       chart.removeIndicator({ id: 'kl_rsi' });
     }
     requestAnimationFrame(() => drawOverlay());
-  }, [showRSI, drawOverlay]);
+  }, [showRSI, effectiveIndicatorConfigs.rsi, drawOverlay]);
 
   // Update KLineChart data when candles, symbol, or timeframe updates
   useEffect(() => {
@@ -3965,6 +4722,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         symbol,
         timeframe,
         firstTime: 0,
+        lastTime: 0,
         firstClose: 0,
         midClose: 0,
         lastClose: 0,
@@ -3976,9 +4734,19 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
     const prevMeta = prevSeriesMetaRef.current;
     const firstTime = candles[0].time;
+    const lastCandle = candles[candles.length - 1];
+    const lastTime = lastCandle.time;
     const firstClose = candles[0].close;
     const midClose = candles[Math.floor(candles.length / 2)]?.close ?? firstClose;
-    const lastClose = candles[candles.length - 1].close;
+    const lastClose = lastCandle.close;
+    const stepSec = TIMEFRAME_CONFIG[timeframe]?.seconds || 900;
+
+    const focusVersionChanged =
+      viewportFocusVersion !== undefined &&
+      viewportFocusVersion !== prevFocusVersionRef.current;
+    if (viewportFocusVersion !== undefined) {
+      prevFocusVersionRef.current = viewportFocusVersion;
+    }
 
     const isDatasetSwitch =
       prevMeta.symbol !== symbol ||
@@ -3990,6 +4758,105 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       prevMeta.firstTime === firstTime &&
       candles.length >= prevMeta.length;
 
+    const addedBarsCount = isIncrementalAppendOrUpdate
+      ? Math.max(0, candles.length - prevMeta.length)
+      : 0;
+
+    const isReplaySkipOrJump =
+      !isDatasetSwitch &&
+      (focusVersionChanged ||
+        addedBarsCount > 1 ||
+        candles.length < prevMeta.length ||
+        !isIncrementalAppendOrUpdate ||
+        (prevMeta.lastTime > 0 && Math.abs(lastTime - prevMeta.lastTime) > stepSec * 2));
+
+    const centerViewportOnActivePrice = (scrollHorizontal: boolean) => {
+      const chartStore = (chart as any)._chartStore;
+      const yAxis = chart.getYAxes({ paneId: 'candle_pane' })[0] as any;
+      if (yAxis && typeof yAxis.setAutoCalcTickFlag === 'function') {
+        yAxis.setAutoCalcTickFlag(true);
+      }
+      if (scrollHorizontal) {
+        const currentBarSpace =
+          typeof chart.getBarSpace === 'function' ? (chart.getBarSpace() as any)?.bar ?? chart.getBarSpace() : 7.5;
+        if (typeof currentBarSpace === 'number' && currentBarSpace < 5) {
+          chart.setBarSpace(7.5);
+        }
+        chart.scrollToRealTime();
+        if (typeof chartStore?.setLastBarRightSideDiffBarCount === 'function') {
+          chartStore.setLastBarRightSideDiffBarCount(14);
+          chartStore._adjustVisibleRange?.();
+        }
+      }
+      (chart as any).layout?.({
+        measureWidth: true,
+        update: true,
+        buildYAxisTick: true,
+        forceBuildYAxisTick: true,
+      });
+
+      const cw = containerRef.current?.clientWidth || 900;
+      const ch = containerRef.current?.clientHeight || 600;
+      const { chartPlotHeight } = getCandlePaneMetrics(chart, cw, ch);
+      if (chartPlotHeight <= 80) return;
+
+      const closeY = priceToY(lastCandle.close, chart);
+      const focusBars = candles.slice(-40);
+      let focusHigh = lastCandle.high;
+      let focusLow = lastCandle.low;
+      for (let i = 0; i < focusBars.length; i++) {
+        if (focusBars[i].high > focusHigh) focusHigh = focusBars[i].high;
+        if (focusBars[i].low < focusLow) focusLow = focusBars[i].low;
+      }
+      const highY = priceToY(focusHigh, chart);
+      const lowY = priceToY(focusLow, chart);
+      const focusPixelSpan =
+        highY !== null && lowY !== null ? Math.abs(lowY - highY) : chartPlotHeight * 0.5;
+
+      const needsCustomCenterRange =
+        closeY === null ||
+        closeY < chartPlotHeight * 0.22 ||
+        closeY > chartPlotHeight * 0.78 ||
+        focusPixelSpan < chartPlotHeight * 0.25;
+
+      if (needsCustomCenterRange && yAxis && typeof yAxis.setRange === 'function') {
+        const minSpan = Math.max(
+          (instConfig.minMove || 0.0001) * 30,
+          instConfig.volatility1m * 10
+        );
+        const rawSpan = Math.max(focusHigh - focusLow, minSpan);
+        const pad = rawSpan * 0.35;
+        let from = focusLow - pad;
+        let to = focusHigh + pad;
+        const closeRatio = (lastCandle.close - from) / Math.max(1e-9, to - from);
+        if (closeRatio < 0.32) {
+          from = lastCandle.close - (to - lastCandle.close) * (0.35 / 0.65);
+        } else if (closeRatio > 0.68) {
+          to = lastCandle.close + (lastCandle.close - from) * (0.35 / 0.65);
+        }
+        const range = to - from;
+        if (Number.isFinite(range) && range > 0) {
+          yAxis.setRange({
+            from,
+            to,
+            range,
+            realFrom: from,
+            realTo: to,
+            realRange: range,
+            displayFrom: from,
+            displayTo: to,
+            displayRange: range,
+          });
+          (chart as any).layout?.({
+            measureWidth: true,
+            update: true,
+            buildYAxisTick: true,
+            forceBuildYAxisTick: true,
+          });
+        }
+      }
+    };
+
     const historyUnchanged = revealedHistorySamplesMatch(prevMeta,candles);
     if (isIncrementalAppendOrUpdate && historyUnchanged && subscribeBarCallbackRef.current) {
       const chartStore = (chart as any)._chartStore;
@@ -3997,13 +4864,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         typeof chartStore?.getLastBarRightSideDiffBarCount === 'function'
           ? chartStore.getLastBarRightSideDiffBarCount()
           : null;
-      const addedBarsCount = Math.max(0, candles.length - prevMeta.length);
 
       const update=subscribeBarCallbackRef.current;
       const target=candles[candles.length-1];
       const displayed=chart.getDataList();
       const current=displayed[displayed.length-1];
-      const animate=isReplayMode&&replayAnimationMs>0&&addedBarsCount<=1&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const animate=isReplayMode&&replayAnimationMs>0&&addedBarsCount<=1&&!isReplaySkipOrJump&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const startIndex = Math.max(0, prevMeta.length - 1);
       for (let i = startIndex; i < candles.length-1; i++) update(toKLineData(candles[i]));
       if(animate){
@@ -4014,24 +4880,50 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         replayAnimationFrame.current=requestAnimationFrame(frame);
       }else update(toKLineData(target));
 
-      // If the user dragged the chart left (leaving open space on the right),
-      // keep existing candles anchored at the exact screen position where the user set them
-      // while new bars print forward into the open space on the right.
-      const minRightBars = 10;
-      if (
-        addedBarsCount > 0 &&
-        beforeDiff !== null &&
-        beforeDiff > minRightBars &&
-        typeof chartStore?.setLastBarRightSideDiffBarCount === 'function'
-      ) {
-        const nextDiff = Math.max(minRightBars, beforeDiff - addedBarsCount);
-        chartStore.setLastBarRightSideDiffBarCount(nextDiff);
-        chartStore._adjustVisibleRange?.();
-        (chart as any).layout?.({
-          measureWidth: true,
-          update: true,
-          buildYAxisTick: true,
-        });
+      if (isReplaySkipOrJump) {
+        centerViewportOnActivePrice(true);
+      } else {
+        // If the user dragged the chart left (leaving open space on the right),
+        // keep existing candles anchored at the exact screen position where the user set them
+        // while new bars print forward into the open space on the right.
+        const minRightBars = 10;
+        if (
+          addedBarsCount > 0 &&
+          beforeDiff !== null &&
+          beforeDiff > minRightBars &&
+          typeof chartStore?.setLastBarRightSideDiffBarCount === 'function'
+        ) {
+          const nextDiff = Math.max(minRightBars, beforeDiff - addedBarsCount);
+          chartStore.setLastBarRightSideDiffBarCount(nextDiff);
+          chartStore._adjustVisibleRange?.();
+          (chart as any).layout?.({
+            measureWidth: true,
+            update: true,
+            buildYAxisTick: true,
+          });
+        }
+
+        // During normal stepping, if the active candle drifts near/outside the vertical or horizontal viewport, re-center it
+        if (isReplayMode && addedBarsCount > 0) {
+          const cw = containerRef.current?.clientWidth || 900;
+          const ch = containerRef.current?.clientHeight || 600;
+          const { chartPlotWidth, chartPlotHeight } = getCandlePaneMetrics(chart, cw, ch);
+          const closeY = priceToY(target.close, chart);
+          const highY = priceToY(target.high, chart);
+          const lowY = priceToY(target.low, chart);
+          const lastX = resolveTimeToX(target.time, candles, chart);
+          const outVertical =
+            closeY === null ||
+            closeY < chartPlotHeight * 0.14 ||
+            closeY > chartPlotHeight * 0.86 ||
+            (highY !== null && highY < chartPlotHeight * 0.06) ||
+            (lowY !== null && lowY > chartPlotHeight * 0.94);
+          const outHorizontal =
+            lastX === null || lastX < 36 || lastX > chartPlotWidth - 20;
+          if (outVertical || outHorizontal) {
+            centerViewportOnActivePrice(outHorizontal);
+          }
+        }
       }
     } else if (isDatasetSwitch) {
       const yAxis = chart.getYAxes({ paneId: 'candle_pane' })[0] as any;
@@ -4047,45 +4939,19 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       chart.resetData();
       chart.setBarSpace(7.5);
       chart.scrollToRealTime();
+      centerViewportOnActivePrice(true);
     } else {
-      // Rewind or historical jump on the same symbol & timeframe: preserve user's horizontal & vertical pan/zoom
-      const chartStore = (chart as any)._chartStore;
-      const savedDiffBarCount =
-        typeof chartStore?.getLastBarRightSideDiffBarCount === 'function'
-          ? chartStore.getLastBarRightSideDiffBarCount()
-          : null;
-      const yAxis = chart.getYAxes({ paneId: 'candle_pane' })[0] as any;
-      const savedAutoCalc =
-        typeof yAxis?.getAutoCalcTickFlag === 'function'
-          ? yAxis.getAutoCalcTickFlag()
-          : true;
-      const savedYRange =
-        typeof yAxis?.getRange === 'function' ? yAxis.getRange() : null;
-
+      // Rewind, replay cut, or historical jump on the same symbol & timeframe:
+      // Reset data and center viewport on the target price & timestamp so it is never hidden off-screen
       chart.resetData();
-
-      if (
-        savedDiffBarCount !== null &&
-        typeof chartStore?.setLastBarRightSideDiffBarCount === 'function'
-      ) {
-        chartStore.setLastBarRightSideDiffBarCount(savedDiffBarCount);
-        chartStore._adjustVisibleRange?.();
-      }
-      if (savedAutoCalc === false && savedYRange && yAxis) {
-        yAxis.setAutoCalcTickFlag?.(false);
-        yAxis.setRange?.(savedYRange);
-      }
-      (chart as any).layout?.({
-        measureWidth: true,
-        update: true,
-        buildYAxisTick: savedAutoCalc !== false,
-      });
+      centerViewportOnActivePrice(true);
     }
 
     prevSeriesMetaRef.current = {
       symbol,
       timeframe,
       firstTime,
+      lastTime,
       firstClose,
       midClose,
       lastClose,
@@ -4097,10 +4963,15 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     candles,
     symbol,
     timeframe,
+    viewportFocusVersion,
     replayAnimationMs,
     isReplayMode,
     instConfig.decimals,
+    instConfig.minMove,
     instConfig.volatility1m,
+    getCandlePaneMetrics,
+    priceToY,
+    resolveTimeToX,
     drawOverlay,
   ]);
 
@@ -4122,6 +4993,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     draftDrawing,
     selectedId,
     hoveredId,
+    hoveredIndicatorId,
+    effectiveActiveIndicatorSettingsId,
+    effectiveIndicatorConfigs,
+    activeOverlayMASeries,
+    activeVWAPSeries,
+    defaultFibSettings,
     candleRemainingText,
     isReplayMode,
     hideDrawings,
@@ -4410,6 +5287,248 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               </button>
             </div>
           )}
+
+          {/* Row 3: Interactive Clickable Indicator Legend Pills (EMAs, SMAs, VWAP, BOLL, RSI, MACD, VOL) */}
+          {(activeOverlayMASeries.length > 0 ||
+            showVWAP ||
+            showBOLL ||
+            showRSI ||
+            showMACD ||
+            showVOL) && (
+            <div
+              role="region"
+              aria-label="Active Technical Indicators"
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              className="flex flex-wrap items-center gap-1 pointer-events-auto"
+            >
+              {activeOverlayMASeries.map((maItem) => {
+                const ptAtBar =
+                  maItem.points.find((p) => p.time === activeCandle.time) ||
+                  maItem.points[maItem.points.length - 1];
+                const isHoveredOrActive =
+                  hoveredIndicatorId === maItem.id ||
+                  effectiveActiveIndicatorSettingsId === maItem.id;
+                return (
+                  <div
+                    key={maItem.id}
+                    onMouseEnter={() => setHoveredIndicatorId(maItem.id)}
+                    onMouseLeave={() =>
+                      setHoveredIndicatorId((prev) => (prev === maItem.id ? null : prev))
+                    }
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-mono backdrop-blur-md shadow-sm transition-all ${
+                      isHoveredOrActive
+                        ? 'ring-1 ring-cyan-500 border-cyan-500/60'
+                        : isLight
+                        ? 'bg-white/95 border-slate-200 text-slate-800'
+                        : 'bg-[#131722]/90 border-[#2a2e39] text-slate-200'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setEffectiveActiveIndicatorSettingsId(maItem.id)}
+                      className="inline-flex items-center gap-1 hover:opacity-85 font-bold"
+                      title={`Click to change ${maItem.label} period (e.g. 20, 45, 50, 200), switch EMA/SMA, or change color`}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: maItem.config.color }}
+                      />
+                      <span style={{ color: maItem.config.color }}>{maItem.label}</span>
+                      {ptAtBar && (
+                        <span className="opacity-85">
+                          {ptAtBar.value.toFixed(instConfig.decimals)}
+                        </span>
+                      )}
+                      <Settings2 className="w-2.5 h-2.5 opacity-60 hover:opacity-100 ml-0.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleHideOrRemoveIndicator(maItem.id)}
+                      className="p-0.5 rounded hover:bg-rose-500/15 hover:text-rose-500 opacity-60 hover:opacity-100 transition-colors"
+                      title={`Remove / Hide ${maItem.label}`}
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                );
+              })}
+
+              {showVWAP && (
+                <div
+                  onMouseEnter={() => setHoveredIndicatorId('showVWAP')}
+                  onMouseLeave={() =>
+                    setHoveredIndicatorId((prev) => (prev === 'showVWAP' ? null : prev))
+                  }
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-mono backdrop-blur-md shadow-sm transition-all ${
+                    isLight
+                      ? 'bg-white/95 border-slate-200 text-slate-800'
+                      : 'bg-[#131722]/90 border-[#2a2e39] text-slate-200'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEffectiveActiveIndicatorSettingsId('showVWAP')}
+                    className="inline-flex items-center gap-1 font-bold hover:opacity-85"
+                    title="Click to customize VWAP color & line style"
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: effectiveIndicatorConfigs.vwap.color }}
+                    />
+                    <span style={{ color: effectiveIndicatorConfigs.vwap.color }}>VWAP</span>
+                    <Settings2 className="w-2.5 h-2.5 opacity-60" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleHideOrRemoveIndicator('showVWAP')}
+                    className="p-0.5 rounded hover:bg-rose-500/15 hover:text-rose-500 opacity-60 hover:opacity-100"
+                    title="Hide VWAP"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              )}
+
+              {showBOLL && (
+                <div
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-mono backdrop-blur-md shadow-sm ${
+                    isLight
+                      ? 'bg-white/95 border-slate-200 text-slate-800'
+                      : 'bg-[#131722]/90 border-[#2a2e39] text-slate-200'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEffectiveActiveIndicatorSettingsId('showBOLL')}
+                    className="inline-flex items-center gap-1 font-bold hover:opacity-85"
+                    title="Click to customize Bollinger Bands period, StdDev & colors"
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: effectiveIndicatorConfigs.boll.upperColor }}
+                    />
+                    <span style={{ color: effectiveIndicatorConfigs.boll.upperColor }}>
+                      BB ({effectiveIndicatorConfigs.boll.period}, {effectiveIndicatorConfigs.boll.stdDev})
+                    </span>
+                    <Settings2 className="w-2.5 h-2.5 opacity-60" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleHideOrRemoveIndicator('showBOLL')}
+                    className="p-0.5 rounded hover:bg-rose-500/15 hover:text-rose-500 opacity-60 hover:opacity-100"
+                    title="Hide Bollinger Bands"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              )}
+
+              {showRSI && (
+                <div
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-mono backdrop-blur-md shadow-sm ${
+                    isLight
+                      ? 'bg-white/95 border-slate-200 text-slate-800'
+                      : 'bg-[#131722]/90 border-[#2a2e39] text-slate-200'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEffectiveActiveIndicatorSettingsId('showRSI')}
+                    className="inline-flex items-center gap-1 font-bold hover:opacity-85"
+                    title="Click to customize RSI period & color"
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: effectiveIndicatorConfigs.rsi.color }}
+                    />
+                    <span style={{ color: effectiveIndicatorConfigs.rsi.color }}>
+                      RSI {effectiveIndicatorConfigs.rsi.period}
+                    </span>
+                    <Settings2 className="w-2.5 h-2.5 opacity-60" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleHideOrRemoveIndicator('showRSI')}
+                    className="p-0.5 rounded hover:bg-rose-500/15 hover:text-rose-500 opacity-60 hover:opacity-100"
+                    title="Hide RSI"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              )}
+
+              {showMACD && (
+                <div
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-mono backdrop-blur-md shadow-sm ${
+                    isLight
+                      ? 'bg-white/95 border-slate-200 text-slate-800'
+                      : 'bg-[#131722]/90 border-[#2a2e39] text-slate-200'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEffectiveActiveIndicatorSettingsId('showMACD')}
+                    className="inline-flex items-center gap-1 font-bold hover:opacity-85"
+                    title="Click to customize MACD parameters & colors"
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: effectiveIndicatorConfigs.macd.macdColor }}
+                    />
+                    <span style={{ color: effectiveIndicatorConfigs.macd.macdColor }}>
+                      MACD ({effectiveIndicatorConfigs.macd.fastPeriod},{' '}
+                      {effectiveIndicatorConfigs.macd.slowPeriod},{' '}
+                      {effectiveIndicatorConfigs.macd.signalPeriod})
+                    </span>
+                    <Settings2 className="w-2.5 h-2.5 opacity-60" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleHideOrRemoveIndicator('showMACD')}
+                    className="p-0.5 rounded hover:bg-rose-500/15 hover:text-rose-500 opacity-60 hover:opacity-100"
+                    title="Hide MACD"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              )}
+
+              {showVOL && (
+                <div
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-mono backdrop-blur-md shadow-sm ${
+                    isLight
+                      ? 'bg-white/95 border-slate-200 text-slate-800'
+                      : 'bg-[#131722]/90 border-[#2a2e39] text-slate-200'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEffectiveActiveIndicatorSettingsId('showVOL')}
+                    className="inline-flex items-center gap-1 font-bold hover:opacity-85"
+                    title="Click to customize Volume MA period & color"
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: effectiveIndicatorConfigs.vol.maColor }}
+                    />
+                    <span style={{ color: effectiveIndicatorConfigs.vol.maColor }}>
+                      VOL ({effectiveIndicatorConfigs.vol.maPeriod})
+                    </span>
+                    <Settings2 className="w-2.5 h-2.5 opacity-60" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleHideOrRemoveIndicator('showVOL')}
+                    className="p-0.5 rounded hover:bg-rose-500/15 hover:text-rose-500 opacity-60 hover:opacity-100"
+                    title="Hide Volume"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -4472,6 +5591,14 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       {selectedDrawing && containerW<768 && (
         <div role="toolbar" aria-label="Selected drawing actions" className={`absolute bottom-20 left-2 right-2 z-40 flex items-center gap-2 rounded-xl border p-2 shadow-xl ${isLight?'bg-white border-slate-200':'bg-[#161d28] border-white/15'}`} onTouchStart={event=>event.stopPropagation()}>
           <span className="text-xs font-semibold flex-1">{selectedDrawing.type==='long_position'?'Long setup':selectedDrawing.type==='short_position'?'Short setup':'Selected drawing'}</span>
+          {selectedDrawing.type === 'fib' && (
+            <button
+              className="min-h-10 px-3 rounded-lg bg-cyan-500/15 text-cyan-500 text-xs font-bold"
+              onClick={() => setFibSettingsModalDrawingId(selectedDrawing.id)}
+            >
+              Levels & Style
+            </button>
+          )}
           <button className="min-h-10 px-3 rounded-lg bg-rose-500/15 text-rose-500 text-xs font-bold" onClick={()=>{onDeleteDrawing(selectedDrawing.id);setSelectedId(null);}}>Delete tool</button>
           <button aria-label="Dismiss drawing actions" className="min-h-10 min-w-10" onClick={()=>setSelectedId(null)}><X className="w-4 h-4 mx-auto" /></button>
         </div>
@@ -4563,7 +5690,18 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     <button
                       key={c.hex}
                       onClick={() => {
-                        onUpdateDrawing({ ...selectedDrawing, color: c.hex });
+                        onUpdateDrawing({
+                          ...selectedDrawing,
+                          color: c.hex,
+                          fibSettings:
+                            selectedDrawing.type === 'fib'
+                              ? {
+                                  ...getEffectiveFibSettings(selectedDrawing, defaultFibSettings),
+                                  useSingleColor: true,
+                                  singleColor: c.hex,
+                                }
+                              : selectedDrawing.fibSettings,
+                        });
                         onSelectDrawingColor(c.hex);
                         setActiveBarPopover(null);
                       }}
@@ -4583,8 +5721,20 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     type="color"
                     value={selectedDrawing.color}
                     onChange={(e) => {
-                      onUpdateDrawing({ ...selectedDrawing, color: e.target.value });
-                      onSelectDrawingColor(e.target.value);
+                      const hex = e.target.value;
+                      onUpdateDrawing({
+                        ...selectedDrawing,
+                        color: hex,
+                        fibSettings:
+                          selectedDrawing.type === 'fib'
+                            ? {
+                                ...getEffectiveFibSettings(selectedDrawing, defaultFibSettings),
+                                useSingleColor: true,
+                                singleColor: hex,
+                              }
+                            : selectedDrawing.fibSettings,
+                      });
+                      onSelectDrawingColor(hex);
                     }}
                     className="w-5 h-4 rounded cursor-pointer bg-transparent border-0"
                   />
@@ -4639,9 +5789,16 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                       />
                     </div>
 
-                    {['trendline', 'hline', 'vline', 'rect_box', 'circle', 'triangle', 'arrow'].includes(
-                      selectedDrawing.type
-                    ) && (
+                    {[
+                      'trendline',
+                      'hline',
+                      'vline',
+                      'rect_box',
+                      'circle',
+                      'triangle',
+                      'arrow',
+                      'fib',
+                    ].includes(selectedDrawing.type) && (
                       <div>
                         <div className="text-[10px] font-bold uppercase opacity-70 mb-1">
                           Line Style
@@ -4672,7 +5829,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             )}
 
           {/* 3. Text / Line Note Quick Edit Button */}
-          {['text', 'hline', 'vline', 'trendline', 'ray', 'extended_line'].includes(selectedDrawing.type) && (
+          {['text', 'hline', 'vline', 'trendline', 'ray', 'extended_line', 'arrow'].includes(selectedDrawing.type) && (
             <button
               onClick={() => {
                 const chart = chartRef.current;
@@ -4696,45 +5853,93 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   time: selectedDrawing.time1,
                   price: selectedDrawing.price1,
                   text: existingLabel,
-                  color: selectedDrawing.color,
-                  locked: selectedDrawing.locked ?? true,
+                  color:
+                    selectedDrawing.type === 'text'
+                      ? selectedDrawing.color
+                      : selectedDrawing.textColor || '#0d7a68',
+                  locked:
+                    selectedDrawing.type === 'text'
+                      ? (selectedDrawing.locked ?? true)
+                      : (selectedDrawing.locked ?? false),
                 });
               }}
               className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-[#2962ff] font-semibold transition"
               title="Add or Edit Text / Label on this line"
             >
               <Edit3 className="w-3 h-3" />
-              <span>{selectedDrawing.label ? 'Edit Text' : 'Add Text'}</span>
+              <span>
+                {selectedDrawing.label &&
+                selectedDrawing.label !== 'LEVEL' &&
+                selectedDrawing.label !== 'TIME'
+                  ? 'Edit Text'
+                  : 'Add Text'}
+              </span>
             </button>
           )}
 
-          {/* Line Text Position Selector for hline, vline, trendline */}
-          {['hline', 'vline', 'trendline', 'ray', 'extended_line'].includes(selectedDrawing.type) && (
-            <div className="flex items-center gap-0.5 border-l border-gray-400/25 pl-1.5 text-[10px] font-bold">
-              <span className="opacity-60 text-[9px] mr-1">Position:</span>
-              {(['top', 'middle', 'bottom'] as const).map((pos) => {
-                const active = (selectedDrawing.labelPosition ?? (selectedDrawing.type === 'vline' ? 'bottom' : 'top')) === pos;
-                return (
-                  <button
-                    key={pos}
-                    type="button"
-                    onClick={() =>
-                      onUpdateDrawing({
-                        ...selectedDrawing,
-                        labelPosition: pos,
-                      })
-                    }
-                    className={`px-1.5 py-0.5 rounded uppercase font-mono text-[9px] transition ${
-                      active
-                        ? 'bg-[#2962ff] text-white'
-                        : 'opacity-70 hover:opacity-100 hover:bg-gray-500/20'
-                    }`}
-                  >
-                    {pos}
-                  </button>
-                );
-              })}
-            </div>
+          {/* Line Text Position & Alignment Selector for hline, vline, trendline, ray, extended_line, arrow */}
+          {['hline', 'vline', 'trendline', 'ray', 'extended_line', 'arrow'].includes(selectedDrawing.type) && (
+            <>
+              <div className="flex items-center gap-0.5 border-l border-gray-400/25 pl-1.5 text-[10px] font-bold">
+                <span className="opacity-60 text-[9px] mr-1">Pos:</span>
+                {(['top', 'middle', 'bottom'] as const).map((pos) => {
+                  const active = (selectedDrawing.labelPosition ?? 'middle') === pos;
+                  return (
+                    <button
+                      key={pos}
+                      type="button"
+                      onClick={() =>
+                        onUpdateDrawing({
+                          ...selectedDrawing,
+                          labelPosition: pos,
+                        })
+                      }
+                      className={`px-1.5 py-0.5 rounded uppercase font-mono text-[9px] transition ${
+                        active
+                          ? 'bg-[#2962ff] text-white'
+                          : 'opacity-70 hover:opacity-100 hover:bg-gray-500/20'
+                      }`}
+                      title={
+                        pos === 'middle'
+                          ? 'Inline on the line (breaks line behind text)'
+                          : pos === 'top'
+                          ? 'Above the line'
+                          : 'Below the line'
+                      }
+                    >
+                      {pos === 'middle' ? 'inline' : pos}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-0.5 border-l border-gray-400/25 pl-1.5 text-[10px] font-bold">
+                <span className="opacity-60 text-[9px] mr-1">Align:</span>
+                {(['left', 'center', 'right'] as const).map((align) => {
+                  const effectivePos = selectedDrawing.labelPosition ?? 'middle';
+                  const defaultAlign = effectivePos === 'middle' ? 'center' : 'left';
+                  const active = (selectedDrawing.labelAlign ?? defaultAlign) === align;
+                  return (
+                    <button
+                      key={align}
+                      type="button"
+                      onClick={() =>
+                        onUpdateDrawing({
+                          ...selectedDrawing,
+                          labelAlign: align,
+                        })
+                      }
+                      className={`px-1.5 py-0.5 rounded uppercase font-mono text-[9px] transition ${
+                        active
+                          ? 'bg-[#0d7a68] text-white'
+                          : 'opacity-70 hover:opacity-100 hover:bg-gray-500/20'
+                      }`}
+                    >
+                      {align}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
 
           {/* 4. Long / Short Position Compact Controls (Lot + Popover R:R + Execute) */}
@@ -4912,22 +6117,104 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               );
             })()}
 
+          {/* Fibonacci Retracement Quick Controls (Levels & Style Modal + % / 0.618 + Reverse + BG) */}
+          {selectedDrawing.type === 'fib' &&
+            (() => {
+              const fibCfg = getEffectiveFibSettings(selectedDrawing, defaultFibSettings);
+              return (
+                <>
+                  <button
+                    onClick={() => setFibSettingsModalDrawingId(selectedDrawing.id)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-600 dark:text-cyan-300 font-bold text-[10px] whitespace-nowrap transition"
+                    title="Open Fibonacci Levels, Colors & Style Settings (or Double-Click Fib)"
+                  >
+                    <Sliders className="w-3 h-3" />
+                    <span>Levels & Style</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const nextFmt = fibCfg.levelsFormat === 'percent' ? 'values' : 'percent';
+                      const nextSettings = { ...fibCfg, levelsFormat: nextFmt as 'percent' | 'values' };
+                      onUpdateDrawing({ ...selectedDrawing, fibSettings: nextSettings });
+                      setDefaultFibSettings(nextSettings);
+                      saveDefaultFibSettings(nextSettings);
+                    }}
+                    className="px-2 py-1 rounded-lg border border-gray-500/25 hover:bg-blue-500/10 font-mono font-bold text-[10px] whitespace-nowrap"
+                    title="Switch between Percentage (61.80%) and Ratio Values (0.618)"
+                  >
+                    {fibCfg.levelsFormat === 'percent' ? '% Pct' : '0.618 Val'}
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const nextSettings = { ...fibCfg, reverse: !fibCfg.reverse };
+                      onUpdateDrawing({ ...selectedDrawing, fibSettings: nextSettings });
+                    }}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold whitespace-nowrap transition ${
+                      fibCfg.reverse
+                        ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-500'
+                        : 'border-gray-500/25 hover:bg-blue-500/10'
+                    }`}
+                    title="Reverse 0% and 100% Fibonacci anchors"
+                  >
+                    <ArrowUpDown className="w-3 h-3" />
+                    <span>Reverse</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const nextSettings = { ...fibCfg, showBackground: !fibCfg.showBackground };
+                      onUpdateDrawing({ ...selectedDrawing, fibSettings: nextSettings });
+                      setDefaultFibSettings(nextSettings);
+                      saveDefaultFibSettings(nextSettings);
+                    }}
+                    className={`px-2 py-1 rounded-lg border text-[10px] font-bold whitespace-nowrap transition ${
+                      fibCfg.showBackground
+                        ? 'bg-blue-500/15 border-blue-500/40 text-[#2962ff]'
+                        : 'border-gray-500/25 opacity-70 hover:opacity-100'
+                    }`}
+                    title="Toggle Background Shading between Fib Levels"
+                  >
+                    BG
+                  </button>
+                </>
+              );
+            })()}
+
           {(selectedDrawing.type === 'rect_box' ||
             selectedDrawing.type === 'trendline' ||
             selectedDrawing.type === 'fib') && (
             <button
-              onClick={() =>
+              onClick={() => {
+                const nextExt = !selectedDrawing.extendRight;
                 onUpdateDrawing({
                   ...selectedDrawing,
-                  extendRight: !selectedDrawing.extendRight,
-                })
-              }
+                  extendRight: nextExt,
+                  fibSettings:
+                    selectedDrawing.type === 'fib'
+                      ? {
+                          ...getEffectiveFibSettings(selectedDrawing, defaultFibSettings),
+                          extendRight: nextExt,
+                        }
+                      : selectedDrawing.fibSettings,
+                });
+              }}
               className="px-2 py-1 rounded-lg bg-blue-500/15 text-[#2962ff] font-semibold text-[10px] whitespace-nowrap"
               title="Extend to right edge of chart"
             >
               {selectedDrawing.extendRight ? 'Normal' : 'Extend →'}
             </button>
           )}
+
+          {/* Screenshot Button right on Selected Element Toolbar */}
+          <button
+            onClick={handleTakeChartScreenshot}
+            className="p-1.5 rounded-lg border border-gray-500/20 hover:bg-cyan-500/15 hover:text-cyan-500 transition"
+            title="Take Chart Screenshot (PNG)"
+          >
+            <Camera className="w-3.5 h-3.5" />
+          </button>
 
           {/* Lock / Unlock Element Button */}
           <button
@@ -4974,6 +6261,15 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             title="Delete Selected Element (Del)"
           >
             <Trash2 className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Dismiss / Close Toolbar (X) Button */}
+          <button
+            onClick={() => setSelectedId(null)}
+            className="p-1 rounded-lg hover:bg-gray-500/20 opacity-65 hover:opacity-100 transition"
+            title="Close toolbar (Esc)"
+          >
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
@@ -5035,7 +6331,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           <div className="flex items-center justify-between gap-2">
             {/* Quick Color Dots */}
             <div className="flex items-center gap-1">
-              {DRAWING_COLORS.slice(0, 5).map((c) => (
+              {[
+                { name: 'Teal Green', hex: '#0d7a68' },
+                ...DRAWING_COLORS.slice(0, 5),
+              ].map((c) => (
                 <button
                   key={c.hex}
                   onClick={() =>
@@ -5145,6 +6444,20 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   <span>Delete</span>
                 </button>
               </div>
+
+              {contextDrawing.type === 'fib' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFibSettingsModalDrawingId(contextDrawing.id);
+                    setContextMenu(null);
+                  }}
+                  className="w-full py-2 px-3 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-600 dark:text-cyan-300 font-bold flex items-center justify-center gap-1.5 transition"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Customize Fibonacci Levels & Colors</span>
+                </button>
+              )}
 
               {/* Smooth Line Thickness (Thinner / Thicker) */}
               {contextDrawing.type !== 'long_position' &&
@@ -5871,8 +7184,63 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           <span>Present</span>
           <span className="hidden sm:inline">Time</span>
         </button>
+        <button
+          onClick={handleTakeChartScreenshot}
+          className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded border text-[10px] sm:text-[11px] shadow-sm transition ${
+            isLight
+              ? 'bg-white hover:bg-[#f0f3fa] border-[#e0e3eb] text-[#131722]'
+              : 'bg-[#1e222d]/90 hover:bg-[#262b38] border-[#2a2e39] text-gray-300'
+          }`}
+          title="Take Chart Screenshot (PNG)"
+        >
+          <Camera className="w-3 h-3 text-cyan-500" />
+          <span>Screenshot</span>
+        </button>
         {!isReplayMode && onReturnToReplay && <button onClick={onReturnToReplay} className="px-2 py-1 rounded border border-amber-500/40 bg-[#131722] text-amber-400 text-[10px]">Return to Replay</button>}
       </div>
+
+      {/* Fibonacci Retracement Levels, Colors & Style Modal */}
+      {fibSettingsModalDrawingId &&
+        (() => {
+          const fibDrawing = drawings.find(
+            (d) => d.id === fibSettingsModalDrawingId && d.type === 'fib'
+          );
+          if (!fibDrawing) return null;
+          return (
+            <FibonacciSettingsModal
+              drawing={fibDrawing}
+              decimals={instConfig.decimals}
+              isLight={isLight}
+              onUpdateDrawing={(updated) => {
+                onUpdateDrawing(updated);
+              }}
+              onDeleteDrawing={(id) => {
+                onDeleteDrawing(id);
+                setSelectedId(null);
+              }}
+              onSaveDefaultSettings={(saved) => {
+                setDefaultFibSettings(saved);
+                saveDefaultFibSettings(saved);
+              }}
+              onTakeScreenshot={handleTakeChartScreenshot}
+              onClose={() => setFibSettingsModalDrawingId(null)}
+            />
+          );
+        })()}
+
+      {/* Interactive Indicator Settings Modal (Click on EMA/SMA/VWAP line or Legend Pill or Gear Icon) */}
+      {effectiveActiveIndicatorSettingsId && (
+        <IndicatorSettingsModal
+          indicatorId={effectiveActiveIndicatorSettingsId}
+          onSelectIndicatorId={(nextId) => setEffectiveActiveIndicatorSettingsId(nextId)}
+          configs={effectiveIndicatorConfigs}
+          onUpdateConfigs={handleUpdateIndicatorConfigs}
+          onHideOrRemoveIndicator={handleHideOrRemoveIndicator}
+          onTakeScreenshot={handleTakeChartScreenshot}
+          onClose={() => setEffectiveActiveIndicatorSettingsId(null)}
+          isDark={!isLight}
+        />
+      )}
     </div>
   );
 };

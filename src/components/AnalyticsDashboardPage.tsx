@@ -135,9 +135,19 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   onOpenTradersInsight,
 }) => {
   const announcementUser=currentUser?.email||'guest';
-  const [announcementPending,setAnnouncementPending]=useState(()=>!hasSeenChartAnnouncement(announcementUser));
+  const isReturningUser=Boolean(currentUser?.isReturningLogin||(currentUser?.loginCount??1)>1);
+  const [announcementPending,setAnnouncementPending]=useState(()=>!isReturningUser&&!hasSeenChartAnnouncement(announcementUser));
   const [announcementManual,setAnnouncementManual]=useState(false);
-  useEffect(()=>{setAnnouncementPending(!hasSeenChartAnnouncement(announcementUser));setAnnouncementManual(false);},[announcementUser]);
+  useEffect(()=>{
+    if(isReturningUser){
+      markChartAnnouncementSeen(announcementUser);
+      setAnnouncementPending(false);
+      setAnnouncementManual(false);
+      return;
+    }
+    setAnnouncementPending(!hasSeenChartAnnouncement(announcementUser));
+    setAnnouncementManual(false);
+  },[announcementUser,isReturningUser]);
   const closeAnnouncement=()=>{markChartAnnouncementSeen(announcementUser);setAnnouncementPending(false);setAnnouncementManual(false);};
   const isLight = theme === 'light';
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -150,6 +160,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   const [strategySearch, setStrategySearch] = useState('');
   const [sidebarSection, setSidebarSection] =
     useState<HubSidebarSection>(initialSection);
+  useEffect(()=>{
+    if(announcementPending&&sidebarSection==='dashboard'&&!isSessionSetupOpen){
+      markChartAnnouncementSeen(announcementUser);
+    }
+  },[announcementPending,sidebarSection,isSessionSetupOpen,announcementUser]);
   const workspaceRef=useRef<HTMLElement>(null);
   useEffect(()=>{workspaceRef.current?.scrollTo({top:0});},[sidebarSection]);
 
@@ -597,7 +612,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <button type="button" onClick={()=>{setSidebarSection('dashboard');setAnnouncementManual(true);}} aria-label="Read chart update" title="A note from Chart Replay" className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-2 text-xs text-cyan-500 hover:bg-cyan-500/10"><Megaphone className="h-3.5 w-3.5"/><span className="hidden lg:inline">What's new</span></button>
-            <WorkspaceTour blocked={announcementPending||announcementManual} userKey={currentUser?.email||'guest'} name={currentUser?.name} section={sidebarSection} isSessionSetupOpen={isSessionSetupOpen} onNavigate={section=>{setSidebarSection(section);setMobileMenuOpen((section==='analytics'||section==='notes') && window.matchMedia('(max-width:767px)').matches);}} onOpenSessionSetup={()=>onOpenCreateSessionModal('BACKTESTING')} onCloseSessionSetup={onCloseSessionSetup} />
+            <WorkspaceTour blocked={announcementPending||announcementManual} isReturning={isReturningUser} userKey={currentUser?.email||'guest'} name={currentUser?.name} section={sidebarSection} isSessionSetupOpen={isSessionSetupOpen} onNavigate={section=>{setSidebarSection(section);setMobileMenuOpen((section==='analytics'||section==='notes') && window.matchMedia('(max-width:767px)').matches);}} onOpenSessionSetup={()=>onOpenCreateSessionModal('BACKTESTING')} onCloseSessionSetup={onCloseSessionSetup} />
             {onToggleTheme && (
               <button
                 onClick={onToggleTheme}

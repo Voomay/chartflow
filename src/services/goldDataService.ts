@@ -1334,6 +1334,188 @@ export function getReplayWeekdayTarget(symbol: InstrumentSymbol, timestamp: numb
   return date.getTime() / 1000;
 }
 
+export interface InstrumentHistoricalCoverage {
+  minDate: string;
+  maxDate: string;
+  minYear: number;
+  maxYear: number;
+  missingRange?: { start: string; end: string; label: string };
+  isYearSupported: (year: number) => boolean;
+  isMonthSupported: (yearMonth: string) => boolean;
+  isDateSupported: (dateStr: string) => boolean;
+}
+
+/**
+ * Returns the verified historical 1m archive date coverage for a given instrument.
+ * Used by session creation schedule pickers and validation to prevent selecting
+ * years, months, or dates without historical candle coverage.
+ */
+export function getInstrumentHistoricalCoverage(symbol: InstrumentSymbol): InstrumentHistoricalCoverage {
+  let minDate = '2015-01-02';
+  let maxDate = '2026-10-16';
+  let missingRange: { start: string; end: string; label: string } | undefined;
+
+  if (symbol === 'BTCUSD') {
+    minDate = '2015-01-01';
+    maxDate = '2026-10-24';
+  } else if (symbol === 'ETHUSD') {
+    minDate = '2016-06-01';
+    maxDate = '2026-10-24';
+  } else if (symbol === 'US30') {
+    minDate = '2026-03-26';
+    maxDate = '2026-10-23';
+  } else if (symbol === 'USOIL') {
+    minDate = '2015-01-02';
+    maxDate = '2026-10-16';
+    missingRange = {
+      start: '2024-01-01',
+      end: '2026-06-14',
+      label: '2024-01-01 to 2026-06-14',
+    };
+  }
+
+  const minYear = Number(minDate.slice(0, 4));
+  const maxYear = Number(maxDate.slice(0, 4));
+  const minMonth = minDate.slice(0, 7);
+  const maxMonth = maxDate.slice(0, 7);
+
+  const isDateSupported = (dateStr: string): boolean => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+    if (dateStr < minDate || dateStr > maxDate) return false;
+    if (missingRange && dateStr >= missingRange.start && dateStr <= missingRange.end) {
+      return false;
+    }
+    return true;
+  };
+
+  const isMonthSupported = (yearMonth: string): boolean => {
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) return false;
+    if (yearMonth < minMonth || yearMonth > maxMonth) return false;
+    if (symbol === 'USOIL' && yearMonth >= '2024-01' && yearMonth <= '2026-05') {
+      return false;
+    }
+    return true;
+  };
+
+  const isYearSupported = (year: number): boolean => {
+    if (year < minYear || year > maxYear) return false;
+    if (symbol === 'USOIL' && (year === 2024 || year === 2025)) {
+      return false;
+    }
+    return true;
+  };
+
+  return {
+    minDate,
+    maxDate,
+    minYear,
+    maxYear,
+    missingRange,
+    isYearSupported,
+    isMonthSupported,
+    isDateSupported,
+  };
+}
+
+/**
+ * Checks whether a calendar date (`YYYY-MM-DD`) is a universal non-crypto market holiday
+ * (New Year's Day Jan 1 or Christmas Day Dec 25) where FX, Metals, Indices, and Energy
+ * archives have no daytime trading bars.
+ */
+export function isFixedMarketHolidayDate(dateStr: string, symbol: InstrumentSymbol): string | null {
+  if (getInstrumentConfig(symbol).category === 'CRYPTO') return null;
+  const md = dateStr.slice(5, 10);
+  if (md === '01-01') return "New Year's Day (Jan 1)";
+  if (md === '12-25') return 'Christmas Day (Dec 25)';
+  return null;
+}
+
+/**
+ * Snaps a calendar date (`YYYY-MM-DD`) into the instrument's supported historical archive range
+ * and, for non-crypto 24/5 markets, automatically advances Saturdays, Sundays, and fixed market
+ * holidays (New Year's Day / Christmas Day) to the next open trading day (usually Monday).
+ */
+export function snapToOpenTradingDate(
+  dateStr: string,
+  symbol: InstrumentSymbol,
+  direction: 'forward' | 'backward' = 'forward'
+): { date: string; adjusted: boolean; reason?: string } {
+  const coverage = getInstrumentHistoricalCoverage(symbol);
+  const cfg = getInstrumentConfig(symbol);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return { date: coverage.minDate, adjusted: true, reason: `Reset to ${coverage.minDate}` };
+  }
+
+  let current = dateStr;
+  const reasons: string[] = [];
+
+  if (current < coverage.minDate) {
+    current = coverage.minDate;
+    reasons.push(`${cfg.displaySymbol} historical data starts on ${coverage.minDate}`);
+  } else if (current > coverage.maxDate) {
+    current = coverage.maxDate;
+    reasons.push(`${cfg.displaySymbol} historical archive ends on ${coverage.maxDate}`);
+  }
+
+  if (coverage.missingRange && current >= coverage.missingRange.start && current <= coverage.missingRange.end) {
+    current = direction === 'forward' ? '2026-06-15' : '2023-12-29';
+    reasons.push(`${cfg.displaySymbol} has no archive data for ${coverage.missingRange.label}`);
+  }
+
+  if (cfg.category !== 'CRYPTO') {
+    const stepDays = (iso: string, delta: number): string => {
+      const ms = Date.parse(`${iso}T00:00:00Z`);
+      return new Date(ms + delta * 86400000).toISOString().slice(0, 10);
+    };
+
+    const isClosedDay = (iso: string): string | null => {
+      const d = new Date(`${iso}T00:00:00Z`);
+      const dow = d.getUTCDay();
+      if (dow === 6) return 'Saturday (market closed on weekends)';
+      if (dow === 0) return 'Sunday (market closed on weekends)';
+      return isFixedMarketHolidayDate(iso, symbol);
+    };
+
+    let closedReason = isClosedDay(current);
+    if (closedReason) {
+      const firstReason = closedReason;
+      let candidate = current;
+      const step = direction === 'forward' ? 1 : -1;
+      for (let i = 0; i < 10; i++) {
+        candidate = stepDays(candidate, step);
+        if (!isClosedDay(candidate) && coverage.isDateSupported(candidate)) {
+          current = candidate;
+          break;
+        }
+      }
+      // If stepping forward went past maxDate, step backward from current instead
+      if ( isClosedDay(current) || !coverage.isDateSupported(current) ) {
+        candidate = current;
+        for (let i = 0; i < 10; i++) {
+          candidate = stepDays(candidate, -step);
+          if (!isClosedDay(candidate) && coverage.isDateSupported(candidate)) {
+            current = candidate;
+            break;
+          }
+        }
+      }
+      const targetDayName = new Date(`${current}T00:00:00Z`).toLocaleDateString('en-US', {
+        weekday: 'long',
+        timeZone: 'UTC',
+      });
+      reasons.push(`${firstReason} — jumped to ${targetDayName} ${current}`);
+    }
+  }
+
+  const adjusted = current !== dateStr;
+  return {
+    date: current,
+    adjusted,
+    reason: reasons.length > 0 ? reasons.join(' · ') : undefined,
+  };
+}
+
 /**
  * Computes the canonical bucket start timestamp (in seconds UTC) for a given bar timestamp and timeframe.
  * - For intraday timeframes (`1m`..`4H`), aligns to exact multiples of `stepSec`.
@@ -1586,6 +1768,35 @@ export function setHistoricalCandles(symbol:InstrumentSymbol, series:Record<stri
   if(Number.isFinite(last))historicalEnds.set(symbol,last!);
 }
 export function hasHistoricalArchive(symbol:InstrumentSymbol):boolean { return historicalLabels.has(symbol); }
+export function findExactCandleByTime(bars: Candle[] | null | undefined, targetTime: number): Candle | undefined {
+  if (!bars || bars.length === 0) return undefined;
+  let lo = 0;
+  let hi = bars.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const t = bars[mid].time;
+    if (t === targetTime) return bars[mid];
+    if (t < targetTime) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return undefined;
+}
+export function findFirstCandleAfterTime(bars: Candle[] | null | undefined, minTimeExclusive: number): Candle | undefined {
+  if (!bars || bars.length === 0) return undefined;
+  let lo = 0;
+  let hi = bars.length - 1;
+  let resultIdx = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].time > minTimeExclusive) {
+      resultIdx = mid;
+      hi = mid - 1;
+    } else {
+      lo = mid + 1;
+    }
+  }
+  return resultIdx !== -1 ? bars[resultIdx] : undefined;
+}
 export interface HistoricalReplayAvailability {
   kind: 'READY' | 'WEEKEND' | 'GAP' | 'BEFORE' | 'AFTER';
   message?: string;
@@ -1595,10 +1806,10 @@ export function getHistoricalReplayAvailability(symbol:InstrumentSymbol,clock:nu
   if(!hasHistoricalArchive(symbol))return undefined;
   const minute=Math.floor(clock/60)*60;
   const bars=getHistoricalCandles('1m',symbol)||[];
-  if(bars.some(c=>c.time===minute))return {kind:'READY'};
+  if(findExactCandleByTime(bars,minute))return {kind:'READY'};
   const first=historicalStarts.get(symbol) ?? bars[0]?.time;
   const last=historicalEnds.get(symbol);
-  const nextTime=bars.find(c=>c.time>minute)?.time;
+  const nextTime=findFirstCandleAfterTime(bars,minute)?.time;
   const utc=(time:number)=>new Date(time*1000).toISOString().slice(0,16).replace('T',' ')+' UTC';
   if(first!==undefined && minute<first)return {kind:'BEFORE',nextTime,message:`This archive starts ${utc(first)}. Trading is paused.`};
   if(last!==undefined && minute>last)return {kind:'AFTER',message:`This archive ends ${utc(last)}. Choose an earlier replay date or Present Time.`};
@@ -1670,7 +1881,8 @@ export function getProviderChartCandles(symbol: InstrumentSymbol, timeframe: Tim
     if (!inside.length || (inside[0].time !== bucket && !coversMonthStart && !coversArchiveStart)) continue;
     const partial = archive ? {time:bucket,open:inside[0].open,high:Math.max(...inside.map(c=>c.high)),low:Math.min(...inside.map(c=>c.low)),close:inside[inside.length-1].close,volume:inside.reduce((sum,c)=>sum+c.volume,0)} : aggregateCandlesToTimeframe(inside, timeframe, symbol)[0];
     if (partial) {
-      const opening = archive ? (readSeries('1m')||[]).find(c=>c.time===Math.floor(clock/60)*60 && c.time>=bucket) : undefined;
+      const targetMin = Math.floor(clock/60)*60;
+      const opening = archive && targetMin >= bucket ? findExactCandleByTime(readSeries('1m'), targetMin) : undefined;
       return [...completed, opening ? {...partial,close:opening.open,high:Math.max(partial.high,opening.open),low:Math.min(partial.low,opening.open)} : partial];
     }
   }

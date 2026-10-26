@@ -52,21 +52,36 @@ export interface TourStep {
 export type TourCloseReason = 'completed' | 'skipped';
 
 export const TOUR_STORAGE_KEY = 'tour_completed_v1';
+const memoryChartTourSeen = new Set<string>();
+export const chartTourKey = (userKey?: string) =>
+  userKey
+    ? `${TOUR_STORAGE_KEY}:${encodeURIComponent(userKey.trim().toLowerCase())}`
+    : TOUR_STORAGE_KEY;
 
-export function hasSeenTour(): boolean {
+export function hasSeenTour(userKey?: string): boolean {
+  const key = chartTourKey(userKey);
+  if (memoryChartTourSeen.has(key) || memoryChartTourSeen.has(TOUR_STORAGE_KEY)) {
+    return true;
+  }
   try {
-    return localStorage.getItem(TOUR_STORAGE_KEY) !== null;
+    return (
+      localStorage.getItem(key) !== null ||
+      (!userKey && localStorage.getItem(TOUR_STORAGE_KEY) !== null)
+    );
   } catch {
     return true;
   }
 }
 
-export function markTourSeen(reason: TourCloseReason): void {
+export function markTourSeen(reason: TourCloseReason, userKey?: string): void {
+  const key = chartTourKey(userKey);
+  memoryChartTourSeen.add(key);
+  const payload = JSON.stringify({ reason, at: new Date().toISOString() });
   try {
-    localStorage.setItem(
-      TOUR_STORAGE_KEY,
-      JSON.stringify({ reason, at: new Date().toISOString() })
-    );
+    localStorage.setItem(key, payload);
+    if (!userKey) {
+      localStorage.setItem(TOUR_STORAGE_KEY, payload);
+    }
   } catch {
     // ignore storage errors (private mode etc.)
   }

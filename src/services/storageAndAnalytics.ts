@@ -93,8 +93,6 @@ export function purgeBrowserSensitiveStorage(): void {
     'chart_flow_sa_tz_v1',
     'chart_replay_motivation_v1',
     'chart_flow_balance_hidden_v1',
-    'chartflow_workspace_tour_v1',
-    'chartflow_chart_announcement_v1',
   ];
   for (const store of [
     typeof localStorage !== 'undefined' ? localStorage : null,
@@ -1536,7 +1534,7 @@ export function deleteUserAccount(userEmail: string): boolean {
     const keysToRemove: string[] = [];
     for (let i = 0; i < store.length; i++) {
       const key = store.key(i);
-      if (key && (key.startsWith(prefix) || key.includes(cleanEmail.replace(/[^a-z0-9]/g, '_')) || key===`chart_flow_balance_hidden_v1:${cleanEmail}` || key===`chartflow_workspace_tour_v1:${encodeURIComponent(cleanEmail)}` || key===`chartflow_chart_announcement_v1:${encodeURIComponent(cleanEmail)}`)) {
+      if (key && (key.startsWith(prefix) || key.includes(cleanEmail.replace(/[^a-z0-9]/g, '_')) || key===`chart_flow_balance_hidden_v1:${cleanEmail}` || key===`chartflow_workspace_tour_v1:${encodeURIComponent(cleanEmail)}` || key===`chartflow_chart_announcement_v1:${encodeURIComponent(cleanEmail)}` || key===`tour_completed_v1:${encodeURIComponent(cleanEmail)}`)) {
         keysToRemove.push(key);
       }
     }

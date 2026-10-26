@@ -12,7 +12,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MotivationWelcome } from './components/MotivationWelcome';
 import { ChartSponsorLoader } from './components/ChartSponsorLoader';
 import { resetMotivationVisit } from './services/motivation';
-import { getReplayWeekdayTarget, getHistoricalCandles, hasHistoricalArchive, getHistoricalReplayAvailability } from './services/goldDataService';
+import { getReplayWeekdayTarget, getHistoricalCandles, hasHistoricalArchive, getHistoricalReplayAvailability, isFixedMarketHolidayDate } from './services/goldDataService';
 import { hydrateHistoricalArchive, hydrateLiveHistoricalArchive } from './services/historicalFeed';
 import { shiftTimeframeClock } from './services/goldDataService';
 import {getSpotQuote, getSpotFeedStatus, SPOT_SYMBOLS} from './services/spotFeed';
@@ -22,6 +22,7 @@ import {
   BacktestSessionMode,
   CandleColorStyle,
   ChartDrawing,
+  ChartIndicatorConfigs,
   CustomCandleColors,
   CustomRuleProfile,
   DrawingTool,
@@ -77,6 +78,10 @@ import {
   saveUserStrategies,
   setActiveLoggedInUser,
 } from './services/storageAndAnalytics';
+import {
+  loadSavedIndicatorConfigs,
+  saveIndicatorConfigs,
+} from './services/chartDrawingGeometry';
 import { platformRequest } from './services/platformAccounts';
 import {
   fetchCustomRuleProfilesFromSupabase,
@@ -99,6 +104,14 @@ import {
   TourCloseReason,
   TourStep,
 } from './components/GuidedTour';
+import {
+  hasSeenChartAnnouncement,
+  markChartAnnouncementSeen,
+} from './components/ChartAnnouncement';
+import {
+  hasSeenWorkspaceTour,
+  markWorkspaceTourSeen,
+} from './components/WorkspaceTour';
 import {
   AnalyticsDashboardPage,
   HubSidebarSection,
@@ -124,6 +137,11 @@ export function App() {
         email: saved.email,
         plan: saved.plan,
         joinedAt: saved.joinedAt,
+        loginCount: saved.loginCount,
+        isReturningLogin:
+          (saved.loginCount ?? 1) > 1 ||
+          hasSeenChartAnnouncement(saved.email) ||
+          hasSeenWorkspaceTour(saved.email),
       };
     }
     return null;
@@ -182,6 +200,11 @@ export function App() {
           email: u.email,
           plan: u.plan || 'FREE_FOREVER',
           joinedAt: u.joinedAt,
+          loginCount: u.loginCount,
+          isReturningLogin:
+            (u.loginCount ?? 1) > 1 ||
+            hasSeenChartAnnouncement(u.email) ||
+            hasSeenWorkspaceTour(u.email),
         });
       })
       .catch(() => {});
@@ -348,10 +371,15 @@ export function App() {
   const [secondaryTimeframe, setSecondaryTimeframe] =
     useState<Timeframe>('1H');
 
+  const normalizeReplayStepTf = (tf: Timeframe): Timeframe =>
+    tf === '1W' || tf === '1M' ? '1D' : tf;
+
   useEffect(() => {
     if (activeSession) {
+      const nextTf = activeSession.activeTimeframe || '15m';
       setSymbol(activeSession.activeAsset || 'XAUUSD');
-      setTimeframe(activeSession.activeTimeframe || '15m');
+      setTimeframe(nextTf);
+      setReplayStepTimeframe(normalizeReplayStepTf(nextTf));
     }
   }, [activeSession?.id]);
 
@@ -370,6 +398,7 @@ export function App() {
   const handleSelectTimeframe = useCallback(
     (nextTf: Timeframe) => {
       setTimeframe(nextTf);
+      setReplayStepTimeframe(normalizeReplayStepTf(nextTf));
       updateActiveSession((s) => ({
         ...s,
         activeTimeframe: nextTf,
@@ -386,6 +415,7 @@ export function App() {
 
   // Hydrate real provider market data (Yahoo Finance / Kraken / Binance Spot) for the active symbol & timeframe
   const [marketDataVersion, setMarketDataVersion] = useState<number>(0);
+  const [viewportFocusVersion, setViewportFocusVersion] = useState<number>(0);
   const [isMarketDataLoading, setIsMarketDataLoading] = useState<boolean>(false);
   const marketDataRequestKey = `${symbol}:${isPresentTime ? 'present' : Math.floor(authoritativeClockTs / 86400)}`;
   const [loadedMarketDataKey, setLoadedMarketDataKey] = useState<string | null>(null);
@@ -393,6 +423,25 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
+    if (!isPresentTime && hasHistoricalArchive(symbol)) {
+      const existing1m = getHistoricalCandles('1m', symbol) || [];
+      if (
+        existing1m.length > 0 &&
+        authoritativeClockTs >= existing1m[0].time &&
+        authoritativeClockTs <= existing1m[existing1m.length - 1].time
+      ) {
+        setLoadedMarketDataKey(marketDataRequestKey);
+        setIsMarketDataLoading(false);
+        if (authoritativeClockTs + 3 * 86400 > existing1m[existing1m.length - 1].time) {
+          void hydrateHistoricalArchive(symbol, authoritativeClockTs, 'extend').then((loaded) => {
+            if (loaded && !cancelled) setMarketDataVersion((v) => v + 1);
+          });
+        }
+        return () => {
+          cancelled = true;
+        };
+      }
+    }
     setIsMarketDataLoading(true);
     if(isPresentTime)void hydrateLiveHistoricalArchive(symbol,authoritativeClockTs).then(loaded=>{
       if(loaded && !cancelled)setMarketDataVersion(value=>value+1);
@@ -551,7 +600,9 @@ export function App() {
 
   // 7. Replay Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [replayStepTimeframe,setReplayStepTimeframe]=useState<Timeframe>('1m');
+  const [replayStepTimeframe, setReplayStepTimeframe] = useState<Timeframe>(() =>
+    normalizeReplayStepTf(activeSession?.activeTimeframe || '15m')
+  );
   const [playbackSpeedMs, setPlaybackSpeedMs] = useState<number>(400);
 
   const isSessionLocked =
@@ -684,6 +735,21 @@ export function App() {
   const handleToggleIndicator = useCallback((key: keyof ChartIndicatorsState) => {
     setChartIndicators((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
+  const [indicatorConfigs, setIndicatorConfigs] = useState<ChartIndicatorConfigs>(() =>
+    loadSavedIndicatorConfigs()
+  );
+  const handleUpdateIndicatorConfigs = useCallback(
+    (updater: (prev: ChartIndicatorConfigs) => ChartIndicatorConfigs) => {
+      setIndicatorConfigs((prev) => {
+        const next = updater(prev);
+        saveIndicatorConfigs(next);
+        return next;
+      });
+    },
+    []
+  );
+  const [activeIndicatorSettingsId, setActiveIndicatorSettingsId] = useState<string | null>(null);
+  const takeScreenshotRef = useRef<(() => void) | null>(null);
 
   const handleStartTour = useCallback(() => {
     if (!detectMobile()) setShowRightWidget(true);
@@ -692,9 +758,9 @@ export function App() {
   }, []);
 
   const handleCloseTour = useCallback((reason: TourCloseReason) => {
-    markTourSeen(reason);
+    markTourSeen(reason, currentUser?.email);
     setIsTourOpen(false);
-  }, []);
+  }, [currentUser?.email]);
 
   const handleTourStepChange = useCallback((step: TourStep) => {
     const t = step.target || '';
@@ -707,9 +773,16 @@ export function App() {
   // Auto-start the tour once, the first time the trading workspace is opened.
   useEffect(() => {
     if (activeView !== 'terminal' || !currentUser) return;
+    if (currentUser.isReturningLogin || (currentUser.loginCount ?? 1) > 1) {
+      markTourSeen('completed', currentUser.email);
+      return;
+    }
     if (isTourOpen || motivationOpen || isCreateSessionModalOpen || challengeAlertModal || chartSponsorLoading) return;
-    if (hasSeenTour() || detectMobile()) return;
-    const t = setTimeout(() => handleStartTour(), 900);
+    if (hasSeenTour(currentUser.email) || detectMobile()) return;
+    const t = setTimeout(() => {
+      markTourSeen('completed', currentUser.email);
+      handleStartTour();
+    }, 900);
     return () => clearTimeout(t);
   }, [
     activeView,
@@ -894,8 +967,31 @@ export function App() {
   // 10. Replay Step & Skip Engine Handlers
   const handleAdvanceOrRewindToTimestamp = useCallback(
     (targetTs: number): { ok: boolean; error?: string } => {
+      const currTs = activeSession.replayTimestamp || activeSession.startTimestamp || authoritativeClockTs;
+      const stepSec = TIMEFRAME_CONFIG[replayStepTimeframe]?.seconds || 900;
+      const isSkipJump = Math.abs(targetTs - currTs) > stepSec;
+
       const outcome = advanceOrRewindSessionToTimestamp(activeSession, targetTs);
       if (outcome.rewindBlockedReason) {
+        if (outcome.rewindBlockedReason.includes('Original minute data')) {
+          void hydrateHistoricalArchive(symbol, targetTs, 'extend').then((loaded) => {
+            if (loaded) {
+              setMarketDataVersion((v) => v + 1);
+              const retryOutcome = advanceOrRewindSessionToTimestamp(activeSession, targetTs);
+              if (!retryOutcome.rewindBlockedReason) {
+                setTradingSessions((prevList) =>
+                  prevList.map((s) => (s.id === activeSession.id ? retryOutcome.session : s))
+                );
+                setViewportFocusVersion((v) => v + 1);
+              } else {
+                showToast(retryOutcome.rewindBlockedReason, 'down');
+              }
+            } else {
+              showToast(outcome.rewindBlockedReason!, 'down');
+            }
+          });
+          return { ok: true };
+        }
         showToast(outcome.rewindBlockedReason, 'down');
         return { ok: false, error: outcome.rewindBlockedReason };
       }
@@ -903,6 +999,10 @@ export function App() {
       setTradingSessions((prevList) =>
         prevList.map((s) => (s.id === activeSession.id ? outcome.session : s))
       );
+
+      if (isSkipJump) {
+        setViewportFocusVersion((v) => v + 1);
+      }
 
       if (outcome.closedTrades.length > 0) {
         const lastClosed =
@@ -941,43 +1041,125 @@ export function App() {
 
       return { ok: true };
     },
-    [activeSession, showToast]
+    [activeSession, authoritativeClockTs, replayStepTimeframe, showToast, symbol]
   );
 
   const handleStepBar = useCallback(
     async (deltaBars: number) => {
-      if (replayStepBusy.current) return;
+      if (replayStepBusy.current || isMarketDataLoading) return;
       const replayClock = activeSession.replayTimestamp || activeSession.startTimestamp || authoritativeClockTs;
       const requested = shiftTimeframeClock(isPresentTime ? replayClock : authoritativeClockTs, replayStepTimeframe, deltaBars);
       const weekday = deltaBars > 0 && !isPresentTime ? getReplayWeekdayTarget(symbol, requested) : requested;
-      if (weekday === requested) { handleAdvanceOrRewindToTimestamp(requested); return; }
+      const availability =
+        deltaBars > 0 && !isPresentTime && hasHistoricalArchive(symbol)
+          ? getHistoricalReplayAvailability(symbol, weekday)
+          : undefined;
+      if (weekday === requested && (!availability || availability.kind === 'READY')) {
+        handleAdvanceOrRewindToTimestamp(requested);
+        return;
+      }
       replayStepBusy.current = true;
       const context = replayStepContext.current;
       try {
-        const findNext = () => (hasHistoricalArchive(symbol) ? getHistoricalCandles('1m', symbol) : getCachedRealCandles('1m',symbol))?.find(c => c.time >= weekday && getReplayWeekdayTarget(symbol,c.time) === c.time)?.time;
+        const targetMinTime =
+          availability?.nextTime !== undefined && availability.nextTime > weekday
+            ? availability.nextTime
+            : weekday;
+        const findNext = () =>
+          (hasHistoricalArchive(symbol)
+            ? getHistoricalCandles('1m', symbol)
+            : getCachedRealCandles('1m', symbol)
+          )?.find((c) => c.time >= targetMinTime && getReplayWeekdayTarget(symbol, c.time) === c.time)?.time;
         let next = findNext();
         if (next === undefined) {
           setIsMarketDataLoading(true);
-          await hydrateHistoricalArchive(symbol, weekday);
+          await hydrateHistoricalArchive(
+            symbol,
+            targetMinTime,
+            hasHistoricalArchive(symbol) ? 'extend' : 'replay'
+          );
           if (replayStepContext.current !== context) return;
-          setMarketDataVersion(value => value + 1);
+          setMarketDataVersion((value) => value + 1);
           next = findNext();
         }
         if (next === undefined || (activeSession.endTimestamp && next > activeSession.endTimestamp)) {
           setIsPlaying(false);
-          showToast('Weekend closed. No next weekday quote is available within this session. Extend the end date or choose another date.', 'info');
+          showToast(
+            'Market closed at this time and no later quote is available within the session date range. Extend the end date or choose another date.',
+            'info'
+          );
           return;
         }
         const outcome = handleAdvanceOrRewindToTimestamp(next);
-        if (outcome.ok) showToast(`Weekend closed — skipped to ${new Date(next * 1000).toISOString().slice(0,16).replace('T',' ')} UTC.`, 'info');
-        else setIsPlaying(false);
+        if (outcome.ok) {
+          const skipLabel =
+            weekday !== requested || availability?.kind === 'WEEKEND'
+              ? 'Weekend closed'
+              : 'Market holiday / break';
+          showToast(
+            `${skipLabel} — skipped to ${new Date(next * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC.`,
+            'info'
+          );
+        } else {
+          setIsPlaying(false);
+        }
       } finally {
         replayStepBusy.current = false;
         if (replayStepContext.current === context) setIsMarketDataLoading(false);
       }
     },
-    [activeSession, isPresentTime, authoritativeClockTs, replayStepTimeframe, symbol, handleAdvanceOrRewindToTimestamp, showToast]
+    [
+      activeSession,
+      isPresentTime,
+      isMarketDataLoading,
+      authoritativeClockTs,
+      replayStepTimeframe,
+      symbol,
+      handleAdvanceOrRewindToTimestamp,
+      showToast,
+    ]
   );
+
+  // Auto-advance initial replay clock if a session starts on a market holiday / weekend break with no open trades
+  useEffect(() => {
+    if (isPresentTime || isMarketDataLoading || !hasHistoricalArchive(symbol)) return;
+    const hasOpenOrPending = (activeSession.positions || []).some(
+      (p) => p.status === 'OPEN' || p.status === 'PENDING'
+    );
+    if (hasOpenOrPending) return;
+    const availability = getHistoricalReplayAvailability(symbol, authoritativeClockTs);
+    if (
+      availability &&
+      availability.kind !== 'READY' &&
+      availability.nextTime !== undefined &&
+      availability.nextTime > authoritativeClockTs &&
+      (!activeSession.endTimestamp || availability.nextTime <= activeSession.endTimestamp)
+    ) {
+      const outcome = handleAdvanceOrRewindToTimestamp(availability.nextTime);
+      if (outcome.ok) {
+        showToast(
+          `Market closed at selected start time — jumped to first open bar (${new Date(
+            availability.nextTime * 1000
+          )
+            .toISOString()
+            .slice(0, 16)
+            .replace('T', ' ')} UTC).`,
+          'info'
+        );
+      }
+    }
+  }, [
+    isPresentTime,
+    isMarketDataLoading,
+    marketDataVersion,
+    symbol,
+    authoritativeClockTs,
+    activeSession.id,
+    activeSession.endTimestamp,
+    activeSession.positions,
+    handleAdvanceOrRewindToTimestamp,
+    showToast,
+  ]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -1024,6 +1206,7 @@ export function App() {
         setTradingSessions((prevList) =>
           prevList.map((s) => (s.id === activeSession.id ? simSession : s))
         );
+        setViewportFocusVersion((v) => v + 1);
         return;
       }
 
@@ -1059,11 +1242,40 @@ export function App() {
           nextDate.setUTCDate(nextDate.getUTCDate() + 1);
         }
       }
+
+      let skippedClosureReason: string | null = null;
+      if (getInstrumentConfig(symbol).category !== 'CRYPTO') {
+        for (let i = 0; i < 10; i++) {
+          const dow = nextDate.getUTCDay();
+          const isoDate = nextDate.toISOString().slice(0, 10);
+          const holiday = isFixedMarketHolidayDate(isoDate, symbol);
+          const isWeekendClosed =
+            target === 'SYDNEY'
+              ? dow === 5 || dow === 6
+              : dow === 6 || dow === 0;
+          if (!isWeekendClosed && !holiday) break;
+          if (!skippedClosureReason) {
+            skippedClosureReason = holiday || 'Weekend closure';
+          }
+          nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+        }
+      }
+
       const maxEnd = activeSession.endTimestamp || currTs + 86400 * 30;
       const nextTs = Math.min(maxEnd, Math.floor(nextDate.getTime() / 1000));
-      handleAdvanceOrRewindToTimestamp(nextTs);
+      const res = handleAdvanceOrRewindToTimestamp(nextTs);
+      if (res.ok && skippedClosureReason) {
+        const formatted = new Date(nextTs * 1000)
+          .toISOString()
+          .slice(0, 16)
+          .replace('T', ' ');
+        showToast(
+          `${skippedClosureReason} skipped — jumped to next open session (${formatted} UTC).`,
+          'info'
+        );
+      }
     },
-    [activeSession, authoritativeClockTs, handleAdvanceOrRewindToTimestamp, showToast]
+    [activeSession, authoritativeClockTs, symbol, handleAdvanceOrRewindToTimestamp, showToast]
   );
 
   // 11. Order Execution, Modification, Partial/Full Closure & Break-Even Handlers
@@ -1339,7 +1551,7 @@ export function App() {
     setInsightRoute({active:false,slug:null});
     setActiveView('landing');
   };
-  const enterDemo=()=>{const result=authenticateUserAccount('trader@chartflow.io','demo1234');const user=result.user||{id:'user-demo-trader',name:'Alex Mercer',email:'trader@chartflow.io',passwordHash:'',plan:'FREE_FOREVER' as const,joinedAt:new Date().toISOString()};setActiveLoggedInUser(user);resetMotivationVisit(user.email);setCurrentUser({id:user.id,name:user.name,email:user.email,plan:user.plan,joinedAt:user.joinedAt});setHubInitialSection('dashboard');setActiveView('dashboard');};
+  const enterDemo=()=>{const result=authenticateUserAccount('trader@chartflow.io','demo1234');const user=result.user||{id:'user-demo-trader',name:'Alex Mercer',email:'trader@chartflow.io',passwordHash:'',plan:'FREE_FOREVER' as const,joinedAt:new Date().toISOString()};setActiveLoggedInUser(user);const isReturning=(user.loginCount??1)>1||hasSeenChartAnnouncement(user.email)||hasSeenWorkspaceTour(user.email);if(isReturning){markChartAnnouncementSeen(user.email);markWorkspaceTourSeen(user.email);markTourSeen('completed',user.email);}resetMotivationVisit(user.email,isReturning);setCurrentUser({id:user.id,name:user.name,email:user.email,plan:user.plan,joinedAt:user.joinedAt,loginCount:user.loginCount,isReturningLogin:isReturning});setHubInitialSection('dashboard');setActiveView('dashboard');};
   if(legalPage)return <LegalPage page={legalPage} onNavigate={openLegal} onBack={closeLegal}/>;
 
   if(insightRoute.active)return (
@@ -1420,6 +1632,11 @@ export function App() {
       <LoginPage onOpenLegal={openLegal}
         initialMode={loginInitialMode}
         onSuccessAuth={(user: ChartFlowUser) => {
+          if (user.isReturningLogin || (user.loginCount ?? 1) > 1) {
+            markChartAnnouncementSeen(user.email);
+            markWorkspaceTourSeen(user.email);
+            markTourSeen('completed', user.email);
+          }
           resetMotivationVisit(user.email, user.isReturningLogin ?? true);
           setCurrentUser(user);
           // Fresh sign-in: re-arm the bottom workspace panel expand hint
@@ -1681,6 +1898,10 @@ export function App() {
         isPlanPinned={isPlanPinned}
         indicators={chartIndicators}
         onToggleIndicator={handleToggleIndicator}
+        indicatorConfigs={indicatorConfigs}
+        onUpdateIndicatorConfigs={handleUpdateIndicatorConfigs}
+        onOpenIndicatorSettings={setActiveIndicatorSettingsId}
+        onTakeScreenshot={() => takeScreenshotRef.current?.()}
         onStartTour={handleStartTour}
       />
 
@@ -1956,6 +2177,11 @@ export function App() {
               displayTimezone={activeSession.displayTimezone||'Africa/Johannesburg'}
               indicators={chartIndicators}
               onToggleIndicator={handleToggleIndicator}
+              indicatorConfigs={indicatorConfigs}
+              onUpdateIndicatorConfigs={handleUpdateIndicatorConfigs}
+              activeIndicatorSettingsId={activeIndicatorSettingsId}
+              onChangeActiveIndicatorSettingsId={setActiveIndicatorSettingsId}
+              onTakeScreenshotRef={takeScreenshotRef}
               candleStyle={candleStyle}
               onSelectCandleStyle={setCandleStyle}
               customCandleColors={customCandleColors}
@@ -1965,6 +2191,7 @@ export function App() {
               hideDrawings={hideDrawings}
               magnetMode={magnetMode}
               atr14={atr14}
+              viewportFocusVersion={viewportFocusVersion}
               mobileTradeControls={isMobile && !showRightWidget ? (<div role="toolbar" aria-label="Mobile trading actions" className="flex flex-col items-center gap-2">
             <button
               onClick={() => setShowMobileTools((v) => !v)}
@@ -2104,6 +2331,9 @@ export function App() {
               displayTimezone={activeSession.displayTimezone||'Africa/Johannesburg'}
               indicators={chartIndicators}
               onToggleIndicator={handleToggleIndicator}
+              indicatorConfigs={indicatorConfigs}
+              onUpdateIndicatorConfigs={handleUpdateIndicatorConfigs}
+              onChangeActiveIndicatorSettingsId={setActiveIndicatorSettingsId}
               candleStyle={candleStyle}
                   onSelectCandleStyle={setCandleStyle}
                   customCandleColors={customCandleColors}
@@ -2113,6 +2343,7 @@ export function App() {
                   hideDrawings={hideDrawings}
                   magnetMode={magnetMode}
                   atr14={atr14}
+                  viewportFocusVersion={viewportFocusVersion}
                 />
               </div>
             </div>

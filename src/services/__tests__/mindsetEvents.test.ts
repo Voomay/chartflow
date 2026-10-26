@@ -13,6 +13,12 @@ describe('Optional mindset lifecycle',()=>{
     expect(nextMindsetMoment(state,[p('a','CLOSED_MANUAL',50)],12,prefs,200)).toBe('win');
     expect(nextMindsetMoment(state,[p('a','CLOSED_MANUAL',50),p('b','OPEN')],13,prefs,300)).toBe('entry');
   });
+  it('triggers entry check-in when placing a pending limit or stop order',()=>{
+    const state=createMindsetTracker([],10),prefs={enabled:true,celebrate:true};
+    expect(nextMindsetMoment(state,[p('limit-1','PENDING')],11,prefs,100)).toBe('entry');
+    expect(nextMindsetMoment(state,[p('limit-1','OPEN')],12,prefs,200)).toBeNull();
+    expect(nextMindsetMoment(state,[p('limit-1','OPEN'),p('stop-1','PENDING')],13,prefs,300)).toBe('entry');
+  });
   it('respects disabled celebrations and loss reminders',()=>{
     const state=createMindsetTracker([p('a','OPEN'),p('b','OPEN')],10);
     expect(nextMindsetMoment(state,[p('a','CLOSED_TP',100),p('b','CLOSED_SL',-100)],11,{enabled:false,celebrate:false},100)).toBeNull();

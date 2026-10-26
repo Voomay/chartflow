@@ -31,7 +31,7 @@ export async function loadBitfinexWindow(root,symbol,clock){
    let rows;
    try{rows=JSON.parse(gunzipSync(await readFile(file)).toString());}catch{
     rows=await scheduledFetch(`https://api-pub.bitfinex.com/v2/candles/trade:${tf}:t${symbol}/hist?end=${Math.floor(end*1000)}&limit=10000&sort=-1`);
-    await mkdir(path.dirname(file),{recursive:true});await writeFile(file,gzipSync(JSON.stringify(rows)));
+    try{await mkdir(path.dirname(file),{recursive:true});await writeFile(file,gzipSync(JSON.stringify(rows)));}catch{}
    }
    if(tf==='1m'){
     const merged=new Map(rows.map(r=>[r[0],r]));

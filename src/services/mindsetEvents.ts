@@ -15,7 +15,7 @@ export function nextMindsetMoment(state:ReturnType<typeof createMindsetTracker>,
     if(state.previous.get(p.id)!==p.status && !state.seen.has(key)) {
       state.seen.add(key);
       if(p.status.startsWith('CLOSED_') && state.previous.has(p.id))closes.push(p);
-      if(p.status==='OPEN')entered=true;
+      if((p.status==='OPEN' && !state.seen.has(`${p.id}:PENDING`)) || p.status==='PENDING')entered=true;
     }
   }
   state.previous=new Map(positions.map(p=>[p.id,p.status]));state.clock=clock;

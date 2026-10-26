@@ -24,5 +24,18 @@ Thumbs.db
 .env.local
 .env.*.local
 
-# Original market archives are stored locally, never committed.
-market-data/
+# Original raw market archives are stored locally; curated compressed replay archive is tracked for Vercel.
+market-data/raw/
+market-data/archive/*/*/*.json.gz
+!market-data/archive/*/1W/*.json.gz
+!market-data/archive/*/1D/*.json.gz
+!market-data/archive/*/4H/*.json.gz
+!market-data/archive/*/1H/*.json.gz
+!market-data/archive/*/30m/2026.json.gz
+!market-data/archive/*/15m/2026.json.gz
+!market-data/archive/*/5m/2026.json.gz
+!market-data/archive/*/1m/20??.json.gz
+!market-data/archive/*/1m/2026-09.json.gz
+!market-data/archive/*/1m/2026-10.json.gz
+!market-data/archive/US30/*/*.json.gz
+!market-data/archive/bitfinex-cache/*/*/*.json.gz

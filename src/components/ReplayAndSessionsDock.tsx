@@ -567,6 +567,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             className={`px-2 py-1 rounded border text-[11px] font-mono font-bold outline-none ${cardBg}`}
             title="Replay Speed"
           >
+            <option value={40}>20x Fast</option>
             <option value={80}>10x Fast</option>
             <option value={180}>5x Speed</option>
             <option value={400}>2x Speed</option>

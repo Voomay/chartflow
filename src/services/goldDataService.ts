@@ -1953,13 +1953,15 @@ export async function fetchRealYahooInstrumentCandles(
   }
   if (SPOT_SYMBOLS.has(symbol)) {
     const spot = await fetchSpotCandles(symbol, timeframe, Math.max(30,limit));
-    if (!spot?.length) return null;
-    marketFeedLabels.set(`${symbol}_${timeframe}`, 'biquote · MT5 broker spot (provisional)');
-    const sourceBars = timeframe === '1W' || timeframe === '1M' ? aggregateCandlesToTimeframe(spot, timeframe, symbol) : spot;
-    // A bounded daily response may begin partway through its first month.
-    // Omit that uncertain month rather than claiming its partial open is genuine.
-    if (timeframe === '1M' && sourceBars.length && spot[0].time > sourceBars[0].time) sourceBars.shift();
-    return sourceBars.slice(-limit);
+    if (spot?.length) {
+      marketFeedLabels.set(`${symbol}_${timeframe}`, 'biquote · MT5 broker spot (provisional)');
+      const sourceBars = timeframe === '1W' || timeframe === '1M' ? aggregateCandlesToTimeframe(spot, timeframe, symbol) : spot;
+      // A bounded daily response may begin partway through its first month.
+      // Omit that uncertain month rather than claiming its partial open is genuine.
+      if (timeframe === '1M' && sourceBars.length && spot[0].time > sourceBars[0].time) sourceBars.shift();
+      return sourceBars.slice(-limit);
+    }
+    if (getCachedRealCandles(timeframe, symbol)?.length) return null;
   }
   const tfCfg = TIMEFRAME_CONFIG[timeframe];
   const mapEntry = YAHOO_SYMBOL_MAP[symbol];

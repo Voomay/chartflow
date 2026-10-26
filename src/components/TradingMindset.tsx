@@ -1,26 +1,61 @@
 import {coachFlow,coachDismissDelay,CoachBubble} from '../services/coachFlow';
 import {CoachMoment,coachName,nextCoachCopy} from '../services/coachMessages';
-import {isReturningLogin,markCoachIntroSeen} from '../services/motivation';
+import {isReturningLogin,markCoachIntroSeen,motivationEnabled} from '../services/motivation';
+import {syncUserPreferencesToSupabase} from '../services/supabaseClient';
 import {CoachFace} from './CoachFace';
 import React,{useEffect,useLayoutEffect,useReducer,useRef,useState} from 'react';
-import {Check,GripHorizontal,Maximize2,PartyPopper,PenLine,Pin,StickyNote,X} from 'lucide-react';
+import {Check,GripHorizontal,Maximize2,PartyPopper,Pin,PenLine,StickyNote,X} from 'lucide-react';
 import {TradingSession} from '../types/trading';
 import {createMindsetTracker,nextMindsetMoment,fitMindsetNote,MindsetMoment,NoteBounds} from '../services/mindsetEvents';
 
 const starter='MY TRADING PLAN\n\n• Wait for my setup. No chasing.\n• Define my risk before entry.\n• Respect my stop.\n• Review the process, not just the P&L.\n\nPatience is a position, too.';
 const memoryMindsetStore=new Map<string,string>();
-function read<T,>(key:string,fallback:T):T{try{return JSON.parse(memoryMindsetStore.get(key)||'null')??fallback;}catch{return fallback;}}
-function save(key:string,value:unknown){try{memoryMindsetStore.set(key,JSON.stringify(value));}catch{/* Keep the note usable without storage. */}}
+function read<T,>(key:string,fallback:T,legacyKey?:string):T{
+  for(const k of [key,legacyKey].filter((x):x is string=>Boolean(x))){
+    try{
+      if(typeof localStorage!=='undefined'){
+        const rawLocal=localStorage.getItem(k);
+        if(rawLocal!==null){
+          memoryMindsetStore.set(key,rawLocal);
+          return JSON.parse(rawLocal)??fallback;
+        }
+      }
+    }catch{/* ignore */}
+    try{
+      const rawMem=memoryMindsetStore.get(k);
+      if(rawMem!==undefined)return JSON.parse(rawMem)??fallback;
+    }catch{/* ignore */}
+  }
+  return fallback;
+}
+function save(key:string,value:unknown){
+  const serialized=JSON.stringify(value);
+  try{memoryMindsetStore.set(key,serialized);}catch{/* ignore */}
+  try{if(typeof localStorage!=='undefined')localStorage.setItem(key,serialized);}catch{/* Keep the note usable without storage. */}
+}
 type Note=NoteBounds&{text:string;pinned:boolean};
 const viewport=()=>({width:window.innerWidth,height:window.innerHeight});
 
 export function TradingMindset({session,userKey,displayName,open,onClose,onOpen,rightPanelOpen=false,welcomeBlocking=false,planToggleCount=0,onPlanPinnedChange,onUpdatePlanNote}:{session:TradingSession;userKey:string;displayName?:string;open:boolean;onClose:()=>void;onOpen:()=>void;rightPanelOpen?:boolean;welcomeBlocking?:boolean;planToggleCount?:number;onPlanPinnedChange?:(pinned:boolean)=>void;onUpdatePlanNote?:(note:Note)=>void}){
-  const prefKey=`chart_mindset_v1:${userKey}`,noteKey=`${prefKey}:plan:${session.id}`;
-  const [prefs,setPrefs]=useState(()=>{const saved=read<Partial<{coachEnabled:boolean;celebrate:boolean}>>(prefKey,{});return {coachEnabled:saved.coachEnabled??true,celebrate:saved.celebrate??true};});
-  const [note,setNote]=useState<Note>(()=>{const saved=read<Partial<Note>>(noteKey,{});return {...{text:starter,pinned:false,x:28,y:110,width:286,height:300},...(session.mindsetNote||{}),...saved};});
+  const safeUserKey=encodeURIComponent((userKey||'guest').trim().toLowerCase());
+  const prefKey=`chart_mindset_v1:${safeUserKey}`,legacyPrefKey=`chart_mindset_v1:${userKey}`;
+  const noteKey=`${prefKey}:plan:${session.id}`,legacyNoteKey=`${legacyPrefKey}:plan:${session.id}`;
+  const [prefs,setPrefs]=useState(()=>{const saved=read<Partial<{coachEnabled:boolean;celebrate:boolean}>>(prefKey,{},legacyPrefKey);return {coachEnabled:saved.coachEnabled??true,celebrate:saved.celebrate??true};});
+  const [note,setNote]=useState<Note>(()=>{
+    const saved=read<Partial<Note>>(noteKey,{},legacyNoteKey);
+    const hasCustomSaved=Boolean(saved.text && saved.text!==starter);
+    const hasCustomSession=Boolean(session.mindsetNote?.text && session.mindsetNote.text!==starter);
+    const resolvedText=hasCustomSaved?saved.text!:hasCustomSession?session.mindsetNote!.text:saved.text||session.mindsetNote?.text||starter;
+    return {...{text:starter,pinned:false,x:28,y:110,width:286,height:300},...(session.mindsetNote||{}),...saved,text:resolvedText};
+  });
   const lastToggleCount=useRef(planToggleCount);
   useEffect(()=>{if(planToggleCount!==lastToggleCount.current){lastToggleCount.current=planToggleCount;setNote(n=>({...n,pinned:!n.pinned}));}},[planToggleCount]);
   useEffect(()=>{onPlanPinnedChange?.(note.pinned);},[note.pinned,onPlanPinnedChange]);
+  useEffect(()=>{
+    if(session.mindsetNote?.text && session.mindsetNote.text!==starter){
+      setNote(prev=>prev.text===starter?{...prev,...session.mindsetNote}:prev);
+    }
+  },[session.mindsetNote?.text]);
   const [expanded,setExpanded]=useState(false);
   const [editing,setEditing]=useState(false);
   const [overflowing,setOverflowing]=useState(false);
@@ -31,20 +66,54 @@ export function TradingMindset({session,userKey,displayName,open,onClose,onOpen,
   const expand=()=>{collapsed.current=note;setExpanded(true);setNote(n=>({...n,...fitMindsetNote({...n,width:Math.max(n.width,430),height:Math.max(n.height,480)},viewport())}));};
   const collapse=()=>{setExpanded(false);setEditing(false);const bounds=collapsed.current;if(bounds)setNote(n=>({...n,...fitMindsetNote({...bounds,x:n.x,y:n.y},viewport())}));};
   const [flow,dispatchCoach]=useReducer(coachFlow,{current:null,queued:null});
+  const [confettiBurst,setConfettiBurst]=useState<{id:number}|null>(null);
   const moment=flow.current;
+  const momentRef=useRef(moment);
+  momentRef.current=moment;
   const [mobileBottom,setMobileBottom]=useState(130);
   const [mobileTop,setMobileTop]=useState<number|null>(null);
   const [mobileBelow,setMobileBelow]=useState(false);
   const previousCopy=useRef<Partial<Record<CoachMoment,number>>>({});
   const introShown=useRef(false);
-  const showMoment=(kind:CoachMoment,preview=false,answer=false)=>{const copy=nextCoachCopy(kind,displayName,previousCopy.current[kind]);previousCopy.current[kind]=copy.index;const bubble:CoachBubble={kind,preview,id:Date.now(),title:copy.title,body:copy.body};dispatchCoach({type:answer?'answer':preview?'preview':'show',bubble});};
+  const showMoment=(kind:CoachMoment,preview=false,answer=false)=>{
+    const nowId=Date.now();
+    if(kind==='win' && (preview || prefs.celebrate)){
+      setConfettiBurst({id:nowId});
+    }
+    const copy=nextCoachCopy(kind,displayName,previousCopy.current[kind]);
+    previousCopy.current[kind]=copy.index;
+    const bubble:CoachBubble={kind,preview,id:nowId,title:copy.title,body:copy.body};
+    if(!preview && !answer && (kind==='win'||kind==='loss'||kind==='flat') && momentRef.current && (momentRef.current.kind==='entry'||momentRef.current.kind==='affirm')){
+      dispatchCoach({type:'dismiss'});
+    }
+    dispatchCoach({type:answer?'answer':preview?'preview':'show',bubble});
+  };
+  useEffect(()=>{
+    if(!confettiBurst)return;
+    const timer=setTimeout(()=>setConfettiBurst(null),3200);
+    return()=>clearTimeout(timer);
+  },[confettiBurst]);
   const tracker=useRef(createMindsetTracker(session.positions||[],session.replayTimestamp||0));
   const panel=useRef<HTMLDivElement>(null);
   const gesture=useRef<{mode:'move'|'resize';x:number;y:number;bounds:NoteBounds}|null>(null);
-  useEffect(()=>save(prefKey,prefs),[prefKey,prefs]);
-  useEffect(()=>{save(noteKey,note);onUpdatePlanNote?.(note);},[noteKey,note]);
+  const hasMountedPrefs=useRef(false);
+  const hasMountedNote=useRef(false);
   useEffect(()=>{
-    if(welcomeBlocking||!prefs.coachEnabled||introShown.current)return;
+    save(prefKey,prefs);
+    if(hasMountedPrefs.current && userKey && userKey!=='guest'){
+      void syncUserPreferencesToSupabase(userKey,{coachEnabled:prefs.coachEnabled,celebrateWins:prefs.celebrate});
+    }
+    hasMountedPrefs.current=true;
+  },[prefKey,prefs,userKey]);
+  useEffect(()=>{
+    save(noteKey,note);
+    if(hasMountedNote.current){
+      onUpdatePlanNote?.(note);
+    }
+    hasMountedNote.current=true;
+  },[noteKey,note]);
+  useEffect(()=>{
+    if(welcomeBlocking||!prefs.coachEnabled||!motivationEnabled(userKey)||introShown.current)return;
     const timer=setTimeout(()=>{
       introShown.current=true;
       const name=coachName(displayName);
@@ -61,7 +130,7 @@ export function TradingMindset({session,userKey,displayName,open,onClose,onOpen,
     return()=>clearTimeout(timer);
   },[welcomeBlocking,prefs.coachEnabled,displayName,userKey]);
   useEffect(()=>{
-    const kind=nextMindsetMoment(tracker.current,session.positions||[],session.replayTimestamp||0,{enabled:prefs.coachEnabled,celebrate:prefs.coachEnabled&&prefs.celebrate},Date.now());
+    const kind=nextMindsetMoment(tracker.current,session.positions||[],session.replayTimestamp||0,{enabled:prefs.coachEnabled,celebrate:prefs.celebrate},Date.now());
     if(kind)showMoment(kind);
   },[session.positions,session.replayTimestamp,prefs]);
   useEffect(()=>{if(moment && !prefs.coachEnabled && !moment.preview)dispatchCoach({type:'disable'});},[prefs,moment]);
@@ -117,7 +186,7 @@ export function TradingMindset({session,userKey,displayName,open,onClose,onOpen,
       <div className="mindset-note-footer"><span className="mindset-paper-foot">Your plan. Your pace.</span>{editing?<button onClick={()=>setEditing(false)}>Done <Check size={11}/></button>:(overflowing||expanded)&&<button onClick={()=>expanded?collapse():expand()}>{expanded?'View less':'View more'}</button>}</div>
       <button className="mindset-resize" aria-label="Resize trading plan" title="Drag to resize · Arrow keys also work" onKeyDown={e=>keyMove(e,true)} onPointerDown={e=>start(e,'resize')} onPointerMove={move} onPointerUp={end} onPointerCancel={end}><Maximize2 size={13}/></button>
     </aside>}
-    {moment?.kind==='win' && prefs.celebrate && <div key={moment.id} className="mindset-confetti" aria-hidden="true">{Array.from({length:64},(_,i)=><i key={i} style={{left:`${(i*37)%100}%`,background:['#2dd4bf','#fbbf24','#c4b5fd','#fb7185','#7dd3fc'][i%5],animationDelay:`${i%9*.07}s`,['--drift' as string]:`${(i%2?-1:1)*(20+i%7*15)}px`,['--turn' as string]:`${i%2?640:-580}deg`}}/>)}</div>}
+    {(confettiBurst || moment?.kind==='win') && prefs.celebrate && <div key={confettiBurst?.id ?? moment?.id} className="mindset-confetti" aria-hidden="true">{Array.from({length:64},(_,i)=><i key={i} style={{left:`${(i*37)%100}%`,background:['#2dd4bf','#fbbf24','#c4b5fd','#fb7185','#7dd3fc'][i%5],animationDelay:`${(i%4)*.012}s`,['--drift' as string]:`${(i%2?-1:1)*(20+i%7*15)}px`,['--turn' as string]:`${i%2?640:-580}deg`}}/>)}</div>}
     <div className="mindset-coach-cluster" data-popover-below={mobileBelow?"true":"false"} data-under-controls={mobileTop!==null?"true":"false"} data-panel-open={rightPanelOpen?'true':'false'} style={{'--coach-mobile-bottom':`${mobileBottom}px`,...(mobileTop!==null?{'--coach-mobile-top':`${mobileTop}px`}:{})} as React.CSSProperties}>
     <button data-panel-open={rightPanelOpen?'true':'false'} className={`mindset-coach-dock ${moment?.kind==='affirm'||moment?.kind==='win'?'is-happy':''} ${!prefs.coachEnabled?'is-paused':''}`} aria-label="Open psychology coach" title={prefs.coachEnabled?'Michael, your psychology coach · Click for options':'Michael (Coach paused) · Click to enable'} onClick={onOpen}><CoachFace mood={moment?.kind||'idle'}/><span className="mindset-coach-dot"/></button>
     {open && <div className="mindset-menu" ref={panel} role="dialog" aria-label="Mindset options">

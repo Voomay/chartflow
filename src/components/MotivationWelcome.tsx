@@ -23,7 +23,7 @@ interface Props {
 
 export function MotivationWelcome({userKey, name, eligible, chartStatus, loading, isLight, onOpen, onDismiss}: Props) {
   const [message, setMessage] = useState<typeof encouragements[number] | null>(null);
-  const [skip, setSkip] = useState(false);
+  const [skip, setSkip] = useState(() => !motivationEnabled(userKey));
   const [isClosing, setIsClosing] = useState(false);
   const [ctaHovered, setCtaHovered] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -31,7 +31,12 @@ export function MotivationWelcome({userKey, name, eligible, chartStatus, loading
   callbacks.current = {onOpen, onDismiss};
 
   useEffect(() => {
+    setSkip(!motivationEnabled(userKey));
+  }, [userKey]);
+
+  useEffect(() => {
     if (!eligible) return;
+    if (!motivationEnabled(userKey)) return;
     const timer = setTimeout(() => {
       const next = claimMotivation(userKey);
       if (next) {
@@ -56,6 +61,9 @@ export function MotivationWelcome({userKey, name, eligible, chartStatus, loading
 
   const dismiss = () => {
     if (isClosing) return;
+    if (skip) {
+      setMotivationEnabled(userKey, false);
+    }
     markCoachIntroSeen(userKey);
     setIsClosing(true);
     setTimeout(() => {

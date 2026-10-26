@@ -112,13 +112,67 @@ export async function syncUserAccountToSupabase(
   });
 }
 
+export interface UserCloudPreferences {
+  id: '__user_prefs_v1__';
+  skipWelcome?: boolean;
+  coachEnabled?: boolean;
+  celebrateWins?: boolean;
+  deletedSessionIds?: string[];
+  deletedStrategyIds?: string[];
+  updatedAt?: string;
+}
+
+const USER_PREFS_PROFILE_ID = '__user_prefs_v1__';
+const DEFAULT_STARTER_REPLAY_TS = Math.floor(Date.parse('2026-10-05T08:00:00Z') / 1000);
+
 export function isUntouchedStarterSession(s: TradingSession): boolean {
+  if (!/^session-(normal|prop)-/.test(s.id)) return false;
   const hasPositions = Array.isArray(s.positions) && s.positions.length > 0;
   const hasOrders = Array.isArray(s.orders) && s.orders.length > 0;
   const hasFills = Array.isArray(s.fills) && s.fills.length > 0;
   const hasRealized = Math.abs(s.realizedPnL ?? 0) > 0.005;
-  if (hasPositions || hasOrders || hasFills || hasRealized) return false;
-  return /^session-(normal|prop)-/.test(s.id);
+  const hasCustomPlan =
+    Boolean(s.mindsetNote?.text) &&
+    !s.mindsetNote!.text.startsWith('MY TRADING PLAN\n\n• Wait for my setup.');
+  const hasDrawings = Boolean(
+    s.drawingsBySymbol &&
+      Object.values(s.drawingsBySymbol).some(
+        (list) => Array.isArray(list) && list.length > 0
+      )
+  );
+  const hasJournals = Boolean(s.journals && Object.keys(s.journals).length > 0);
+  const hasMovedReplay =
+    typeof s.replayTimestamp === 'number' &&
+    s.replayTimestamp > 0 &&
+    s.replayTimestamp !== DEFAULT_STARTER_REPLAY_TS;
+  const isModifiedNormal =
+    s.id.startsWith('session-normal-') &&
+    (s.name !== 'XAUUSD NY Killzone Backtest' ||
+      s.activeAsset !== 'XAUUSD' ||
+      s.activeTimeframe !== '15m' ||
+      s.strategyName !== 'ICT Silver Bullet (NY Open)');
+  const isModifiedProp =
+    s.id.startsWith('session-prop-') &&
+    (s.name !== 'FTMO $100K Phase 1 Evaluation' ||
+      s.activeAsset !== 'XAUUSD' ||
+      s.activeTimeframe !== '15m' ||
+      s.strategyName !== 'SMC Orderblock + FVG');
+
+  if (
+    hasPositions ||
+    hasOrders ||
+    hasFills ||
+    hasRealized ||
+    hasCustomPlan ||
+    hasDrawings ||
+    hasJournals ||
+    hasMovedReplay ||
+    isModifiedNormal ||
+    isModifiedProp
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export async function syncUserSessionsToSupabase(
@@ -271,12 +325,34 @@ export async function deleteUserSessionFromSupabase(
   );
 }
 
+export async function deleteUserStrategyFromSupabase(
+  userEmail: string,
+  strategyId: string
+): Promise<void> {
+  const cleanEmail = userEmail.trim().toLowerCase();
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !strategyId) return;
+  await supabaseFetch(
+    `user_strategies?user_email=eq.${encodeURIComponent(
+      cleanEmail
+    )}&id=eq.${encodeURIComponent(strategyId)}`,
+    { method: 'DELETE' }
+  );
+}
+
 export async function syncUserStrategiesToSupabase(
   userEmail: string,
   strategies: StrategyRecord[]
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || strategies.length === 0) {
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') {
+    return;
+  }
+
+  if (strategies.length === 0) {
+    await supabaseFetch(
+      `user_strategies?user_email=eq.${encodeURIComponent(cleanEmail)}`,
+      { method: 'DELETE' }
+    );
     return;
   }
 
@@ -404,7 +480,61 @@ export async function fetchCustomRuleProfilesFromSupabase(
   if (!Array.isArray(rows) || rows.length === 0) return null;
   return rows
     .map((r) => r.rules_data)
-    .filter((p): p is CustomRuleProfile => Boolean(p && typeof p.id === 'string'));
+    .filter(
+      (p): p is CustomRuleProfile =>
+        Boolean(p && typeof p.id === 'string' && p.id !== USER_PREFS_PROFILE_ID)
+    );
+}
+
+const cloudPrefsCache = new Map<string, UserCloudPreferences>();
+
+export async function fetchUserPreferencesFromSupabase(
+  userEmail: string
+): Promise<UserCloudPreferences | null> {
+  const cleanEmail = userEmail.trim().toLowerCase();
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return null;
+
+  const rows = await supabaseFetch<Array<{ rules_data: UserCloudPreferences }>>(
+    `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+      cleanEmail
+    )}&id=eq.${USER_PREFS_PROFILE_ID}&select=rules_data&limit=1`
+  );
+  if (!Array.isArray(rows) || rows.length === 0 || !rows[0]?.rules_data) {
+    return null;
+  }
+  const prefs = rows[0].rules_data;
+  cloudPrefsCache.set(cleanEmail, prefs);
+  return prefs;
+}
+
+export async function syncUserPreferencesToSupabase(
+  userEmail: string,
+  patch: Partial<Omit<UserCloudPreferences, 'id'>>
+): Promise<void> {
+  const cleanEmail = userEmail.trim().toLowerCase();
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return;
+
+  const existing = cloudPrefsCache.get(cleanEmail) || { id: USER_PREFS_PROFILE_ID };
+  const merged: UserCloudPreferences = {
+    ...existing,
+    ...patch,
+    id: USER_PREFS_PROFILE_ID,
+    updatedAt: new Date().toISOString(),
+  };
+  cloudPrefsCache.set(cleanEmail, merged);
+
+  await supabaseFetch('custom_rule_profiles?on_conflict=user_email,id', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=minimal',
+    body: {
+      id: USER_PREFS_PROFILE_ID,
+      user_email: cleanEmail,
+      name: '__user_prefs_v1__',
+      description: 'User workspace preferences',
+      rules_data: merged,
+      created_at: merged.updatedAt,
+    },
+  });
 }
 
 export async function deleteAllUserSupabaseData(

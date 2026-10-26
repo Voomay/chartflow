@@ -135,6 +135,131 @@ export function createSupabaseAccountStore({
     return Array.isArray(rows) ? rows.map(rowToUser) : [];
   };
 
+  const enrichUsersWithSupabaseActivity = async (users) => {
+    if (!Array.isArray(users) || users.length === 0) return users;
+    const [sessionsRes, strategiesRes, notesRes] = await Promise.allSettled([
+      supabaseRestRequest(
+        'trading_sessions?select=id,user_email,name,mode,realized_pnl,session_data',
+        { method: 'GET', env, request }
+      ),
+      supabaseRestRequest(
+        'user_strategies?select=id,user_email,name,description',
+        { method: 'GET', env, request }
+      ),
+      supabaseRestRequest(
+        'user_strategy_notes?select=user_email,notes_text,updated_at',
+        { method: 'GET', env, request }
+      ),
+    ]);
+    const sessionRows =
+      sessionsRes.status === 'fulfilled' && Array.isArray(sessionsRes.value)
+        ? sessionsRes.value
+        : [];
+    const strategyRows =
+      strategiesRes.status === 'fulfilled' && Array.isArray(strategiesRes.value)
+        ? strategiesRes.value
+        : [];
+    const noteRows =
+      notesRes.status === 'fulfilled' && Array.isArray(notesRes.value)
+        ? notesRes.value
+        : [];
+
+    return users.map((user) => {
+      const email = String(user.email || '').toLowerCase();
+      const userSessions = sessionRows.filter(
+        (r) => String(r?.user_email || '').toLowerCase() === email
+      );
+      const userStrategies = strategyRows.filter(
+        (r) => String(r?.user_email || '').toLowerCase() === email
+      );
+      const customStrategies = userStrategies.filter(
+        (r) => !/^strat-[1-6]$/.test(String(r?.id || ''))
+      );
+      const userNote = noteRows.find(
+        (r) => String(r?.user_email || '').toLowerCase() === email
+      );
+      const noteText =
+        typeof userNote?.notes_text === 'string' ? userNote.notes_text.trim() : '';
+
+      const nonStarterSessionIds = new Set([
+        ...(Array.isArray(user.sessionIds) ? user.sessionIds : []).filter(
+          (id) => !/^session-(normal|prop)-/.test(String(id))
+        ),
+        ...userSessions
+          .filter(
+            (s) =>
+              !/^session-(normal|prop)-/.test(String(s?.id || '')) ||
+              (Array.isArray(s?.session_data?.positions) &&
+                s.session_data.positions.length > 0)
+          )
+          .map((s) => String(s.id)),
+      ]);
+
+      const tradeCount = userSessions.reduce(
+        (sum, s) =>
+          sum +
+          (Array.isArray(s?.session_data?.positions)
+            ? s.session_data.positions.length
+            : 0),
+        0
+      );
+
+      const customStrategyName = customStrategies[0]?.name || '';
+      const sessionMindsetText =
+        userSessions
+          .map((s) => s?.session_data?.mindsetNote?.text || '')
+          .find(
+            (t) =>
+              typeof t === 'string' &&
+              t.trim().length > 0 &&
+              !t.startsWith('MY TRADING PLAN\n\n• Wait for my setup.')
+          ) || '';
+      const firstNoteLine =
+        (noteText || sessionMindsetText)
+          .split(/\r?\n/)
+          .map((l) => l.replace(/^[#•*\-\s]+/, '').trim())
+          .find(Boolean) || '';
+      const sessionStrategyName =
+        userSessions.find(
+          (s) =>
+            !/^session-(normal|prop)-/.test(String(s?.id || '')) &&
+            typeof s?.session_data?.strategyName === 'string' &&
+            s.session_data.strategyName.trim().length > 0
+        )?.session_data?.strategyName || '';
+
+      const hasTradingPlan = Boolean(
+        customStrategies.length > 0 ||
+          noteText.length > 0 ||
+          sessionMindsetText.length > 0 ||
+          sessionStrategyName.length > 0
+      );
+      const tradingPlanName =
+        customStrategyName || firstNoteLine || sessionStrategyName || null;
+      const tradingPlanCount =
+        customStrategies.length + (noteText || sessionMindsetText ? 1 : 0) ||
+        (hasTradingPlan ? 1 : 0);
+
+      return {
+        ...user,
+        sessionIds: Array.from(nonStarterSessionIds),
+        sessionCount: nonStarterSessionIds.size,
+        tradeCount,
+        hasTradingPlan,
+        tradingPlanName,
+        tradingPlanCount,
+      };
+    });
+  };
+
+  const userByIdCache = new Map();
+  const presenceWriteTs = new Map();
+  const activityWriteTs = new Map();
+  let cachedAdminUsers = null;
+  let cachedAdminUsersAt = 0;
+  let inflightAdminRead = null;
+  let cachedSponsorship = null;
+  let cachedSponsorshipAt = 0;
+
   return {
     get remote() {
       return isSupabaseConfigured(env);
@@ -142,18 +267,221 @@ export function createSupabaseAccountStore({
     get scope() {
       return isSupabaseConfigured(env) ? 'supabase' : 'localhost';
     },
+    async findById(userId) {
+      if (!userId) return null;
+      if (!isSupabaseConfigured(env)) {
+        if (!fallbackStore) return null;
+        if (typeof fallbackStore.findById === 'function') return fallbackStore.findById(userId);
+        const all = await fallbackStore.read();
+        return all.find((u) => u.id === userId) || null;
+      }
+      const nowMs = Date.now();
+      const cached = userByIdCache.get(userId);
+      if (cached && nowMs - cached.at < 15000) {
+        return cached.user;
+      }
+      try {
+        const rows = await supabaseRestRequest(
+          `platform_users?id=eq.${encodeURIComponent(userId)}&select=*&limit=1`,
+          { method: 'GET', env, request }
+        );
+        const found = Array.isArray(rows) && rows[0] ? rowToUser(rows[0]) : null;
+        if (found) userByIdCache.set(userId, { user: found, at: nowMs });
+        return found;
+      } catch (err) {
+        if (fallbackStore && (err.code === 'PGRST205' || err.status === 404)) {
+          const all = await fallbackStore.read();
+          return all.find((u) => u.id === userId) || null;
+        }
+        throw err;
+      }
+    },
+    async findByEmail(email) {
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      if (!cleanEmail) return null;
+      if (!isSupabaseConfigured(env)) {
+        if (!fallbackStore) return null;
+        if (typeof fallbackStore.findByEmail === 'function') return fallbackStore.findByEmail(cleanEmail);
+        const all = await fallbackStore.read();
+        return all.find((u) => String(u.email || '').toLowerCase() === cleanEmail) || null;
+      }
+      try {
+        const rows = await supabaseRestRequest(
+          `platform_users?email=eq.${encodeURIComponent(cleanEmail)}&select=*&limit=1`,
+          { method: 'GET', env, request }
+        );
+        const found = Array.isArray(rows) && rows[0] ? rowToUser(rows[0]) : null;
+        if (found) userByIdCache.set(found.id, { user: found, at: Date.now() });
+        return found;
+      } catch (err) {
+        if (fallbackStore && (err.code === 'PGRST205' || err.status === 404)) {
+          const all = await fallbackStore.read();
+          return all.find((u) => String(u.email || '').toLowerCase() === cleanEmail) || null;
+        }
+        throw err;
+      }
+    },
+    async createUser(newUser) {
+      if (!isSupabaseConfigured(env)) {
+        if (!fallbackStore) throw new Error('Account store is not configured');
+        return fallbackStore.change((users) => {
+          if (users.some((u) => String(u.email || '').toLowerCase() === String(newUser.email || '').toLowerCase())) {
+            return null;
+          }
+          users.push(newUser);
+          return newUser;
+        });
+      }
+      try {
+        const existing = await this.findByEmail(newUser.email);
+        if (existing) return null;
+        const row = userToRow(newUser);
+        await supabaseRestRequest('platform_users?on_conflict=email', {
+          method: 'POST',
+          prefer: 'resolution=merge-duplicates,return=minimal',
+          body: [row],
+          env,
+          request,
+        });
+        userByIdCache.set(newUser.id, { user: newUser, at: Date.now() });
+        cachedAdminUsers = null;
+        return newUser;
+      } catch (err) {
+        if (fallbackStore && (err.code === 'PGRST205' || err.status === 404)) {
+          return fallbackStore.change((users) => {
+            if (users.some((u) => String(u.email || '').toLowerCase() === String(newUser.email || '').toLowerCase())) {
+              return null;
+            }
+            users.push(newUser);
+            return newUser;
+          });
+        }
+        throw err;
+      }
+    },
+    async recordLogin(user, nowIso) {
+      if (!isSupabaseConfigured(env)) {
+        if (!fallbackStore) throw new Error('Account store is not configured');
+        return fallbackStore.change((users) => {
+          const current = users.find((item) => item.id === user.id);
+          if (!current) return null;
+          current.loginCount = (current.loginCount || 0) + 1;
+          current.lastLoginAt = nowIso;
+          current.lastSeenAt = nowIso;
+          return current;
+        });
+      }
+      try {
+        const updated = {
+          ...user,
+          loginCount: (user.loginCount || 0) + 1,
+          lastLoginAt: nowIso,
+          lastSeenAt: nowIso,
+        };
+        await supabaseRestRequest(
+          `platform_users?id=eq.${encodeURIComponent(user.id)}`,
+          {
+            method: 'PATCH',
+            prefer: 'return=minimal',
+            body: {
+              login_count: updated.loginCount,
+              last_login_at: nowIso,
+              last_seen_at: nowIso,
+            },
+            env,
+            request,
+          }
+        );
+        userByIdCache.set(user.id, { user: updated, at: Date.now() });
+        cachedAdminUsers = null;
+        return updated;
+      } catch (err) {
+        if (fallbackStore && (err.code === 'PGRST205' || err.status === 404)) {
+          return fallbackStore.change((users) => {
+            const current = users.find((item) => item.id === user.id);
+            if (!current) return null;
+            current.loginCount = (current.loginCount || 0) + 1;
+            current.lastLoginAt = nowIso;
+            current.lastSeenAt = nowIso;
+            return current;
+          });
+        }
+        throw err;
+      }
+    },
+    async touchUserActivity(accountId, sessionIds = [], nowMs = Date.now()) {
+      if (!accountId) return;
+      const nonStarterIds = (Array.isArray(sessionIds) ? sessionIds : [])
+        .filter((id) => !/^session-(normal|prop)-/.test(String(id)))
+        .slice(0, 10000);
+      const sig = nonStarterIds.join('|');
+      const prev = activityWriteTs.get(accountId);
+      if (prev && nowMs - prev.at < 45000 && prev.sig === sig) {
+        return;
+      }
+      activityWriteTs.set(accountId, { at: nowMs, sig });
+      const nowIso = new Date(nowMs).toISOString();
+      if (!isSupabaseConfigured(env)) {
+        if (!fallbackStore) return;
+        await fallbackStore.change((users) => {
+          const user = users.find((u) => u.id === accountId);
+          if (user) {
+            user.lastSeenAt = nowIso;
+            user.sessionIds = [...new Set([...(user.sessionIds || []), ...nonStarterIds])].slice(0, 10000);
+          }
+        });
+        return;
+      }
+      try {
+        const patchBody = { last_seen_at: nowIso };
+        if (nonStarterIds.length > 0) {
+          const cached = userByIdCache.get(accountId)?.user;
+          patchBody.session_ids = [
+            ...new Set([...(cached?.sessionIds || []), ...nonStarterIds]),
+          ].slice(0, 10000);
+        }
+        await supabaseRestRequest(
+          `platform_users?id=eq.${encodeURIComponent(accountId)}`,
+          {
+            method: 'PATCH',
+            prefer: 'return=minimal',
+            body: patchBody,
+            env,
+            request,
+          }
+        );
+      } catch {
+        // ignore transient activity heartbeat errors
+      }
+    },
     async read() {
       if (!isSupabaseConfigured(env)) {
         return fallbackStore ? fallbackStore.read() : [];
       }
-      try {
-        return await readFromSupabase();
-      } catch (err) {
-        if (fallbackStore && (err.code === 'PGRST205' || err.status === 404)) {
-          return fallbackStore.read();
-        }
-        throw err;
+      const nowMs = Date.now();
+      if (cachedAdminUsers && nowMs - cachedAdminUsersAt < 5000) {
+        return cachedAdminUsers;
       }
+      if (inflightAdminRead) {
+        return inflightAdminRead;
+      }
+      inflightAdminRead = (async () => {
+        try {
+          const users = await readFromSupabase();
+          const enriched = await enrichUsersWithSupabaseActivity(users);
+          cachedAdminUsers = enriched;
+          cachedAdminUsersAt = Date.now();
+          return enriched;
+        } catch (err) {
+          if (fallbackStore && (err.code === 'PGRST205' || err.status === 404)) {
+            return fallbackStore.read();
+          }
+          throw err;
+        } finally {
+          inflightAdminRead = null;
+        }
+      })();
+      return inflightAdminRead;
     },
     async change(operation) {
       if (!isSupabaseConfigured(env)) {
@@ -178,6 +506,8 @@ export function createSupabaseAccountStore({
             env,
             request,
           });
+          cachedAdminUsers = null;
+          userByIdCache.clear();
         }
         return result;
       } catch (err) {
@@ -189,6 +519,16 @@ export function createSupabaseAccountStore({
     },
     async recordPresence(visitorId, userId, nowMs = Date.now()) {
       if (!isSupabaseConfigured(env)) return false;
+      const cacheKey = `${visitorId}:${userId || ''}`;
+      const lastWrite = presenceWriteTs.get(cacheKey) || 0;
+      if (nowMs - lastWrite < 45000) return true;
+      presenceWriteTs.set(cacheKey, nowMs);
+      if (presenceWriteTs.size > 10000) {
+        const cutoff = nowMs - 180000;
+        for (const [k, t] of presenceWriteTs) {
+          if (t < cutoff) presenceWriteTs.delete(k);
+        }
+      }
       try {
         await supabaseRestRequest('visitor_presence?on_conflict=visitor_id', {
           method: 'POST',
@@ -235,16 +575,29 @@ export function createSupabaseAccountStore({
       };
     },
     async readSponsorship() {
+      const nowMs = Date.now();
+      if (cachedSponsorship && nowMs - cachedSponsorshipAt < 15000) {
+        return cachedSponsorship;
+      }
       if (isSupabaseConfigured(env)) {
         try {
           const remote = await readSupabaseSponsorship({ env, request });
-          if (remote) return remote;
+          if (remote) {
+            cachedSponsorship = remote;
+            cachedSponsorshipAt = nowMs;
+            return remote;
+          }
         } catch {
           // Fall back to local store if remote table is not yet initialized
         }
       }
       if (fallbackStore && typeof fallbackStore.readSponsorship === 'function') {
-        return fallbackStore.readSponsorship();
+        const fallback = await fallbackStore.readSponsorship();
+        if (fallback) {
+          cachedSponsorship = fallback;
+          cachedSponsorshipAt = nowMs;
+        }
+        return fallback;
       }
       return null;
     },
@@ -272,7 +625,10 @@ export function createSupabaseAccountStore({
           // ignore local fallback write error when remote succeeded
         }
       }
-      return savedRemote || sponsorship;
+      const finalSaved = savedRemote || sponsorship;
+      cachedSponsorship = finalSaved;
+      cachedSponsorshipAt = Date.now();
+      return finalSaved;
     },
   };
 }

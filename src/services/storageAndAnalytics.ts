@@ -2,9 +2,11 @@ import {computeTradeStreaks} from './tradeStreaks';
 import {
   deleteAllUserSupabaseData,
   deleteUserSessionFromSupabase,
+  deleteUserStrategyFromSupabase,
   isUntouchedStarterSession,
   syncCustomRuleProfilesToSupabase,
   syncUserAccountToSupabase,
+  syncUserPreferencesToSupabase,
   syncUserSessionsToSupabase,
   syncUserStrategiesToSupabase,
   syncUserStrategyNotesToSupabase,
@@ -72,46 +74,35 @@ const memoryStorageAdapter: StorageLike = {
 };
 
 function runtimeStorage(): StorageLike {
-  if (isTestEnvironment() && typeof localStorage !== 'undefined') {
-    return localStorage;
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage !== null) {
+      return localStorage;
+    }
+  } catch {
+    // ignore and fall back to memoryStorageAdapter
   }
   return memoryStorageAdapter;
 }
 
 /**
- * Purges any legacy trader login details, emails, or account-scoped records from browser
- * localStorage and sessionStorage so no trader credentials or PII remain on localhost.
+ * Ensures no plaintext password verifiers remain on active user session entries in browser storage
+ * while preserving per-user sessions, strategies, notes, journals, and mindset/welcome preferences.
  */
 export function purgeBrowserSensitiveStorage(): void {
   if (isTestEnvironment()) return;
-  const sensitivePrefixes = [
-    USERS_REGISTRY_KEY,
-    CURRENT_USER_KEY,
-    'aurum_u_',
-    'aurum_active_session_id_',
-    'chart_mindset_v1',
-    'chart_flow_sa_tz_v1',
-    'chart_replay_motivation_v1',
-    'chart_flow_balance_hidden_v1',
-  ];
   for (const store of [
     typeof localStorage !== 'undefined' ? localStorage : null,
     typeof sessionStorage !== 'undefined' ? sessionStorage : null,
   ]) {
     if (!store) continue;
     try {
-      const toRemove: string[] = [];
-      for (let i = 0; i < store.length; i++) {
-        const k = store.key(i);
-        if (!k) continue;
-        if (
-          k.includes('@') ||
-          sensitivePrefixes.some((p) => k === p || k.startsWith(p))
-        ) {
-          toRemove.push(k);
+      const rawCurrent = store.getItem(CURRENT_USER_KEY);
+      if (rawCurrent) {
+        const parsed = JSON.parse(rawCurrent);
+        if (parsed && typeof parsed === 'object' && parsed.passwordHash) {
+          store.setItem(CURRENT_USER_KEY, JSON.stringify({ ...parsed, passwordHash: '' }));
         }
       }
-      toRemove.forEach((k) => store.removeItem(k));
     } catch {
       // ignore
     }
@@ -487,30 +478,92 @@ export function createDefaultSessionsForUser(userId: string): TradingSession[] {
   return [session1, session2];
 }
 
-export function loadUserSessions(userId: string): TradingSession[] {
-  const key = `${getUserScopePrefix(userId)}_sessions_v2`;
+export function getDeletedSessionIds(userId: string): Set<string> {
+  const key = `${getUserScopePrefix(userId)}_deleted_sessions_v1`;
   const store = runtimeStorage();
   try {
     const raw = store.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return new Set(parsed.map(String));
+    }
+  } catch {
+    // ignore
+  }
+  return new Set();
+}
+
+export function markSessionDeleted(userId: string, sessionId: string): string[] {
+  const key = `${getUserScopePrefix(userId)}_deleted_sessions_v1`;
+  const store = runtimeStorage();
+  const next = getDeletedSessionIds(userId);
+  next.add(sessionId);
+  const arr = Array.from(next).slice(-500);
+  try {
+    store.setItem(key, JSON.stringify(arr));
+  } catch {
+    // ignore
+  }
+  void syncUserPreferencesToSupabase(userId, { deletedSessionIds: arr });
+  return arr;
+}
+
+export function mergeRemoteDeletedSessionIds(userId: string, remoteIds?: string[]): void {
+  if (!Array.isArray(remoteIds) || remoteIds.length === 0) return;
+  const key = `${getUserScopePrefix(userId)}_deleted_sessions_v1`;
+  const store = runtimeStorage();
+  const next = getDeletedSessionIds(userId);
+  for (const id of remoteIds) {
+    if (typeof id === 'string' && id) next.add(id);
+  }
+  try {
+    store.setItem(key, JSON.stringify(Array.from(next).slice(-500)));
+  } catch {
+    // ignore
+  }
+}
+
+export function createFreshReplacementSessionForUser(userId: string): TradingSession {
+  const defaults = createDefaultSessionsForUser(userId);
+  const base = defaults[0];
+  const nowIso = new Date().toISOString();
+  return {
+    ...base,
+    id: `session-custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+}
+
+export function loadUserSessions(userId: string): TradingSession[] {
+  const key = `${getUserScopePrefix(userId)}_sessions_v2`;
+  const store = runtimeStorage();
+  const deletedIds = getDeletedSessionIds(userId);
+  try {
+    const raw = store.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        const filtered = parsed.filter((s: TradingSession) => !deletedIds.has(s.id));
+        if (filtered.length > 0) {
+          return filtered;
+        }
       }
     }
   } catch {
     // ignore
   }
-  const seeded = createDefaultSessionsForUser(userId);
+  const seeded = createDefaultSessionsForUser(userId).filter((s) => !deletedIds.has(s.id));
+  const finalSessions = seeded.length > 0 ? seeded : [createFreshReplacementSessionForUser(userId)];
   try {
-    store.setItem(key, JSON.stringify(seeded));
+    store.setItem(key, JSON.stringify(finalSessions));
   } catch {
     // ignore
   }
-  return seeded;
+  return finalSessions;
 }
 
-let sessionSyncTimer: ReturnType<typeof setTimeout> | null = null;
+const sessionSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function saveUserSessions(userId: string, sessions: TradingSession[]): void {
   const key = `${getUserScopePrefix(userId)}_sessions_v2`;
@@ -520,10 +573,13 @@ export function saveUserSessions(userId: string, sessions: TradingSession[]): vo
   } catch {
     // ignore
   }
-  if (sessionSyncTimer) clearTimeout(sessionSyncTimer);
-  sessionSyncTimer = setTimeout(() => {
+  const prevTimer = sessionSyncTimers.get(userId);
+  if (prevTimer) clearTimeout(prevTimer);
+  const nextTimer = setTimeout(() => {
+    sessionSyncTimers.delete(userId);
     void syncUserSessionsToSupabase(userId, sessions);
   }, 250);
+  sessionSyncTimers.set(userId, nextTimer);
 }
 
 export const DEFAULT_USER_STRATEGIES: Array<Omit<StrategyRecord, 'id' | 'userId' | 'createdAt'>> = [
@@ -621,23 +677,80 @@ export function loadUserStrategyNotes(userId: string): {text:string;error:boolea
   } catch {return {text:'',error:true};}
 }
 
+export function cacheUserStrategyNotesLocally(userId: string, text: string): void {
+  const store = runtimeStorage();
+  try {
+    store.setItem(
+      `${getUserScopePrefix(userId)}_strategy_notes_v1`,
+      JSON.stringify({ text, updatedAt: new Date().toISOString() })
+    );
+  } catch {
+    // ignore
+  }
+}
+
+const notesSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 export function saveUserStrategyNotes(userId:string,text:string):boolean {
   const store = runtimeStorage();
   try {
     store.setItem(`${getUserScopePrefix(userId)}_strategy_notes_v1`,JSON.stringify({text,updatedAt:new Date().toISOString()}));
-    void syncUserStrategyNotesToSupabase(userId, text);
+    if (isTestEnvironment()) {
+      void syncUserStrategyNotesToSupabase(userId, text);
+    } else {
+      const prev = notesSyncTimers.get(userId);
+      if (prev) clearTimeout(prev);
+      const timer = setTimeout(() => {
+        notesSyncTimers.delete(userId);
+        void syncUserStrategyNotesToSupabase(userId, text);
+      }, 350);
+      notesSyncTimers.set(userId, timer);
+    }
     return true;
   } catch {return false;}
 }
 
-export function loadUserStrategies(userId: string): StrategyRecord[] {
-  const key = `${getUserScopePrefix(userId)}_strategies_v2`;
+export function getDeletedStrategyIds(userId: string): Set<string> {
+  const key = `${getUserScopePrefix(userId)}_deleted_strategies_v1`;
   const store = runtimeStorage();
   try {
     const raw = store.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return new Set(parsed.map(String));
+    }
+  } catch {
+    // ignore
+  }
+  return new Set();
+}
+
+export function mergeRemoteDeletedStrategyIds(userId: string, remoteIds?: string[]): void {
+  if (!Array.isArray(remoteIds) || remoteIds.length === 0) return;
+  const key = `${getUserScopePrefix(userId)}_deleted_strategies_v1`;
+  const store = runtimeStorage();
+  const next = getDeletedStrategyIds(userId);
+  for (const id of remoteIds) {
+    if (typeof id === 'string' && id) next.add(id);
+  }
+  try {
+    store.setItem(key, JSON.stringify(Array.from(next).slice(-500)));
+  } catch {
+    // ignore
+  }
+}
+
+export function loadUserStrategies(userId: string): StrategyRecord[] {
+  const key = `${getUserScopePrefix(userId)}_strategies_v2`;
+  const store = runtimeStorage();
+  const deletedIds = getDeletedStrategyIds(userId);
+  try {
+    const raw = store.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((s: StrategyRecord) => !deletedIds.has(s.id));
+      }
     }
   } catch {
     // ignore
@@ -650,7 +763,7 @@ export function loadUserStrategies(userId: string): StrategyRecord[] {
     defaultChecklist: s.defaultChecklist,
     setupTags: s.setupTags,
     createdAt: '2026-10-01',
-  }));
+  })).filter((s) => !deletedIds.has(s.id));
   try {
     store.setItem(key, JSON.stringify(defaults));
   } catch {
@@ -662,6 +775,32 @@ export function loadUserStrategies(userId: string): StrategyRecord[] {
 export function saveUserStrategies(userId: string, strategies: StrategyRecord[]): void {
   const key = `${getUserScopePrefix(userId)}_strategies_v2`;
   const store = runtimeStorage();
+  const prevStrategies = loadUserStrategies(userId);
+  const nextIds = new Set(strategies.map((s) => s.id));
+  const deletedSet = getDeletedStrategyIds(userId);
+  let deletedChanged = false;
+  for (const prev of prevStrategies) {
+    if (!nextIds.has(prev.id)) {
+      deletedSet.add(prev.id);
+      deletedChanged = true;
+      void deleteUserStrategyFromSupabase(userId, prev.id);
+    }
+  }
+  for (const st of strategies) {
+    if (deletedSet.has(st.id)) {
+      deletedSet.delete(st.id);
+      deletedChanged = true;
+    }
+  }
+  if (deletedChanged) {
+    const arr = Array.from(deletedSet).slice(-500);
+    try {
+      store.setItem(`${getUserScopePrefix(userId)}_deleted_strategies_v1`, JSON.stringify(arr));
+    } catch {
+      // ignore
+    }
+    void syncUserPreferencesToSupabase(userId, { deletedStrategyIds: arr });
+  }
   try {
     store.setItem(key, JSON.stringify(strategies));
   } catch {
@@ -1483,7 +1622,11 @@ export { computeLiveSessionMetrics, formatMoney };
 
 /** Remove a single session (and its embedded trades/positions) from persistent storage. */
 export function deleteUserSession(userId: string, sessionId: string): TradingSession[] {
-  const remaining = loadUserSessions(userId).filter((s) => s.id !== sessionId);
+  const current = loadUserSessions(userId);
+  markSessionDeleted(userId, sessionId);
+  const filtered = current.filter((s) => s.id !== sessionId);
+  const remaining =
+    filtered.length > 0 ? filtered : [createFreshReplacementSessionForUser(userId)];
   saveUserSessions(userId, remaining);
   void deleteUserSessionFromSupabase(userId, sessionId);
   const store = runtimeStorage();
@@ -1491,7 +1634,9 @@ export function deleteUserSession(userId: string, sessionId: string): TradingSes
     const keysToRemove: string[] = [];
     for (let i = 0; i < store.length; i++) {
       const k = store.key(i);
-      if (k && k.includes(sessionId)) keysToRemove.push(k);
+      if (k && k.includes(sessionId) && !k.endsWith('_deleted_sessions_v1')) {
+        keysToRemove.push(k);
+      }
     }
     keysToRemove.forEach((k) => store.removeItem(k));
   } catch {
@@ -1506,6 +1651,7 @@ export function deleteUserSession(userId: string, sessionId: string): TradingSes
 export function deleteUserAccount(userEmail: string): boolean {
   if (!userEmail) return false;
   const cleanEmail = userEmail.trim().toLowerCase();
+  const encodedEmail = encodeURIComponent(cleanEmail);
   const store = runtimeStorage();
 
   // 1. Remove from registered users registry
@@ -1534,7 +1680,19 @@ export function deleteUserAccount(userEmail: string): boolean {
     const keysToRemove: string[] = [];
     for (let i = 0; i < store.length; i++) {
       const key = store.key(i);
-      if (key && (key.startsWith(prefix) || key.includes(cleanEmail.replace(/[^a-z0-9]/g, '_')) || key===`chart_flow_balance_hidden_v1:${cleanEmail}` || key===`chartflow_workspace_tour_v1:${encodeURIComponent(cleanEmail)}` || key===`chartflow_chart_announcement_v1:${encodeURIComponent(cleanEmail)}` || key===`tour_completed_v1:${encodeURIComponent(cleanEmail)}`)) {
+      if (
+        key &&
+        (key.startsWith(prefix) ||
+          key.includes(cleanEmail.replace(/[^a-z0-9]/g, '_')) ||
+          key === `chart_flow_balance_hidden_v1:${cleanEmail}` ||
+          key === `chartflow_workspace_tour_v1:${encodedEmail}` ||
+          key === `chartflow_chart_announcement_v1:${encodedEmail}` ||
+          key === `tour_completed_v1:${encodedEmail}` ||
+          key.startsWith(`chart_replay_motivation_v1:${encodedEmail}`) ||
+          key.startsWith(`chart_replay_motivation_v1:${cleanEmail}`) ||
+          key.startsWith(`chart_mindset_v1:${encodedEmail}`) ||
+          key.startsWith(`chart_mindset_v1:${cleanEmail}`))
+      ) {
         keysToRemove.push(key);
       }
     }

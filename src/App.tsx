@@ -11,7 +11,7 @@ import {LegalDocumentKey} from './components/LegalLinks';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MotivationWelcome } from './components/MotivationWelcome';
 import { ChartSponsorLoader } from './components/ChartSponsorLoader';
-import { resetMotivationVisit } from './services/motivation';
+import { resetMotivationVisit, setMotivationEnabled } from './services/motivation';
 import { getReplayWeekdayTarget, getHistoricalCandles, hasHistoricalArchive, getHistoricalReplayAvailability, isFixedMarketHolidayDate } from './services/goldDataService';
 import { hydrateHistoricalArchive, hydrateLiveHistoricalArchive } from './services/historicalFeed';
 import { shiftTimeframeClock } from './services/goldDataService';
@@ -67,15 +67,23 @@ import {
 import {
   getActiveLoggedInUser,
   authenticateUserAccount,
+  cacheUserStrategyNotesLocally,
+  createFreshReplacementSessionForUser,
+  getDeletedSessionIds,
+  getDeletedStrategyIds,
   loadUserCustomRuleProfiles,
   loadUserSessions,
   loadUserStrategies,
+  loadUserStrategyNotes,
+  mergeRemoteDeletedSessionIds,
+  mergeRemoteDeletedStrategyIds,
   purgeBrowserSensitiveStorage,
   saveUserCustomRuleProfiles,
   saveUserSessions,
   deleteUserSession,
   deleteUserAccount,
   saveUserStrategies,
+  saveUserStrategyNotes,
   setActiveLoggedInUser,
 } from './services/storageAndAnalytics';
 import {
@@ -85,8 +93,10 @@ import {
 import { platformRequest } from './services/platformAccounts';
 import {
   fetchCustomRuleProfilesFromSupabase,
+  fetchUserPreferencesFromSupabase,
   fetchUserSessionsFromSupabase,
   fetchUserStrategiesFromSupabase,
+  fetchUserStrategyNotesFromSupabase,
   isUntouchedStarterSession,
 } from './services/supabaseClient';
 import { TopNavigation, ChartIndicatorsState } from './components/TopNavigation';
@@ -252,16 +262,50 @@ export function App() {
 
     let cancelled = false;
     const email = currentUser.email;
+    void fetchUserPreferencesFromSupabase(email).then((remotePrefs) => {
+      if (cancelled || !remotePrefs) return;
+      if (typeof remotePrefs.skipWelcome === 'boolean' && remotePrefs.skipWelcome) {
+        setMotivationEnabled(email, false, false);
+      }
+      if (remotePrefs.deletedSessionIds?.length) {
+        mergeRemoteDeletedSessionIds(email, remotePrefs.deletedSessionIds);
+        const delSet = getDeletedSessionIds(email);
+        setTradingSessions((prev) => {
+          const filtered = prev.filter((s) => !delSet.has(s.id));
+          return filtered.length > 0 ? filtered : [createFreshReplacementSessionForUser(email)];
+        });
+      }
+      if (remotePrefs.deletedStrategyIds?.length) {
+        mergeRemoteDeletedStrategyIds(email, remotePrefs.deletedStrategyIds);
+        const delStrats = getDeletedStrategyIds(email);
+        setStrategies((prev) => prev.filter((s) => !delStrats.has(s.id)));
+      }
+    });
+    void fetchUserStrategyNotesFromSupabase(email).then((remoteNotes) => {
+      if (cancelled || !remoteNotes) return;
+      const existing = loadUserStrategyNotes(email);
+      if (!existing.text) {
+        cacheUserStrategyNotesLocally(email, remoteNotes);
+      }
+    });
     void fetchUserSessionsFromSupabase(email)
       .then((remoteSessions) => {
         if (cancelled) return;
         hasHydratedSessionsRef.current = email;
         if (!remoteSessions || remoteSessions.length === 0) return;
+        const deletedIds = getDeletedSessionIds(email);
+        const activeRemoteSessions = remoteSessions.filter((r) => !deletedIds.has(r.id));
+        if (activeRemoteSessions.length === 0) return;
         setTradingSessions((prev) => {
-          const nonStarterPrev = prev.filter((s) => !isUntouchedStarterSession(s));
+          const nonStarterPrev = prev.filter(
+            (s) => !deletedIds.has(s.id) && !isUntouchedStarterSession(s)
+          );
           const byId = new Map(nonStarterPrev.map((s) => [s.id, s]));
-          for (const r of remoteSessions) {
-            if (isUntouchedStarterSession(r) && remoteSessions.some((x) => !isUntouchedStarterSession(x))) {
+          for (const r of activeRemoteSessions) {
+            if (
+              isUntouchedStarterSession(r) &&
+              activeRemoteSessions.some((x) => !isUntouchedStarterSession(x))
+            ) {
               continue;
             }
             const existing = byId.get(r.id);
@@ -274,14 +318,14 @@ export function App() {
             }
           }
           const merged = Array.from(byId.values());
-          return merged.length > 0 ? merged : remoteSessions;
+          return merged.length > 0 ? merged : activeRemoteSessions;
         });
         const preferredSession =
-          remoteSessions.find((r) => (r.positions ?? []).length > 0) ||
-          remoteSessions.find((r) => !isUntouchedStarterSession(r)) ||
-          remoteSessions[0];
+          activeRemoteSessions.find((r) => (r.positions ?? []).length > 0) ||
+          activeRemoteSessions.find((r) => !isUntouchedStarterSession(r)) ||
+          activeRemoteSessions[0];
         setActiveSessionId((prevId) => {
-          const prevSession = remoteSessions.find((r) => r.id === prevId);
+          const prevSession = activeRemoteSessions.find((r) => r.id === prevId);
           if (prevSession && !isUntouchedStarterSession(prevSession)) {
             return prevId;
           }
@@ -295,9 +339,16 @@ export function App() {
       });
     void fetchUserStrategiesFromSupabase(email).then((remoteStrats) => {
       if (cancelled || !remoteStrats || remoteStrats.length === 0) return;
+      const deletedStratIds = getDeletedStrategyIds(email);
       setStrategies((prev) => {
-        const byId = new Map(prev.map((s) => [s.id, s]));
-        for (const r of remoteStrats) byId.set(r.id, r);
+        const byId = new Map(
+          prev.filter((s) => !deletedStratIds.has(s.id)).map((s) => [s.id, s])
+        );
+        for (const r of remoteStrats) {
+          if (!deletedStratIds.has(r.id)) {
+            byId.set(r.id, r);
+          }
+        }
         return Array.from(byId.values());
       });
     });
@@ -348,17 +399,23 @@ export function App() {
 
   const handleDeleteSession = useCallback(
     (sessId: string) => {
+      const ownerEmail = currentUser?.email || 'guest';
+      const updatedFromStore = deleteUserSession(ownerEmail, sessId);
       setTradingSessions((prev) => {
-        if (prev.length <= 1) return prev; // keep at least one session so the workspace never breaks
-        const remaining = prev.filter((s) => s.id !== sessId);
-        if (activeSessionId === sessId || activeSession?.id === sessId) {
+        const filtered = prev.filter((s) => s.id !== sessId);
+        const remaining =
+          filtered.length > 0
+            ? filtered
+            : updatedFromStore.length > 0
+            ? updatedFromStore
+            : [createFreshReplacementSessionForUser(ownerEmail)];
+        if (activeSessionId === sessId || activeSession?.id === sessId || !remaining.some((s) => s.id === activeSessionId)) {
           setActiveSessionId(remaining[0].id);
         }
         return remaining;
       });
-      if (currentUser?.email && tradingSessions.length > 1) deleteUserSession(currentUser.email, sessId);
     },
-    [activeSessionId, activeSession?.id, currentUser?.email, tradingSessions.length]
+    [activeSessionId, activeSession?.id, currentUser?.email]
   );
 
   // 4. Active Symbol & Timeframe (Synced with activeSession)
@@ -996,8 +1053,49 @@ export function App() {
         return { ok: false, error: outcome.rewindBlockedReason };
       }
 
+      let nextSessionState = outcome.session;
+      const alignedTarget = Math.floor(targetTs / 60) * 60;
+      if (alignedTarget < currTs) {
+        const undonePositions = (activeSession.positions || []).filter(
+          (p) => p.entryTime > alignedTarget
+        );
+        if (undonePositions.length > 0) {
+          const nextDrawingsBySymbol = { ...(nextSessionState.drawingsBySymbol || {}) };
+          for (const p of undonePositions) {
+            const posSym = p.symbol || activeSession.activeAsset || symbol;
+            const currentDrawings = [...(nextDrawingsBySymbol[posSym] || [])];
+            const hasPositionDrawing = currentDrawings.some(
+              (d) => d.type === 'long_position' || d.type === 'short_position'
+            );
+            if (!hasPositionDrawing) {
+              currentDrawings.push({
+                id: `draw-pos-restored-${p.id}`,
+                type: p.side === 'LONG' ? 'long_position' : 'short_position',
+                time1: alignedTarget,
+                price1: p.entryPrice,
+                time2:
+                  p.endTime && p.endTime > alignedTarget
+                    ? p.endTime
+                    : alignedTarget + stepSec * 12,
+                price2: p.initialTakeProfit || p.takeProfit || p.entryPrice,
+                stopLoss: p.initialStopLoss ?? p.stopLoss,
+                takeProfit: p.initialTakeProfit ?? p.takeProfit,
+                lotSize: p.initialLotSize ?? p.lotSize,
+                color: p.side === 'LONG' ? '#089981' : '#f23645',
+                label: p.side === 'LONG' ? 'LONG POS' : 'SHORT POS',
+              });
+              nextDrawingsBySymbol[posSym] = currentDrawings;
+            }
+          }
+          nextSessionState = {
+            ...nextSessionState,
+            drawingsBySymbol: nextDrawingsBySymbol,
+          };
+        }
+      }
+
       setTradingSessions((prevList) =>
-        prevList.map((s) => (s.id === activeSession.id ? outcome.session : s))
+        prevList.map((s) => (s.id === activeSession.id ? nextSessionState : s))
       );
 
       if (isSkipJump) {
@@ -1161,13 +1259,40 @@ export function App() {
     showToast,
   ]);
 
+  const playbackSpeedMsRef = useRef(playbackSpeedMs);
+  playbackSpeedMsRef.current = playbackSpeedMs;
+  const handleStepBarRef = useRef(handleStepBar);
+  handleStepBarRef.current = handleStepBar;
+
   useEffect(() => {
     if (!isPlaying) return;
-    const timer = setInterval(() => {
-      handleStepBar(1);
-    }, playbackSpeedMs);
-    return () => clearInterval(timer);
-  }, [isPlaying, playbackSpeedMs, handleStepBar]);
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let lastTick = performance.now();
+
+    const loop = () => {
+      if (cancelled) return;
+      const now = performance.now();
+      const targetInterval = Math.max(40, playbackSpeedMsRef.current);
+      const elapsed = now - lastTick;
+      if (elapsed >= targetInterval) {
+        lastTick = now;
+        void handleStepBarRef.current(1);
+        timeoutId = setTimeout(loop, Math.min(25, Math.max(10, Math.floor(targetInterval / 3))));
+      } else {
+        timeoutId = setTimeout(
+          loop,
+          Math.min(25, Math.max(8, Math.floor(targetInterval - elapsed)))
+        );
+      }
+    };
+
+    timeoutId = setTimeout(loop, Math.min(25, Math.max(10, Math.floor(playbackSpeedMsRef.current / 3))));
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [isPlaying]);
 
   const handleGoToSessionOpen = useCallback(
     (
@@ -1737,6 +1862,7 @@ export function App() {
           onClose={() => setIsCreateSessionModalOpen(false)}
           sessions={tradingSessions}
           activeSessionId={activeSession.id}
+          theme={theme}
           onCreateSession={(newSession) => {
             setTradingSessions((prev) => [newSession, ...prev]);
             setActiveSessionId(newSession.id);
@@ -1905,7 +2031,7 @@ export function App() {
         onStartTour={handleStartTour}
       />
 
-      <TradingMindset key={`${currentUser?.email || "guest"}:${activeSession.id}`} session={activeSession} userKey={currentUser?.email || "guest"} displayName={currentUser?.name} onOpen={()=>setMindsetOpen(true)} open={mindsetOpen} onClose={()=>setMindsetOpen(false)} rightPanelOpen={!isChartWideMode && !isMobile && showRightWidget} welcomeBlocking={motivationOpen || isCreateSessionModalOpen || isTourOpen || chartSponsorLoading} planToggleCount={planToggleCount} onPlanPinnedChange={setIsPlanPinned} onUpdatePlanNote={(nextNote)=>updateActiveSession(s=>{if(JSON.stringify(s.mindsetNote)===JSON.stringify(nextNote))return s;return {...s,mindsetNote:nextNote,updatedAt:new Date().toISOString()};})}/>
+      <TradingMindset key={`${currentUser?.email || "guest"}:${activeSession.id}`} session={activeSession} userKey={currentUser?.email || "guest"} displayName={currentUser?.name} onOpen={()=>setMindsetOpen(true)} open={mindsetOpen} onClose={()=>setMindsetOpen(false)} rightPanelOpen={!isChartWideMode && !isMobile && showRightWidget} welcomeBlocking={motivationOpen || isCreateSessionModalOpen || isTourOpen || chartSponsorLoading} planToggleCount={planToggleCount} onPlanPinnedChange={setIsPlanPinned} onUpdatePlanNote={(nextNote)=>{if(currentUser?.email&&nextNote.text&&!nextNote.text.startsWith('MY TRADING PLAN\n\n• Wait for my setup.')&&!loadUserStrategyNotes(currentUser.email).text)saveUserStrategyNotes(currentUser.email,nextNote.text);updateActiveSession(s=>{if(JSON.stringify(s.mindsetNote)===JSON.stringify(nextNote))return s;return {...s,mindsetNote:nextNote,updatedAt:new Date().toISOString()};});}}/>
 
       {/* Toast Notification */}
       {toastMessage && (
@@ -2448,6 +2574,7 @@ export function App() {
         onClose={() => setIsCreateSessionModalOpen(false)}
         sessions={tradingSessions}
         activeSessionId={activeSession.id}
+        theme={theme}
         onCreateSession={(newSession) => {
           setTradingSessions((prev) => [newSession, ...prev]);
           setActiveSessionId(newSession.id);

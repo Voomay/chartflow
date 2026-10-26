@@ -1833,26 +1833,33 @@ export function evaluateSessionAt1mTimestamp(
     const sym = pos.symbol || session.activeAsset || 'XAUUSD';
     const spec = getEffectiveInstrumentSpec(sym, session);
     const dec = spec.decimals;
-    const candle = getLatest1mCandleAtClock(sym, timestampSec, session, true);
-    if (!candle) return pos;
+    const completedCandle = getLatest1mCandleAtClock(sym, timestampSec, session, true);
+    const spotCandle =
+      completedCandle ?? getLatest1mCandleAtClock(sym, timestampSec, session, false);
+    if (!spotCandle) return pos;
 
     const spread = getSessionSpreadPrice(sym, session);
     const halfSpread = spread * 0.5;
 
-    const bidOpen = Number((candle.open - halfSpread).toFixed(dec));
-    const bidHigh = Number((candle.high - halfSpread).toFixed(dec));
-    const bidLow = Number((candle.low - halfSpread).toFixed(dec));
-    const bidClose = Number((candle.close - halfSpread).toFixed(dec));
+    const activeCandle = completedCandle ?? spotCandle;
+    const bidOpen = Number((activeCandle.open - halfSpread).toFixed(dec));
+    const bidHigh = Number((activeCandle.high - halfSpread).toFixed(dec));
+    const bidLow = Number((activeCandle.low - halfSpread).toFixed(dec));
+    const bidClose = Number((activeCandle.close - halfSpread).toFixed(dec));
 
-    const askOpen = Number((candle.open + halfSpread).toFixed(dec));
-    const askHigh = Number((candle.high + halfSpread).toFixed(dec));
-    const askLow = Number((candle.low + halfSpread).toFixed(dec));
-    const askClose = Number((candle.close + halfSpread).toFixed(dec));
+    const askOpen = Number((activeCandle.open + halfSpread).toFixed(dec));
+    const askHigh = Number((activeCandle.high + halfSpread).toFixed(dec));
+    const askLow = Number((activeCandle.low + halfSpread).toFixed(dec));
+    const askClose = Number((activeCandle.close + halfSpread).toFixed(dec));
 
     let activePos = { ...pos };
 
     // 1. Check if PENDING order is triggered by this 1m bar's Bid/Ask range
+    // (Only bars strictly after entryTime can trigger a newly placed pending order)
     if (activePos.status === 'PENDING') {
+      if (!completedCandle || timestampSec <= activePos.entryTime) {
+        return activePos;
+      }
       const subType: OrderSubType =
         activePos.orderSubType ||
         (activePos.side === 'LONG' ? 'BUY_LIMIT' : 'SELL_LIMIT');
@@ -1867,7 +1874,9 @@ export function evaluateSessionAt1mTimestamp(
       } else if (subType === 'SELL_STOP') {
         touched = bidLow <= activePos.entryPrice;
       } else {
-        touched = candle.low <= activePos.entryPrice && candle.high >= activePos.entryPrice;
+        touched =
+          completedCandle.low <= activePos.entryPrice &&
+          completedCandle.high >= activePos.entryPrice;
       }
 
       if (!touched) {
@@ -1932,6 +1941,12 @@ export function evaluateSessionAt1mTimestamp(
 
     if (activePos.status !== 'OPEN') return activePos;
 
+    const openStartTs = activePos.triggeredTime ?? activePos.entryTime;
+    const canTriggerExits = Boolean(completedCandle) && timestampSec > openStartTs;
+    const markCandle = timestampSec <= openStartTs ? spotCandle : activeCandle;
+    const markBidClose = Number((markCandle.close - halfSpread).toFixed(dec));
+    const markAskClose = Number((markCandle.close + halfSpread).toFixed(dec));
+
     const initialSl = activePos.initialStopLoss ?? activePos.stopLoss;
     const hasDefinedInitialRisk =
       (activePos.initialRiskDollars !== undefined && activePos.initialRiskDollars > 0) ||
@@ -1955,12 +1970,16 @@ export function evaluateSessionAt1mTimestamp(
     if (activePos.side === 'LONG') {
       const hasSL = activePos.stopLoss > 0;
       const hasTP = activePos.takeProfit > 0;
-      const touchedSL = hasSL && bidLow <= activePos.stopLoss;
-      const touchedTP = hasTP && bidHigh >= activePos.takeProfit;
+      const touchedSL = canTriggerExits && hasSL && bidLow <= activePos.stopLoss;
+      const touchedTP = canTriggerExits && hasTP && bidHigh >= activePos.takeProfit;
       const isAmbiguous = touchedSL && touchedTP;
 
       // Worst-case intrabar floating P&L (at bidLow or stopLoss if capped)
-      const effectiveWorstPrice = hasSL ? Math.max(bidLow, activePos.stopLoss) : bidLow;
+      const effectiveWorstPrice = !canTriggerExits
+        ? markBidClose
+        : hasSL
+        ? Math.max(bidLow, activePos.stopLoss)
+        : bidLow;
       const worstFloating = calculatePositionPnl(
         'LONG',
         activePos.entryPrice,
@@ -2095,11 +2114,11 @@ export function evaluateSessionAt1mTimestamp(
         return closedPos;
       }
 
-      // Mark-to-market open LONG position at bidClose
+      // Mark-to-market open LONG position at markBidClose
       const openFloatingPnl = calculatePositionPnl(
         'LONG',
         activePos.entryPrice,
-        bidClose,
+        markBidClose,
         activePos.lotSize,
         sym,
         session
@@ -2113,6 +2132,7 @@ export function evaluateSessionAt1mTimestamp(
           : null;
 
       const shouldAutoBE =
+        canTriggerExits &&
         activePos.autoBreakEvenR &&
         activePos.autoBreakEvenR > 0 &&
         !activePos.isBreakEvenMoved &&
@@ -2131,11 +2151,15 @@ export function evaluateSessionAt1mTimestamp(
       // 3. Evaluate SHORT Position against ASK prices
       const hasSL = activePos.stopLoss > 0;
       const hasTP = activePos.takeProfit > 0;
-      const touchedSL = hasSL && askHigh >= activePos.stopLoss;
-      const touchedTP = hasTP && askLow <= activePos.takeProfit;
+      const touchedSL = canTriggerExits && hasSL && askHigh >= activePos.stopLoss;
+      const touchedTP = canTriggerExits && hasTP && askLow <= activePos.takeProfit;
       const isAmbiguous = touchedSL && touchedTP;
 
-      const effectiveWorstPrice = hasSL ? Math.min(askHigh, activePos.stopLoss) : askHigh;
+      const effectiveWorstPrice = !canTriggerExits
+        ? markAskClose
+        : hasSL
+        ? Math.min(askHigh, activePos.stopLoss)
+        : askHigh;
       const worstFloating = calculatePositionPnl(
         'SHORT',
         activePos.entryPrice,
@@ -2272,7 +2296,7 @@ export function evaluateSessionAt1mTimestamp(
       const openFloatingPnl = calculatePositionPnl(
         'SHORT',
         activePos.entryPrice,
-        askClose,
+        markAskClose,
         activePos.lotSize,
         sym,
         session
@@ -2286,6 +2310,7 @@ export function evaluateSessionAt1mTimestamp(
           : null;
 
       const shouldAutoBE =
+        canTriggerExits &&
         activePos.autoBreakEvenR &&
         activePos.autoBreakEvenR > 0 &&
         !activePos.isBreakEvenMoved &&
@@ -2355,6 +2380,68 @@ export function evaluateSessionAt1mTimestamp(
   };
 }
 
+function reconstructPositionAtTimestamp(
+  p: BacktestPosition,
+  atTimestamp: number
+): BacktestPosition {
+  if (p.exitTime && p.exitTime <= atTimestamp && p.status.startsWith('CLOSED_')) {
+    return { ...p };
+  }
+  const isMarket =
+    p.orderType === 'MARKET' || !p.orderSubType || p.orderSubType === 'MARKET';
+  const isOpenAtTime =
+    isMarket || (p.triggeredTime !== undefined && p.triggeredTime <= atTimestamp);
+  const comm = isOpenAtTime ? (p.commissionPaid ?? 0) : 0;
+  return {
+    ...p,
+    status: isOpenAtTime ? ('OPEN' as const) : ('PENDING' as const),
+    triggeredTime: isOpenAtTime ? (p.triggeredTime ?? p.entryTime) : undefined,
+    lotSize: p.initialLotSize ?? p.lotSize,
+    stopLoss: p.initialStopLoss ?? p.stopLoss,
+    takeProfit: p.initialTakeProfit ?? p.takeProfit,
+    isBreakEvenMoved: false,
+    exitPrice: undefined,
+    exitTime: undefined,
+    grossPnl: undefined,
+    openFloatingPnl: 0,
+    pnl: -comm,
+    rMultiple: null,
+    partialsCount: 0,
+    bankedPartialPnl: 0,
+    isAmbiguous: false,
+    ambiguityNote: undefined,
+    hideOnChart: false,
+  };
+}
+
+function upsertReplayCheckpoint(
+  session: TradingSession,
+  timestamp?: number
+): TradingSession {
+  if (session.mode !== 'BACKTESTING') return session;
+  const ts = Math.floor(
+    (timestamp ?? session.replayTimestamp ?? session.startTimestamp ?? 0) / 60
+  ) * 60;
+  if (!ts) return session;
+  const cp: ReplayCheckpoint = {
+    timestamp: ts,
+    realizedPnL: session.realizedPnL ?? 0,
+    positions: JSON.parse(JSON.stringify(session.positions ?? [])),
+    orders: JSON.parse(JSON.stringify(session.orders ?? [])),
+    fills: JSON.parse(JSON.stringify(session.fills ?? [])),
+    tradeEvents: JSON.parse(JSON.stringify(session.tradeEvents ?? [])),
+    equitySnapshots: JSON.parse(JSON.stringify(session.equitySnapshots ?? [])),
+  };
+  const existing = (session.replayCheckpoints ?? []).filter((c) => c.timestamp !== ts);
+  const merged = [...existing, cp]
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-60);
+  return {
+    ...session,
+    replayCheckpoints: merged,
+  };
+}
+
 /**
  * Advances or rewinds the session's authoritative simulated clock (`replayTimestamp`) to `targetTimestamp`.
  * - In `PROP_FIRM` mode, strictly rejects any backward time change (`targetTimestamp < currentTimestamp`).
@@ -2407,54 +2494,73 @@ export function advanceOrRewindSessionToTimestamp(
       .filter((cp) => cp.timestamp <= alignedTarget)
       .sort((a, b) => b.timestamp - a.timestamp);
 
+    const allSessionPositions = session.positions ?? [];
+    const topCp = validCheckpoints.length > 0 ? validCheckpoints[0] : null;
+    const hasPostCheckpointPositionBeforeTarget =
+      topCp !== null &&
+      allSessionPositions.some(
+        (p) =>
+          p.entryTime > topCp.timestamp &&
+          p.entryTime <= alignedTarget &&
+          !topCp.positions.some((cpPos) => cpPos.id === p.id)
+      );
+
     let baseSession: TradingSession;
-    if (validCheckpoints.length > 0) {
-      const cp = validCheckpoints[0];
+    if (topCp && !hasPostCheckpointPositionBeforeTarget) {
+      const cpPositions: BacktestPosition[] = JSON.parse(JSON.stringify(topCp.positions));
+      // Ensure any position placed at topCp.timestamp after topCp was initially saved is preserved
+      for (const p of allSessionPositions) {
+        if (p.entryTime <= topCp.timestamp && !cpPositions.some((cpPos) => cpPos.id === p.id)) {
+          cpPositions.unshift(reconstructPositionAtTimestamp(p, topCp.timestamp));
+        }
+      }
+      const normalizedCpPositions = cpPositions.map((p) =>
+        p.status === 'OPEN' || p.status === 'PENDING' ? { ...p, hideOnChart: false } : p
+      );
+      const cpRealized =
+        normalizedCpPositions.length === 0
+          ? 0
+          : computeAuthoritativeRealizedPnl({
+              ...session,
+              positions: normalizedCpPositions,
+              realizedPnL: 0,
+            });
+
       baseSession = {
         ...session,
         status: 'ACTIVE',
-        replayTimestamp: cp.timestamp,
-        realizedPnL: cp.realizedPnL,
-        positions: JSON.parse(JSON.stringify(cp.positions)),
-        orders: JSON.parse(JSON.stringify(cp.orders)),
-        fills: JSON.parse(JSON.stringify(cp.fills)),
-        tradeEvents: JSON.parse(JSON.stringify(cp.tradeEvents)),
-        equitySnapshots: JSON.parse(JSON.stringify(cp.equitySnapshots)),
+        replayTimestamp: topCp.timestamp,
+        realizedPnL: cpRealized,
+        positions: normalizedCpPositions,
+        orders: (session.orders ?? []).filter((o) => o.createdAtTimestamp <= topCp.timestamp),
+        fills: (session.fills ?? []).filter((f) => f.timestamp <= topCp.timestamp),
+        tradeEvents: (session.tradeEvents ?? []).filter((e) => e.timestamp <= topCp.timestamp),
+        equitySnapshots: (session.equitySnapshots ?? []).filter(
+          (s) => s.timestamp <= topCp.timestamp
+        ),
         replayCheckpoints: checkpoints.filter((c) => c.timestamp <= alignedTarget),
       };
     } else {
-      // Filter positions/orders created on or before alignedTarget and replay from earliest position entry
-      const survivingPositions = (session.positions ?? [])
+      // Reconstruct positions created on or before alignedTarget
+      const survivingPositions = allSessionPositions
         .filter((p) => p.entryTime <= alignedTarget)
-        .map((p) => {
-          if (p.exitTime && p.exitTime > alignedTarget) {
-            return {
-              ...p,
-              status:
-                p.triggeredTime && p.triggeredTime <= alignedTarget
-                  ? ('OPEN' as const)
-                  : ('PENDING' as const),
-              exitPrice: undefined,
-              exitTime: undefined,
-            };
-          }
-          return p;
-        });
-      const survivingRealized = survivingPositions
-        .filter(
-          (p) =>
-            p.status === 'CLOSED_TP' ||
-            p.status === 'CLOSED_SL' ||
-            p.status === 'CLOSED_MANUAL'
-        )
-        .reduce((s, p) => s + p.pnl, 0);
+        .map((p) => reconstructPositionAtTimestamp(p, alignedTarget));
+      const survivingRealized =
+        survivingPositions.length === 0
+          ? 0
+          : computeAuthoritativeRealizedPnl({
+              ...session,
+              positions: survivingPositions,
+              realizedPnL: 0,
+            });
 
       baseSession = {
         ...session,
         status: 'ACTIVE',
         replayTimestamp: alignedTarget,
-        realizedPnL: Number(survivingRealized.toFixed(2)),
+        realizedPnL: survivingRealized,
         positions: survivingPositions,
+        orders: (session.orders ?? []).filter((o) => o.createdAtTimestamp <= alignedTarget),
         tradeEvents: (session.tradeEvents ?? []).filter((e) => e.timestamp <= alignedTarget),
         fills: (session.fills ?? []).filter((f) => f.timestamp <= alignedTarget),
         equitySnapshots: (session.equitySnapshots ?? []).filter(
@@ -2462,11 +2568,19 @@ export function advanceOrRewindSessionToTimestamp(
         ),
         replayCheckpoints: checkpoints.filter((c) => c.timestamp <= alignedTarget),
       };
-      return evaluateSessionAt1mTimestamp(baseSession, alignedTarget);
+      const evalOutcome = evaluateSessionAt1mTimestamp(baseSession, alignedTarget);
+      return {
+        ...evalOutcome,
+        session: upsertReplayCheckpoint(evalOutcome.session, alignedTarget),
+      };
     }
 
     if (baseSession.replayTimestamp === alignedTarget) {
-      return evaluateSessionAt1mTimestamp(baseSession, alignedTarget);
+      const evalOutcome = evaluateSessionAt1mTimestamp(baseSession, alignedTarget);
+      return {
+        ...evalOutcome,
+        session: upsertReplayCheckpoint(evalOutcome.session, alignedTarget),
+      };
     }
     return advanceOrRewindSessionToTimestamp(baseSession, alignedTarget);
   }
@@ -2998,7 +3112,7 @@ export function validateAndPlaceOrder(
 
   return {
     ok: true,
-    session: updatedSession,
+    session: upsertReplayCheckpoint(updatedSession, clockTs),
     position: newPos,
     breachedNow,
     passedNow,
@@ -3283,12 +3397,15 @@ export function modifyPositionOrOrder(
 
   return {
     ok: true,
-    session: {
-      ...session,
-      positions: nextPositions,
-      tradeEvents: nextTradeEvents,
-      updatedAt: new Date().toISOString(),
-    },
+    session: upsertReplayCheckpoint(
+      {
+        ...session,
+        positions: nextPositions,
+        tradeEvents: nextTradeEvents,
+        updatedAt: new Date().toISOString(),
+      },
+      clockTs
+    ),
   };
 }
 
@@ -3349,13 +3466,16 @@ export function closeOrCancelPosition(
     ];
     return {
       ok: true,
-      session: {
-        ...session,
-        positions: nextPositions,
-        orders: nextOrders,
-        tradeEvents: nextTradeEvents,
-        updatedAt: new Date().toISOString(),
-      },
+      session: upsertReplayCheckpoint(
+        {
+          ...session,
+          positions: nextPositions,
+          orders: nextOrders,
+          tradeEvents: nextTradeEvents,
+          updatedAt: new Date().toISOString(),
+        },
+        clockTs
+      ),
       closedPnlDelta: 0,
     };
   }
@@ -3481,7 +3601,7 @@ export function closeOrCancelPosition(
 
     return {
       ok: true,
-      session: updatedSession,
+      session: upsertReplayCheckpoint(updatedSession, clockTs),
       closedPnlDelta: partialPnl,
       breachedNow,
       passedNow,
@@ -3580,7 +3700,7 @@ export function closeOrCancelPosition(
 
   return {
     ok: true,
-    session: updatedSession,
+    session: upsertReplayCheckpoint(updatedSession, clockTs),
     closedPnlDelta: totalNetPnl,
     breachedNow,
     passedNow,

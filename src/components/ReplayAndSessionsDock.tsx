@@ -452,10 +452,99 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   const [customSkipTz, setCustomSkipTz] = useState<string>(
     () => localStorage.getItem('fx_customSkipTz') || 'Africa/Johannesburg'
   );
+  const [quickSkipTarget, setQuickSkipTarget] = useState<
+    'DAILY_TIME' | 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'SYDNEY'
+  >(() => {
+    const saved = localStorage.getItem('fx_quickSkipTarget');
+    return saved === 'LONDON' ||
+      saved === 'NEW_YORK' ||
+      saved === 'TOKYO' ||
+      saved === 'SYDNEY' ||
+      saved === 'DAILY_TIME'
+      ? saved
+      : 'DAILY_TIME';
+  });
+  const [isFloatingWidgetOpen, setIsFloatingWidgetOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('fx_replayFloatingWidgetOpen') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const [floatingWidgetOffset, setFloatingWidgetOffset] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
+  });
+  const widgetDragRef = useRef<{
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
+
   useEffect(() => {
     localStorage.setItem('fx_customSkipTime', customSkipTime);
     localStorage.setItem('fx_customSkipTz', customSkipTz);
   }, [customSkipTime, customSkipTz]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('fx_quickSkipTarget', quickSkipTarget);
+    } catch {
+      // ignore
+    }
+  }, [quickSkipTarget]);
+
+  const toggleFloatingWidget = (nextOpen: boolean) => {
+    setIsFloatingWidgetOpen(nextOpen);
+    try {
+      localStorage.setItem('fx_replayFloatingWidgetOpen', nextOpen ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleWidgetDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('button, select, input, label')) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    widgetDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: floatingWidgetOffset.x,
+      origY: floatingWidgetOffset.y,
+    };
+  };
+
+  const handleWidgetDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!widgetDragRef.current) return;
+    const dx = e.clientX - widgetDragRef.current.startX;
+    const dy = e.clientY - widgetDragRef.current.startY;
+    setFloatingWidgetOffset({
+      x: widgetDragRef.current.origX + dx,
+      y: widgetDragRef.current.origY + dy,
+    });
+  };
+
+  const handleWidgetDragEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!widgetDragRef.current) return;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    widgetDragRef.current = null;
+  };
+
+  const speedMultiplier = useMemo(() => {
+    const raw = 850 / Math.max(40, Math.min(1000, playbackSpeedMs));
+    return Math.max(1, Math.min(20, Number(raw.toFixed(1))));
+  }, [playbackSpeedMs]);
+
+  const handleSpeedSliderChange = (sliderVal: number) => {
+    const mult = Math.max(1, Math.min(20, sliderVal / 10));
+    const nextMs = Math.max(40, Math.min(850, Math.round(850 / mult)));
+    onSetPlaybackSpeedMs(nextMs);
+  };
 
   // Custom pickers & inline notice inside Skip Replay To modal
   const [activeSkipPicker, setActiveSkipPicker] = useState<
@@ -730,6 +819,78 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
       return;
     }
   };
+
+  const handleExecuteSessionSkip = (
+    cardId: 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'SYDNEY'
+  ) => {
+    setQuickSkipTarget(cardId);
+    const card = SESSION_SKIP_CARDS.find((c) => c.id === cardId);
+    if (card && instrumentCfg.category !== 'CRYPTO') {
+      const d = new Date(replayTs * 1000);
+      const nextDate = new Date(
+        Date.UTC(
+          d.getUTCFullYear(),
+          d.getUTCMonth(),
+          d.getUTCDate(),
+          card.hourUtc,
+          0,
+          0
+        )
+      );
+      if (Math.floor(nextDate.getTime() / 1000) <= replayTs) {
+        nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      }
+      let crossedWeekend = false;
+      for (let i = 0; i < 10; i++) {
+        const dow = nextDate.getUTCDay();
+        const isoDate = nextDate.toISOString().slice(0, 10);
+        const holiday = isFixedMarketHolidayDate(isoDate, symbol);
+        const isWeekendClosed =
+          card.id === 'SYDNEY' ? dow === 5 || dow === 6 : dow === 6 || dow === 0;
+        if (!isWeekendClosed && !holiday) break;
+        crossedWeekend = true;
+        nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      }
+      if (crossedWeekend) {
+        const targetSec = Math.floor(nextDate.getTime() / 1000);
+        const targetLocal = formatTsToDateAndTimeInTz(
+          targetSec,
+          'Africa/Johannesburg'
+        );
+        setWeekendSkipPopup({
+          title: 'Skipping Over to Monday',
+          message:
+            "We're skipping over to Monday because the markets are closed on the weekend.",
+          targetDatePretty: formatPrettyCalendarDate(targetLocal.dateStr),
+          targetTimeLabel: `${card.name} (${card.sastTime})`,
+        });
+      }
+    }
+    onGoToSessionOpen?.(cardId);
+    setIsSkipModalOpen(false);
+  };
+
+  const handleQuickSkip = () => {
+    if (isLocked) return;
+    if (quickSkipTarget === 'DAILY_TIME') {
+      handleSkipToCustomTime();
+    } else {
+      handleExecuteSessionSkip(quickSkipTarget);
+    }
+  };
+
+  const quickSkipTzCode = useMemo(() => {
+    const found = SKIP_TIMEZONE_OPTIONS.find((t) => t.value === customSkipTz);
+    return found ? found.code : 'SAST';
+  }, [customSkipTz]);
+
+  const quickSkipButtonLabel = useMemo(() => {
+    if (quickSkipTarget === 'DAILY_TIME') {
+      return `${customSkipTime} ${quickSkipTzCode}`;
+    }
+    const card = SESSION_SKIP_CARDS.find((c) => c.id === quickSkipTarget);
+    return card ? card.name : quickSkipTarget;
+  }, [quickSkipTarget, customSkipTime, quickSkipTzCode]);
 
   const handleSkipToDateTime = () => {
     if (!exactSkipDate || !exactSkipTime) return;
@@ -1011,38 +1172,75 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
 
           <label className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] ${cardBg}`} title="Replay step size per tick"><span className="opacity-60">Step</span><select aria-label="Replay step" value={replayStepTimeframe} disabled={isLocked||!isReplayMode} onChange={event=>onSetReplayStepTimeframe(event.target.value as Timeframe)} className="min-w-0 bg-transparent font-mono font-bold outline-none">{(['1m','5m','15m','30m','1H','4H','1D'] as Timeframe[]).map(step=><option key={step} value={step} className={isLight?'bg-white text-slate-900':'bg-[#131722] text-slate-200'}>{TIMEFRAME_CONFIG[step].label}</option>)}</select></label>
 
-          {/* Speed Selector */}
-          <select
-            value={playbackSpeedMs}
-            onChange={(e) => onSetPlaybackSpeedMs(Number(e.target.value))}
-            className={`px-2 py-1 rounded border text-[11px] font-mono font-bold outline-none ${cardBg}`}
-            title="Replay Speed"
+          {/* Smooth Replay Speed Slider */}
+          <div
+            className={`flex items-center gap-1.5 px-2 py-1 rounded border text-[11px] font-mono font-bold ${cardBg}`}
+            title={`Smooth Replay Speed (${speedMultiplier.toFixed(1)}x)`}
           >
-            <option value={40}>20x Fast</option>
-            <option value={80}>10x Fast</option>
-            <option value={180}>5x Speed</option>
-            <option value={400}>2x Speed</option>
-            <option value={850}>1x Normal</option>
-          </select>
+            <span className="text-[10px] opacity-65 hidden md:inline">Speed</span>
+            <input
+              type="range"
+              aria-label="Replay speed slider"
+              min={10}
+              max={200}
+              step={1}
+              value={Math.round(speedMultiplier * 10)}
+              onChange={(e) => handleSpeedSliderChange(Number(e.target.value))}
+              className="w-16 sm:w-20 h-1.5 accent-emerald-500 cursor-pointer"
+            />
+            <span className="min-w-[34px] text-right text-emerald-400 tabular-nums">
+              {speedMultiplier >= 10
+                ? `${Math.round(speedMultiplier)}x`
+                : `${speedMultiplier.toFixed(1)}x`}
+            </span>
+          </div>
 
-          {/* Skip To Button with Popup Modal */}
+          {/* 1-Click Quick Skip + Skip To Modal Button + Floating Widget Toggle */}
           <div className="flex shrink-0 items-center gap-1 pl-1 border-l border-gray-500/20">
             <button
+              type="button"
+              disabled={isLocked}
+              onClick={handleQuickSkip}
+              className={`px-2.5 py-1 rounded-lg border text-[11px] font-extrabold flex items-center gap-1 transition shadow-sm ${
+                isLight
+                  ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-600 text-white'
+                  : 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/50 text-emerald-200'
+              }`}
+              title={`1-Click Quick Skip directly to next ${quickSkipButtonLabel} (change target in Skip To)`}
+            >
+              <FastForward className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Skip → {quickSkipButtonLabel}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 setSkipModalNotice(null);
                 setActiveSkipPicker(null);
                 setIsSkipModalOpen(true);
               }}
-              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition ${
+              className={`px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition ${
                 isLight
                   ? 'bg-emerald-50/80 hover:bg-emerald-100/80 border-emerald-300/80 text-emerald-950 shadow-sm'
                   : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-400/30 text-emerald-100 shadow-sm'
               }`}
-              title="Open Skip To session & time navigation options"
+              title="Configure Skip To session or daily time"
             >
-              <FastForward className="w-3.5 h-3.5 text-emerald-400" />
+              <Clock className="w-3 h-3 text-emerald-400" />
               <span className="hidden sm:inline">Skip To</span>
             </button>
+
+            {!isFloatingWidgetOpen && (
+              <button
+                type="button"
+                onClick={() => toggleFloatingWidget(true)}
+                className={`px-2 py-1 rounded-lg border text-[10px] font-bold flex items-center gap-1 transition ${cardBg} hover:border-emerald-500/60`}
+                title="Show floating replay control widget on chart"
+              >
+                <Sparkles className="w-3 h-3 text-emerald-400" />
+                <span className="hidden lg:inline">Chart Bar</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -2298,102 +2496,67 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {SESSION_SKIP_CARDS.map((card) => (
-                          <button
-                            type="button"
-                            key={card.id}
-                            onClick={() => {
-                              if (instrumentCfg.category !== 'CRYPTO') {
-                                const d = new Date(replayTs * 1000);
-                                const nextDate = new Date(
-                                  Date.UTC(
-                                    d.getUTCFullYear(),
-                                    d.getUTCMonth(),
-                                    d.getUTCDate(),
-                                    card.hourUtc,
-                                    0,
-                                    0
-                                  )
-                                );
-                                if (Math.floor(nextDate.getTime() / 1000) <= replayTs) {
-                                  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
-                                }
-                                let crossedWeekend = false;
-                                for (let i = 0; i < 10; i++) {
-                                  const dow = nextDate.getUTCDay();
-                                  const isoDate = nextDate.toISOString().slice(0, 10);
-                                  const holiday = isFixedMarketHolidayDate(isoDate, symbol);
-                                  const isWeekendClosed =
-                                    card.id === 'SYDNEY'
-                                      ? dow === 5 || dow === 6
-                                      : dow === 6 || dow === 0;
-                                  if (!isWeekendClosed && !holiday) break;
-                                  crossedWeekend = true;
-                                  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
-                                }
-                                if (crossedWeekend) {
-                                  const targetSec = Math.floor(nextDate.getTime() / 1000);
-                                  const targetLocal = formatTsToDateAndTimeInTz(
-                                    targetSec,
-                                    'Africa/Johannesburg'
-                                  );
-                                  setWeekendSkipPopup({
-                                    title: 'Skipping Over to Monday',
-                                    message:
-                                      "We're skipping over to Monday because the markets are closed on the weekend.",
-                                    targetDatePretty: formatPrettyCalendarDate(
-                                      targetLocal.dateStr
-                                    ),
-                                    targetTimeLabel: `${card.name} (${card.sastTime})`,
-                                  });
-                                }
-                              }
-                              onGoToSessionOpen?.(card.id);
-                              setIsSkipModalOpen(false);
-                            }}
-                            className={`group relative rounded-xl border p-2.5 text-left transition-all duration-150 hover:-translate-y-0.5 flex flex-col justify-between gap-1.5 ${
-                              isLight ? card.accentLight : card.accentDark
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-1">
-                              <span
-                                className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider ${
-                                  isLight ? card.badgeLight : card.badgeDark
-                                }`}
-                              >
-                                <RegionFlagIcon code={card.flag} />
-                                <span>{card.code}</span>
-                              </span>
-                              <FastForward className="w-3 h-3 opacity-40 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:opacity-90 text-emerald-400" />
-                            </div>
-
-                            <div>
-                              <div
-                                className={`text-[11px] font-extrabold truncate ${
-                                  isLight ? 'text-slate-900' : 'text-white'
-                                }`}
-                              >
-                                {card.name}
-                              </div>
-                              <div
-                                className={`mt-0.5 text-[9.5px] font-mono leading-tight ${
-                                  isLight ? 'text-slate-500' : 'text-slate-400'
-                                }`}
-                              >
-                                <div>{card.utcTime}</div>
-                                <div
-                                  className={
-                                    isLight
-                                      ? 'text-emerald-700 font-semibold'
-                                      : 'text-emerald-300/90'
-                                  }
+                        {SESSION_SKIP_CARDS.map((card) => {
+                          const isQuickActive = quickSkipTarget === card.id;
+                          return (
+                            <button
+                              type="button"
+                              key={card.id}
+                              onClick={() => handleExecuteSessionSkip(card.id)}
+                              className={`group relative rounded-xl border p-2.5 text-left transition-all duration-150 hover:-translate-y-0.5 flex flex-col justify-between gap-1.5 ${
+                                isLight ? card.accentLight : card.accentDark
+                              } ${
+                                isQuickActive
+                                  ? 'ring-2 ring-emerald-400/80'
+                                  : ''
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-1">
+                                <span
+                                  className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider ${
+                                    isLight ? card.badgeLight : card.badgeDark
+                                  }`}
                                 >
-                                  {card.sastTime}
+                                  <RegionFlagIcon code={card.flag} />
+                                  <span>{card.code}</span>
+                                </span>
+                                {isQuickActive ? (
+                                  <span className="text-[8px] font-extrabold uppercase px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                                    Pinned
+                                  </span>
+                                ) : (
+                                  <FastForward className="w-3 h-3 opacity-40 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:opacity-90 text-emerald-400" />
+                                )}
+                              </div>
+
+                              <div>
+                                <div
+                                  className={`text-[11px] font-extrabold truncate ${
+                                    isLight ? 'text-slate-900' : 'text-white'
+                                  }`}
+                                >
+                                  {card.name}
+                                </div>
+                                <div
+                                  className={`mt-0.5 text-[9.5px] font-mono leading-tight ${
+                                    isLight ? 'text-slate-500' : 'text-slate-400'
+                                  }`}
+                                >
+                                  <div>{card.utcTime}</div>
+                                  <div
+                                    className={
+                                      isLight
+                                        ? 'text-emerald-700 font-semibold'
+                                        : 'text-emerald-300/90'
+                                    }
+                                  >
+                                    {card.sastTime}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </button>
-                        ))}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -2470,18 +2633,40 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                         </button>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={handleSkipToCustomTime}
-                        className="motivation-cta-btn group relative mt-2 flex w-full items-center justify-center gap-1.5 overflow-hidden rounded-xl px-3.5 py-2 text-xs font-extrabold text-slate-950 transition-all"
-                      >
-                        <span aria-hidden="true" className="motivation-cta-shimmer" />
-                        <FastForward className="relative z-10 w-3.5 h-3.5" />
-                        <span className="relative z-10">
-                          Skip to Next Open Day ({customSkipTime} {selectedTzObj.code})
-                        </span>
-                        <ArrowRight className="relative z-10 w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
-                      </button>
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuickSkipTarget('DAILY_TIME');
+                            handleSkipToCustomTime();
+                          }}
+                          className="motivation-cta-btn group relative flex flex-1 items-center justify-center gap-1.5 overflow-hidden rounded-xl px-3.5 py-2 text-xs font-extrabold text-slate-950 transition-all"
+                        >
+                          <span aria-hidden="true" className="motivation-cta-shimmer" />
+                          <FastForward className="relative z-10 w-3.5 h-3.5" />
+                          <span className="relative z-10">
+                            Skip &amp; Save ({customSkipTime} {selectedTzObj.code})
+                          </span>
+                          <ArrowRight className="relative z-10 w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuickSkipTarget('DAILY_TIME');
+                            setIsSkipModalOpen(false);
+                          }}
+                          className={`rounded-xl border px-3 py-2 text-[11px] font-extrabold transition ${
+                            quickSkipTarget === 'DAILY_TIME'
+                              ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-400'
+                              : isLight
+                              ? 'border-slate-200 bg-white text-slate-700 hover:border-emerald-300'
+                              : 'border-white/15 bg-white/5 text-slate-200 hover:border-emerald-400/40'
+                          }`}
+                          title="Save this daily time as your 1-click Quick Skip button without skipping right now"
+                        >
+                          Save Only
+                        </button>
+                      </div>
                     </div>
 
                     {/* Section 3: Compact Exact Date & Time Picker */}
@@ -3225,6 +3410,199 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                 </button>
               </div>
             </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Floating On-Chart Replay Widget (Desktop & Mobile/Phone, Draggable & Closable) */}
+      {isReplayMode &&
+        isFloatingWidgetOpen &&
+        createPortal(
+          <div
+            onPointerDown={handleWidgetDragStart}
+            onPointerMove={handleWidgetDragMove}
+            onPointerUp={handleWidgetDragEnd}
+            onPointerCancel={handleWidgetDragEnd}
+            style={{
+              transform: `translate(calc(-50% + ${floatingWidgetOffset.x}px), ${floatingWidgetOffset.y}px)`,
+              touchAction: 'none',
+            }}
+            className={`fixed bottom-16 left-1/2 z-[45] max-w-[calc(100vw-12px)] flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border shadow-2xl backdrop-blur-md cursor-grab active:cursor-grabbing select-none ${
+              isLight
+                ? 'bg-white/95 border-slate-200/90 text-slate-900 shadow-slate-900/15'
+                : 'bg-[#12161f]/95 border-emerald-500/25 text-slate-100 shadow-black/70'
+            }`}
+            data-testid="floating-replay-widget"
+          >
+            {/* Drag grip dots */}
+            <div
+              className="flex flex-col gap-0.5 px-0.5 opacity-40 hover:opacity-80 cursor-grab"
+              title="Drag to move replay widget"
+            >
+              <span className="w-1 h-1 rounded-full bg-current" />
+              <span className="w-1 h-1 rounded-full bg-current" />
+              <span className="w-1 h-1 rounded-full bg-current" />
+            </div>
+
+            {!isPropChallenge && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSetActiveTool(activeTool === 'replay_cut' ? 'cursor' : 'replay_cut')
+                }
+                className={`p-1 sm:px-1.5 sm:py-1 rounded-lg text-[10px] font-bold border transition ${
+                  activeTool === 'replay_cut'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400'
+                    : cardBg
+                }`}
+                title="Cut / Jump to any bar"
+              >
+                <Scissors className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500" />
+              </button>
+            )}
+
+            {/* Rewind -1 */}
+            <button
+              type="button"
+              disabled={isPropChallenge}
+              onClick={() => onStepBar(-1)}
+              className={`p-1 sm:p-1.5 rounded-lg border transition ${
+                isPropChallenge
+                  ? 'opacity-30 cursor-not-allowed border-transparent'
+                  : `${cardBg} hover:border-emerald-500/60`
+              }`}
+              title={
+                isPropChallenge
+                  ? 'Rewind disabled in Prop Firm Challenge'
+                  : `Rewind by ${replayStepTimeframe}`
+              }
+            >
+              <SkipBack className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+            </button>
+
+            {/* Play / Pause */}
+            <button
+              type="button"
+              disabled={isLocked}
+              onClick={onTogglePlay}
+              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-extrabold transition shadow ${
+                isPlaying
+                  ? 'bg-amber-500 text-slate-950'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+              }`}
+              title={isPlaying ? 'Pause Replay' : 'Play Replay'}
+            >
+              {isPlaying ? (
+                <Pause className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
+              ) : (
+                <Play className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
+              )}
+              <span className="hidden xs:inline sm:inline">
+                {isPlaying ? 'Pause' : 'Play'}
+              </span>
+            </button>
+
+            {/* Advance +1 */}
+            <button
+              type="button"
+              disabled={isLocked}
+              onClick={() => onStepBar(1)}
+              className={`flex items-center gap-0.5 px-1.5 sm:px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-mono font-bold transition ${cardBg} hover:border-emerald-500/60`}
+              title={`Advance by ${replayStepTimeframe}`}
+            >
+              <SkipForward className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400" />
+              <span>+{replayStepTimeframe}</span>
+            </button>
+
+            {/* Step Size per Tick */}
+            <select
+              aria-label="Widget replay step"
+              value={replayStepTimeframe}
+              disabled={isLocked}
+              onChange={(e) => onSetReplayStepTimeframe(e.target.value as Timeframe)}
+              className={`px-1 sm:px-1.5 py-1 rounded-lg border text-[10px] sm:text-[11px] font-mono font-bold outline-none ${cardBg}`}
+              title="Replay step size per tick"
+            >
+              {(['1m', '5m', '15m', '30m', '1H', '4H', '1D'] as Timeframe[]).map(
+                (step) => (
+                  <option
+                    key={step}
+                    value={step}
+                    className={
+                      isLight ? 'bg-white text-slate-900' : 'bg-[#131722] text-slate-200'
+                    }
+                  >
+                    {TIMEFRAME_CONFIG[step].label}
+                  </option>
+                )
+              )}
+            </select>
+
+            {/* Smooth Speed Slider */}
+            <div
+              className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg border text-[10px] font-mono font-bold ${cardBg}`}
+              title={`Smooth Replay Speed (${speedMultiplier.toFixed(1)}x)`}
+            >
+              <input
+                type="range"
+                aria-label="Floating widget replay speed slider"
+                min={10}
+                max={200}
+                step={1}
+                value={Math.round(speedMultiplier * 10)}
+                onChange={(e) => handleSpeedSliderChange(Number(e.target.value))}
+                className="w-12 sm:w-16 h-1.5 accent-emerald-500 cursor-pointer"
+              />
+              <span className="min-w-[28px] text-right text-emerald-400 tabular-nums">
+                {speedMultiplier >= 10
+                  ? `${Math.round(speedMultiplier)}x`
+                  : `${speedMultiplier.toFixed(1)}x`}
+              </span>
+            </div>
+
+            {/* 1-Click Quick Skip Button */}
+            <button
+              type="button"
+              disabled={isLocked}
+              onClick={handleQuickSkip}
+              className={`px-1.5 sm:px-2 py-1 rounded-lg border text-[10px] font-extrabold flex items-center gap-1 transition ${
+                isLight
+                  ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-600 text-white'
+                  : 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/50 text-emerald-200'
+              }`}
+              title={`1-Click Quick Skip to ${quickSkipButtonLabel}`}
+            >
+              <FastForward className="w-3 h-3 text-emerald-300 shrink-0" />
+              <span className="truncate max-w-[68px] sm:max-w-none">
+                {quickSkipButtonLabel}
+              </span>
+            </button>
+
+            {/* Open Skip To Modal */}
+            <button
+              type="button"
+              onClick={() => {
+                setSkipModalNotice(null);
+                setActiveSkipPicker(null);
+                setIsSkipModalOpen(true);
+              }}
+              className={`p-1 sm:px-1.5 sm:py-1 rounded-lg border text-[10px] font-bold flex items-center gap-0.5 transition ${cardBg} hover:border-emerald-500/60`}
+              title="Open Skip To settings modal"
+            >
+              <Clock className="w-3 h-3 text-emerald-400" />
+              <span className="hidden md:inline">Skip To</span>
+            </button>
+
+            {/* Close Widget Button */}
+            <button
+              type="button"
+              aria-label="Close floating replay widget"
+              title="Close floating replay widget (re-open from bottom bar)"
+              onClick={() => toggleFloatingWidget(false)}
+              className="p-1 rounded-lg opacity-60 hover:opacity-100 hover:bg-rose-500/20 hover:text-rose-400 transition"
+            >
+              <X className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+            </button>
           </div>,
           document.body
         )}

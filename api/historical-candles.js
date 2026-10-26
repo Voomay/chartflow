@@ -84,43 +84,74 @@ function deriveLowerBarsFromArchive(all,refClock,end,limit){
   }
  }
 }
+let cachedManifest=null,cachedManifestDir='',cachedManifestAt=0;
+async function getMergedManifest(dir){
+ const now=Date.now();
+ if(cachedManifest&&cachedManifestDir===dir&&now-cachedManifestAt<60000)return cachedManifest;
+ const manifest=JSON.parse(await readFile(path.join(dir,'manifest.json'),'utf8'));
+ for(const i of [0,1,2,3,'month'])try{
+  const part=JSON.parse(await readFile(path.join(dir,`manifest-${i}.json`),'utf8'));
+  for(const [sym,extra] of Object.entries(part.symbols||{})){
+   const old=manifest.symbols[sym];
+   manifest.symbols[sym]={...extra,years:{...old?.years,...extra.years}};
+  }
+ }catch{}
+ for(const info of Object.values(manifest.symbols||{})){
+  const values=Object.values(info.years||{});
+  if(values.length>0){
+   info.first=Math.min(...values.map(v=>v.first));
+   info.last=Math.max(...values.map(v=>v.last));
+   info.rows=values.reduce((sum,v)=>sum+v.rows,0);
+  }
+ }
+ cachedManifest=manifest;cachedManifestDir=dir;cachedManifestAt=now;
+ return manifest;
+}
+const windowCache=new Map();const inflightWindows=new Map();
 export async function loadHistoricalWindow(symbol,clock,limit=45000){
  if(INDEX_SYMBOLS.has(symbol) && capitalEnabled())return capitalClient.history(symbol,clock);
  if(symbol==='BTCUSD'||symbol==='ETHUSD')return loadBitfinexWindow(root(),symbol,clock);
- const manifest=JSON.parse(await readFile(path.join(root(),'manifest.json'),'utf8'));
- for(const i of [0,1,2,3,'month'])try{
-  const part=JSON.parse(await readFile(path.join(root(),`manifest-${i}.json`),'utf8'));
-  const extra=part.symbols[symbol];if(extra){const old=manifest.symbols[symbol];manifest.symbols[symbol]={...extra,years:{...old?.years,...extra.years}};}
- }catch{}
- const info=manifest.symbols[symbol];if(!info)return null;
- const values=Object.values(info.years);info.first=Math.min(...values.map(v=>v.first));info.last=Math.max(...values.map(v=>v.last));info.rows=values.reduce((sum,v)=>sum+v.rows,0);
- const refClock=Math.min(Math.max(clock,info.first),info.last);
- const end=Math.max(clock,refClock)+7*86400;const year=new Date(refClock*1000).getUTCFullYear();
- const all={};
- for(const tf of tfs){
-  let parts;
-  if(tf==='1m'){
-   const first=new Date((refClock-35*86400)*1000);first.setUTCDate(1);const last=new Date(end*1000);parts=[];
-   for(let d=new Date(first);d<=last;d.setUTCMonth(d.getUTCMonth()+1))parts.push(d.toISOString().slice(0,7));
-  }else parts=Object.keys(info.years).filter(y=>['1D','1W','1M'].includes(tf)||(+y>=year-1&&+y<=year+1)).sort();
-  const merged=new Map();
-  for(const part of parts)for(const row of await rowsFor(symbol,tf,part)){
-   if(row[0]>end)continue;
-   const existing=merged.get(row[0]);
-   // Files partition disjoint source minutes. A UTC day/week/month can cross a source-year boundary.
-   if(existing)merged.set(row[0],[row[0],existing[1],Math.max(existing[2],row[2]),Math.min(existing[3],row[3]),row[4],existing[5]+row[5]]);
-   else merged.set(row[0],row);
+ const dir=root();
+ const windowKey=`${dir}:${symbol}:${Math.floor(clock/60)}:${limit}`;
+ const hit=windowCache.get(windowKey);
+ if(hit&&Date.now()-hit.at<30000){windowCache.delete(windowKey);windowCache.set(windowKey,hit);return hit.data;}
+ if(inflightWindows.has(windowKey))return inflightWindows.get(windowKey);
+ const work=(async()=>{
+  const manifest=await getMergedManifest(dir);
+  const info=manifest.symbols[symbol];if(!info)return null;
+  const refClock=Math.min(Math.max(clock,info.first),info.last);
+  const end=Math.max(clock,refClock)+7*86400;const year=new Date(refClock*1000).getUTCFullYear();
+  const all={};
+  for(const tf of tfs){
+   let parts;
+   if(tf==='1m'){
+    const first=new Date((refClock-35*86400)*1000);first.setUTCDate(1);const last=new Date(end*1000);parts=[];
+    for(let d=new Date(first);d<=last;d.setUTCMonth(d.getUTCMonth()+1))parts.push(d.toISOString().slice(0,7));
+   }else parts=Object.keys(info.years).filter(y=>['1D','1W','1M'].includes(tf)||(+y>=year-1&&+y<=year+1)).sort();
+   const merged=new Map();
+   for(const part of parts)for(const row of await rowsFor(symbol,tf,part)){
+    if(row[0]>end)continue;
+    const existing=merged.get(row[0]);
+    // Files partition disjoint source minutes. A UTC day/week/month can cross a source-year boundary.
+    if(existing)merged.set(row[0],[row[0],existing[1],Math.max(existing[2],row[2]),Math.min(existing[3],row[3]),row[4],existing[5]+row[5]]);
+    else merged.set(row[0],row);
+   }
+   all[tf]=[...merged.values()].sort((a,b)=>a[0]-b[0]).slice(-(tf==='1m'?limit:5000));
   }
-  all[tf]=[...merged.values()].sort((a,b)=>a[0]-b[0]).slice(-(tf==='1m'?limit:5000));
- }
- deriveLowerBarsFromArchive(all,refClock,end,limit);
- return {symbol,provider:info.provider||manifest.provider,priceBasis:info.priceBasis,timezone:'UTC',coverage:{first:info.first,last:info.last,rows:info.rows,years:Object.keys(info.years).sort()},bars:all};
+  deriveLowerBarsFromArchive(all,refClock,end,limit);
+  const data={symbol,provider:info.provider||manifest.provider,priceBasis:info.priceBasis,timezone:'UTC',coverage:{first:info.first,last:info.last,rows:info.rows,years:Object.keys(info.years).sort()},bars:all};
+  while(windowCache.size>=24)windowCache.delete(windowCache.keys().next().value);
+  windowCache.set(windowKey,{at:Date.now(),data});
+  return data;
+ })();
+ inflightWindows.set(windowKey,work);
+ try{return await work;}finally{inflightWindows.delete(windowKey);}
 }
 export default async function handler(req,res){
- res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');
+ res.setHeader('Content-Type','application/json');
  const q=new URL(req.url,'http://localhost').searchParams;const symbol=q.get('symbol');const clock=Number(q.get('clock'));
  const symbols=new Set(['XAUUSD','XAGUSD','EURUSD','GBPUSD','USDJPY','USDCHF','AUDUSD','USDCAD','NZDUSD','GBPJPY','EURJPY','EURGBP','AUDJPY','EURAUD','GBPAUD','CADJPY','NAS100','US30','SPX500','GER30','UK100','USOIL','UKOIL','BTCUSD','ETHUSD']);
- if(req.method!=='GET'||!symbols.has(symbol)||!Number.isFinite(clock)||clock<1262304000||clock>Date.now()/1000+86400){res.statusCode=400;res.end(JSON.stringify({error:'Unsupported archive request'}));return;}
- try{const data=await loadHistoricalWindow(symbol,Math.floor(clock));res.statusCode=data?200:404;res.end(JSON.stringify(data||{error:'No validated local archive for this instrument'}));}
- catch(e){res.statusCode=e.code==='ENOENT'?404:500;res.end(JSON.stringify({error:'Historical archive unavailable'}));}
+ if(req.method!=='GET'||!symbols.has(symbol)||!Number.isFinite(clock)||clock<1262304000||clock>Date.now()/1000+86400){res.setHeader('Cache-Control','no-store');res.statusCode=400;res.end(JSON.stringify({error:'Unsupported archive request'}));return;}
+ try{const data=await loadHistoricalWindow(symbol,Math.floor(clock));res.setHeader('Cache-Control',data?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':'no-store');res.statusCode=data?200:404;res.end(JSON.stringify(data||{error:'No validated local archive for this instrument'}));}
+ catch(e){res.setHeader('Cache-Control','no-store');res.statusCode=e.code==='ENOENT'?404:500;res.end(JSON.stringify({error:'Historical archive unavailable'}));}
 }

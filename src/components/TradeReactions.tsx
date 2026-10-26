@@ -55,8 +55,14 @@ export function TradeReactions({ positions, currency, isLight, anchorRef, midPri
       setClosed(trade);
       clearTimeout(expiry.current);
       expiry.current = setTimeout(() => setClosed(null), 8000);
+    } else if (closed) {
+      const stillClosed = positions.find(p => p.id === closed.id && p.status.startsWith('CLOSED_'));
+      if (!stillClosed) {
+        clearTimeout(expiry.current);
+        setClosed(null);
+      }
     }
-  }, [positions, enabled]);
+  }, [positions, enabled, closed]);
   useEffect(() => () => clearTimeout(expiry.current), []);
   const marked = useMemo(() => markReactionPositions(positions, midPrice, symbol, session), [positions, midPrice, symbol, session]);
   const open = getOpenTradeReaction(marked);

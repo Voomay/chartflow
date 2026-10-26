@@ -9,7 +9,7 @@ const scrypt=promisify(nodeScrypt);
 export const platformDataDirectory=()=>process.env.PLATFORM_DATA_DIR||path.join(homedir(),'.chart-replay');
 export async function hashPassword(password){const salt=randomBytes(16).toString('hex');const key=await scrypt(password,salt,32);return `scrypt:${salt}:${key.toString('hex')}`;}
 export async function verifyPassword(password,encoded){try{const [kind,salt,hex]=String(encoded).split(':');if(kind!=='scrypt'||!salt||!/^[a-f0-9]{64}$/.test(hex))return false;const key=await scrypt(password,salt,32);return timingSafeEqual(key,Buffer.from(hex,'hex'));}catch{return false;}}
-export const publicAccount=user=>({id:user.id,name:user.name,email:user.email,joinedAt:user.joinedAt,loginCount:user.loginCount||0,lastLoginAt:user.lastLoginAt||null,lastSeenAt:user.lastSeenAt||null,sessionCount:Array.isArray(user.sessionIds)?user.sessionIds.length:0,source:'server',plan:'FREE_FOREVER'});
+export const publicAccount=user=>({id:user.id,name:user.name,email:user.email,joinedAt:user.joinedAt,loginCount:user.loginCount||0,lastLoginAt:user.lastLoginAt||null,lastSeenAt:user.lastSeenAt||null,sessionCount:typeof user.sessionCount==='number'?user.sessionCount:Array.isArray(user.sessionIds)?user.sessionIds.length:0,source:'server',plan:'FREE_FOREVER',...(user.hasTradingPlan!==undefined?{hasTradingPlan:Boolean(user.hasTradingPlan),tradingPlanName:user.tradingPlanName||null,tradingPlanCount:Number(user.tradingPlanCount||0),tradeCount:Number(user.tradeCount||0)}:{})});
 export const DEFAULT_SPONSORSHIP={
  enabled:true,
  sponsorName:'XM',
@@ -97,7 +97,9 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
  const attempts=new Map();
  const visitors=new Map();
  const online=()=>{const cutoff=now()-120000;for(const[id,visit]of visitors)if(visit.seen<cutoff)visitors.delete(id);return {onlineVisitors:visitors.size,onlineAccounts:new Set([...visitors.values()].map(v=>v.userId).filter(Boolean)).size};};
- const limited=(key,max)=>{const time=now();for(const [entry,value]of attempts)if(value.until<=time)attempts.delete(entry);if(attempts.size>2000)return true;const value=attempts.get(key)||{count:0,until:time+15*60*1000};value.count++;attempts.set(key,value);return value.count>max;};
+ const limited=(key,max)=>{const time=now();for(const [entry,value]of attempts)if(value.until<=time)attempts.delete(entry);if(attempts.size>20000)return true;const value=attempts.get(key)||{count:0,until:time+15*60*1000};value.count++;attempts.set(key,value);return value.count>max;};
+ const findUserById=async id=>typeof store.findById==='function'?store.findById(id):(await store.read()).find(u=>u.id===id)||null;
+ const findUserByEmail=async email=>typeof store.findByEmail==='function'?store.findByEmail(email):(await store.read()).find(u=>u.email===email)||null;
  return async(req,res)=>{
   res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');
   const send=(status,body)=>{res.statusCode=status;res.end(JSON.stringify(body));};
@@ -120,7 +122,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    const userToken=enabled?String(req.headers.cookie||'').split(';').map(p=>p.trim()).find(p=>p.startsWith('chart_replay_user='))?.slice(18):null;
    const userId=userToken?readUserSession(userToken,config,now()):null;
    let activeUser=null;
-   if(userId){try{const found=(await store.read()).find(u=>u.id===userId);if(found)activeUser=publicAccount(found);}catch{}}
+   if(userId){try{const found=await findUserById(userId);if(found)activeUser=publicAccount(found);}catch{}}
    return send(200,activeUser?{enabled,scope,user:activeUser}:{enabled,scope});
   }
   if(!enabled)return send(503,{error:'The local administrator service is not configured.'});
@@ -161,14 +163,20 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     online();if(visitors.size>=10000&&!visitors.has(body.visitorId))return send(429,{error:'Visitor capacity reached.'});
     visitors.set(body.visitorId,{seen:now(),userId:accountId});
     if(typeof store.recordPresence==='function')void store.recordPresence(body.visitorId,accountId,now());
-    if(accountId)await store.change(users=>{const user=users.find(u=>u.id===accountId);if(user){user.lastSeenAt=new Date(now()).toISOString();user.sessionIds=[...new Set([...(user.sessionIds||[]),...(body.sessionIds||[]).filter(id=>!/^session-(normal|prop)-/.test(id))])].slice(0,10000);}});
+    if(accountId){
+     if(typeof store.touchUserActivity==='function'){
+      await store.touchUserActivity(accountId,body.sessionIds||[],now());
+     }else{
+      await store.change(users=>{const user=users.find(u=>u.id===accountId);if(user){user.lastSeenAt=new Date(now()).toISOString();user.sessionIds=[...new Set([...(user.sessionIds||[]),...(body.sessionIds||[]).filter(id=>!/^session-(normal|prop)-/.test(id))])].slice(0,10000);}});
+     }
+    }
     return send(200,{ok:true});
    }
    if(action==='admin-logout'){res.setHeader('Set-Cookie',`chart_replay_admin=; ${cookieOptions}; Max-Age=0`);return send(200,{ok:true});}
    const email=typeof body.email==='string'?body.email.trim().toLowerCase():'';
    const password=typeof body.password==='string'?body.password:'';
    const ip=req.socket?.remoteAddress||'local';
-   if(limited(`${action}:${ip}`,action==='admin-login'?10:30)){res.setHeader('Retry-After','900');return send(429,{error:'Too many attempts. Please try again in fifteen minutes.'});}
+   if(limited(`${action}:${ip}`,action==='admin-login'?10:120)){res.setHeader('Retry-After','900');return send(429,{error:'Too many attempts. Please try again in fifteen minutes.'});}
    if(action==='admin-login'){
     if(!hasAdmin||password.length>256||email!==config.email||!await verifyPassword(password,config.passwordHash))return send(401,{error:'Incorrect administrator email or password.'});
     res.setHeader('Set-Cookie',`chart_replay_admin=${createAdminSession(config,now())}; ${cookieOptions}; Max-Age=28800`);return send(200,{admin:{email:config.email}});
@@ -179,13 +187,22 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     const name=typeof body.name==='string'?body.name.trim():'';
     if(!name||name.length>80||/[\x00-\x1f]/.test(name)||password.length<4)return send(400,{error:'Use a name of up to 80 characters and a password of at least four characters.'});
     const passwordHash=await hashPassword(password);
-    const result=await store.change(users=>{if(users.some(user=>user.email===email))return null;const time=new Date(now()).toISOString();const user={id:randomUUID(),name,email,passwordHash,joinedAt:time,loginCount:1,lastLoginAt:time};users.push(user);return publicAccount(user);});
-    if(!result)return send(409,{error:'An account with this email already exists. Please sign in.'});
+    const time=new Date(now()).toISOString();
+    const newUser={id:randomUUID(),name,email,passwordHash,joinedAt:time,loginCount:1,lastLoginAt:time};
+    const created=typeof store.createUser==='function'
+     ?await store.createUser(newUser)
+     :await store.change(users=>{if(users.some(user=>user.email===email))return null;users.push(newUser);return newUser;});
+    if(!created)return send(409,{error:'An account with this email already exists. Please sign in.'});
+    const result=publicAccount(created);
     setUserCookie(result);return send(201,{user:result});
    }
-   const found=(await store.read()).find(user=>user.email===email);
+   const found=await findUserByEmail(email);
    if(!found||!await verifyPassword(password,found.passwordHash))return send(401,{error:'Incorrect email or password.'});
-   const user=await store.change(users=>{const current=users.find(item=>item.id===found.id);if(!current)return null;current.loginCount=(current.loginCount||0)+1;current.lastLoginAt=new Date(now()).toISOString();return publicAccount(current);});
+   const time=new Date(now()).toISOString();
+   const updated=typeof store.recordLogin==='function'
+    ?await store.recordLogin(found,time)
+    :await store.change(users=>{const current=users.find(item=>item.id===found.id);if(!current)return null;current.loginCount=(current.loginCount||0)+1;current.lastLoginAt=time;return current;});
+   const user=updated?publicAccount(updated):null;
    if(user)setUserCookie(user);
    return user?send(200,{user}):send(401,{error:'Incorrect email or password.'});
   }catch{return send(503,{error:'The account service is temporarily unavailable. Please try again.'});}

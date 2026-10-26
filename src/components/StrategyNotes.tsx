@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Check, ListPlus, NotebookPen} from 'lucide-react';
-import {loadUserStrategyNotes, saveUserStrategyNotes} from '../services/storageAndAnalytics';
+import {cacheUserStrategyNotesLocally, loadUserStrategyNotes, saveUserStrategyNotes} from '../services/storageAndAnalytics';
 import {fetchUserStrategyNotesFromSupabase} from '../services/supabaseClient';
 
 interface StrategyNotesProps {userId: string; isLight: boolean;}
@@ -12,10 +12,19 @@ export const StrategyNotes: React.FC<StrategyNotesProps> = ({userId,isLight}) =>
   const [failed,setFailed] = useState(initial.error);
   const editor=useRef<HTMLTextAreaElement>(null);
   useEffect(()=>{
+    const loaded=loadUserStrategyNotes(userId);
+    setNotes(loaded.text);
+    setFailed(loaded.error);
+    setStatus(loaded.error ? 'Notes could not be loaded. Check browser storage.' : loaded.text ? 'Saved on this browser' : 'Your notes save automatically');
     let cancelled=false;
     void fetchUserStrategyNotesFromSupabase(userId).then(remoteText=>{
       if(cancelled||!remoteText)return;
-      setNotes(prev=>prev||remoteText);
+      setNotes(prev=>{
+        if(prev)return prev;
+        cacheUserStrategyNotesLocally(userId,remoteText);
+        setStatus('Saved on this browser');
+        return remoteText;
+      });
     });
     return()=>{cancelled=true;};
   },[userId]);

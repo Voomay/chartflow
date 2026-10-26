@@ -931,13 +931,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                         ) : (
                           <button
                             onClick={() => setConfirmDeleteId(sess.id)}
-                            disabled={sessions.length <= 1}
-                            className={`py-2 px-2.5 rounded-xl border text-xs flex items-center transition ${subCardBg} hover:border-rose-500/60 text-rose-400 disabled:opacity-40 disabled:cursor-not-allowed`}
-                            title={
-                              sessions.length <= 1
-                                ? 'Create another session before deleting your only session'
-                                : 'Delete session'
-                            }
+                            className={`py-2 px-2.5 rounded-xl border text-xs flex items-center transition ${subCardBg} hover:border-rose-500/60 text-rose-400`}
+                            title="Delete session"
                             aria-label="Delete session"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

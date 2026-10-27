@@ -347,6 +347,19 @@ export const DEFAULT_INDICATOR_CONFIGS: ChartIndicatorConfigs = {
     primaryColor: '#10b981',
     secondaryColor: '#8b5cf6',
   },
+  orderFlow: {
+    lookbackBars: 120,
+    profileBuckets: 24,
+    minAbsorptionRvol: 1.3,
+    showVolumeProfile: true,
+    showOrderBlocks: true,
+    showFVG: true,
+    showSignals: true,
+    showDeltaFootprint: true,
+    buyColor: '#10b981',
+    sellColor: '#f43f5e',
+    pocColor: '#f59e0b',
+  },
 };
 
 const INDICATOR_CONFIGS_STORAGE_KEY = 'chart_flow_indicator_configs_v1';
@@ -373,6 +386,7 @@ export function loadSavedIndicatorConfigs(): ChartIndicatorConfigs {
           engulfing: { ...DEFAULT_INDICATOR_CONFIGS.engulfing, ...(parsed.engulfing || {}) },
           momentum: { ...DEFAULT_INDICATOR_CONFIGS.momentum, ...(parsed.momentum || {}) },
           forecast: { ...DEFAULT_INDICATOR_CONFIGS.forecast, ...(parsed.forecast || {}) },
+          orderFlow: { ...DEFAULT_INDICATOR_CONFIGS.orderFlow, ...(parsed.orderFlow || {}) },
         };
       }
     }

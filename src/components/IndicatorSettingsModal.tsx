@@ -128,6 +128,8 @@ export const IndicatorSettingsModal: React.FC<IndicatorSettingsModalProps> = ({
         return 'Volume & MA';
       case 'showEngulfing':
         return 'Engulfing Vol/Mom';
+      case 'showOrderFlow':
+        return 'Historical Order Flow (VP · OB/FVG · Delta)';
       case 'showMomentum':
         return 'Momentum Pullback';
       case 'showForecast':
@@ -168,6 +170,7 @@ export const IndicatorSettingsModal: React.FC<IndicatorSettingsModalProps> = ({
     { id: 'showRSI', label: 'RSI', color: configs.rsi.color },
     { id: 'showMACD', label: 'MACD', color: configs.macd.macdColor },
     { id: 'showVOL', label: 'VOL', color: configs.vol.maColor },
+    { id: 'showOrderFlow', label: 'ORDER FLOW', color: configs.orderFlow?.pocColor || '#f59e0b' },
   ];
 
   const activeAccentColor =
@@ -910,6 +913,167 @@ export const IndicatorSettingsModal: React.FC<IndicatorSettingsModalProps> = ({
                   className="w-8 h-7 rounded cursor-pointer bg-transparent"
                 />
               </label>
+            </div>
+          )}
+
+          {indicatorId === 'showOrderFlow' && (
+            <div className={`p-3.5 rounded-xl border space-y-3.5 ${sectionCardSurface}`}>
+              <div className="grid grid-cols-3 gap-2.5">
+                <div>
+                  <span className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${labelText}`}>
+                    Lookback Bars
+                  </span>
+                  <input
+                    type="number"
+                    min={30}
+                    max={500}
+                    value={configs.orderFlow?.lookbackBars ?? 120}
+                    onChange={(e) =>
+                      onUpdateConfigs((prev) => ({
+                        ...prev,
+                        orderFlow: {
+                          ...(prev.orderFlow || DEFAULT_INDICATOR_CONFIGS.orderFlow),
+                          lookbackBars: Math.max(30, Math.min(500, Number(e.target.value) || 120)),
+                        },
+                      }))
+                    }
+                    className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold border outline-none ${inputSurface}`}
+                  />
+                </div>
+                <div>
+                  <span className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${labelText}`}>
+                    VP Price Rows
+                  </span>
+                  <input
+                    type="number"
+                    min={10}
+                    max={60}
+                    value={configs.orderFlow?.profileBuckets ?? 24}
+                    onChange={(e) =>
+                      onUpdateConfigs((prev) => ({
+                        ...prev,
+                        orderFlow: {
+                          ...(prev.orderFlow || DEFAULT_INDICATOR_CONFIGS.orderFlow),
+                          profileBuckets: Math.max(10, Math.min(60, Number(e.target.value) || 24)),
+                        },
+                      }))
+                    }
+                    className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold border outline-none ${inputSurface}`}
+                  />
+                </div>
+                <div>
+                  <span className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${labelText}`}>
+                    Min RVOL Surge
+                  </span>
+                  <input
+                    type="number"
+                    step={0.1}
+                    min={0.8}
+                    max={4.0}
+                    value={configs.orderFlow?.minAbsorptionRvol ?? 1.3}
+                    onChange={(e) =>
+                      onUpdateConfigs((prev) => ({
+                        ...prev,
+                        orderFlow: {
+                          ...(prev.orderFlow || DEFAULT_INDICATOR_CONFIGS.orderFlow),
+                          minAbsorptionRvol: Math.max(0.8, Math.min(4.0, Number(e.target.value) || 1.3)),
+                        },
+                      }))
+                    }
+                    className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold border outline-none ${inputSurface}`}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    { key: 'showVolumeProfile', label: 'Volume Profile (POC / VA)' },
+                    { key: 'showOrderBlocks', label: 'Order Blocks (Supply/Demand)' },
+                    { key: 'showFVG', label: 'Fair Value Gaps (FVG)' },
+                    { key: 'showSignals', label: 'Absorption & Sweep Signals' },
+                    { key: 'showDeltaFootprint', label: 'Intrabar Delta Footprint' },
+                  ] as const
+                ).map(({ key, label }) => {
+                  const checked = (configs.orderFlow ?? DEFAULT_INDICATOR_CONFIGS.orderFlow)[key];
+                  return (
+                    <label
+                      key={key}
+                      className={`flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg border text-[11px] font-semibold cursor-pointer ${recessedTrackSurface}`}
+                    >
+                      <span className="truncate">{label}</span>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          onUpdateConfigs((prev) => ({
+                            ...prev,
+                            orderFlow: {
+                              ...(prev.orderFlow || DEFAULT_INDICATOR_CONFIGS.orderFlow),
+                              [key]: e.target.checked,
+                            },
+                          }))
+                        }
+                        className="accent-blue-600 w-3.5 h-3.5 cursor-pointer"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2.5">
+                <label className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}>
+                  <span>Buy / Bull</span>
+                  <input
+                    type="color"
+                    value={configs.orderFlow?.buyColor || '#10b981'}
+                    onChange={(e) =>
+                      onUpdateConfigs((prev) => ({
+                        ...prev,
+                        orderFlow: {
+                          ...(prev.orderFlow || DEFAULT_INDICATOR_CONFIGS.orderFlow),
+                          buyColor: e.target.value,
+                        },
+                      }))
+                    }
+                    className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                  />
+                </label>
+                <label className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}>
+                  <span>Sell / Bear</span>
+                  <input
+                    type="color"
+                    value={configs.orderFlow?.sellColor || '#f43f5e'}
+                    onChange={(e) =>
+                      onUpdateConfigs((prev) => ({
+                        ...prev,
+                        orderFlow: {
+                          ...(prev.orderFlow || DEFAULT_INDICATOR_CONFIGS.orderFlow),
+                          sellColor: e.target.value,
+                        },
+                      }))
+                    }
+                    className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                  />
+                </label>
+                <label className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}>
+                  <span>POC Line</span>
+                  <input
+                    type="color"
+                    value={configs.orderFlow?.pocColor || '#f59e0b'}
+                    onChange={(e) =>
+                      onUpdateConfigs((prev) => ({
+                        ...prev,
+                        orderFlow: {
+                          ...(prev.orderFlow || DEFAULT_INDICATOR_CONFIGS.orderFlow),
+                          pocColor: e.target.value,
+                        },
+                      }))
+                    }
+                    className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                  />
+                </label>
+              </div>
             </div>
           )}
 

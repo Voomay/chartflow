@@ -1,6 +1,7 @@
 import {MomentumStudy} from './MomentumStudy';
 import {computeMomentumPullback,MOMENTUM_DEFAULTS,MomentumOptions} from '../services/momentumPullback';
 import {computeEngulfingVolumeMomentum,EngulfingFilter} from '../services/engulfingVolumeMomentum';
+import {computeHistoricalOrderFlow,OrderFlowSignalFilter} from '../services/orderFlowIndicator';
 import {interpolateRevealedCandle,revealedHistorySamplesMatch} from '../services/replayPresentation';
 import {
   clipExtendedLine,
@@ -15,7 +16,14 @@ import {
   loadSavedIndicatorConfigs,
   saveIndicatorConfigs,
 } from '../services/chartDrawingGeometry';
-import {formatTimestampInTimezone} from '../services/simulationEngine';
+import {
+  calculatePositionPnl,
+  formatMoney,
+  formatTimestampInTimezone,
+  getBidAskFromMid,
+  getEffectiveInstrumentSpec,
+  getInstrumentPipLabel,
+} from '../services/simulationEngine';
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { TradeReactions } from './TradeReactions';
 import { FibonacciSettingsModal } from './FibonacciSettingsModal';
@@ -36,6 +44,7 @@ import {
   utils,
 } from 'klinecharts';
 import {
+  AccountCurrency,
   BacktestPosition,
   Candle,
   CandleColorStyle,
@@ -424,6 +433,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const reactionAnchorRef = useRef<HTMLDivElement>(null);
+  const positionToolActionAnchorRef = useRef<HTMLDivElement>(null);
   const olderHistoryLoaderRef = useRef(onLoadOlderHistory);
   olderHistoryLoaderRef.current = onLoadOlderHistory;
   const olderHistoryBusy = useRef(false);
@@ -463,21 +473,11 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const [localSMA20, setLocalSMA20] = useState(false);
   const [localMomentum, setLocalMomentum] = useState(false);
   const [momentumOptions, setMomentumOptions] = useState<MomentumOptions>(MOMENTUM_DEFAULTS);
-  const [localForecast, setLocalForecast] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('chart_forecaster_enabled_v1') === '1';
-    } catch {
-      return false;
-    }
-  });
-  const [localEngulfing, setLocalEngulfing] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('chart_engulfing_enabled_v1') !== '0';
-    } catch {
-      return true;
-    }
-  });
+  const [localForecast, setLocalForecast] = useState<boolean>(false);
+  const [localEngulfing, setLocalEngulfing] = useState<boolean>(false);
   const [engulfingFilter, setEngulfingFilter] = useState<EngulfingFilter>('ALL');
+  const [localOrderFlow, setLocalOrderFlow] = useState<boolean>(false);
+  const [orderFlowFilter, setOrderFlowFilter] = useState<OrderFlowSignalFilter>('ALL');
   const [localBOLL, setLocalBOLL] = useState(false);
   const [localVOL, setLocalVOL] = useState(false);
   const [localMACD, setLocalMACD] = useState(false);
@@ -538,6 +538,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const showMomentum = indicators ? indicators.showMomentum : localMomentum;
   const showForecast = indicators ? indicators.showForecast : localForecast;
   const showEngulfing = indicators ? indicators.showEngulfing : localEngulfing;
+  const showOrderFlow =
+    indicators && indicators.showOrderFlow !== undefined
+      ? indicators.showOrderFlow
+      : localOrderFlow;
 
   const handleHideOrRemoveIndicator = useCallback(
     (indId: string) => {
@@ -589,6 +593,9 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         case 'showEngulfing':
           setLocalEngulfing(false);
           break;
+        case 'showOrderFlow':
+          setLocalOrderFlow(false);
+          break;
       }
     },
     [handleUpdateIndicatorConfigs, indicators, onToggleIndicator]
@@ -606,6 +613,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     if (onToggleIndicator && showEngulfing) onToggleIndicator('showEngulfing');
     else setLocalEngulfing(false);
   };
+  const closeOrderFlow = () => {
+    if (onToggleIndicator && showOrderFlow) onToggleIndicator('showOrderFlow');
+    else setLocalOrderFlow(false);
+  };
 
   const momentum = useMemo(() => showMomentum ? computeMomentumPullback(candles, TIMEFRAME_CONFIG[timeframe]?.seconds || 900, momentumOptions) : null, [showMomentum, candles, timeframe, momentumOptions]);
   const engulfingStudy = useMemo(
@@ -615,6 +626,25 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         : null,
     [showEngulfing, candles, engulfingFilter]
   );
+  const orderFlowStudy = useMemo(
+    () =>
+      showOrderFlow
+        ? computeHistoricalOrderFlow(candles, {
+            lookbackBars: effectiveIndicatorConfigs.orderFlow?.lookbackBars ?? 120,
+            profileBuckets: effectiveIndicatorConfigs.orderFlow?.profileBuckets ?? 24,
+            minAbsorptionRvol: effectiveIndicatorConfigs.orderFlow?.minAbsorptionRvol ?? 1.3,
+            filter: orderFlowFilter,
+          })
+        : null,
+    [
+      showOrderFlow,
+      candles,
+      orderFlowFilter,
+      effectiveIndicatorConfigs.orderFlow?.lookbackBars,
+      effectiveIndicatorConfigs.orderFlow?.profileBuckets,
+      effectiveIndicatorConfigs.orderFlow?.minAbsorptionRvol,
+    ]
+  );
   useEffect(() => {
     try {
       localStorage.setItem('chart_engulfing_enabled_v1', showEngulfing ? '1' : '0');
@@ -622,6 +652,13 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       // ignore
     }
   }, [showEngulfing]);
+  useEffect(() => {
+    try {
+      localStorage.setItem('chart_order_flow_enabled_v1', showOrderFlow ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, [showOrderFlow]);
   useEffect(() => {
     try {
       localStorage.setItem('chart_forecaster_enabled_v1', showForecast ? '1' : '0');
@@ -742,7 +779,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     };
   }, []);
 
-  const instConfig = getInstrumentConfig(symbol);
+  const instConfig = getEffectiveInstrumentSpec(symbol, reactionSession);
 
   const activeOverlayMASeries = useMemo(() => {
     if (candles.length < 2) return [];
@@ -882,6 +919,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const stateRef = useRef({
     symbol,
     instConfig,
+    accountCurrency,
+    reactionSession,
     displayTimezone,
     candles,
     timeframe,
@@ -922,6 +961,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     showSMA20,
     momentum,
     engulfingStudy,
+    orderFlowStudy,
     forecast,
     onAddDrawing,
     onUpdateDrawing,
@@ -933,6 +973,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   stateRef.current = {
     symbol,
     instConfig,
+    accountCurrency,
+    reactionSession,
     displayTimezone,
     candles,
     timeframe,
@@ -973,6 +1015,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     showSMA20,
     momentum,
     engulfingStudy,
+    orderFlowStudy,
     forecast,
     onAddDrawing,
     onUpdateDrawing,
@@ -1281,7 +1324,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     if (!ctx) return;
 
     const {
+      symbol: currSymbol,
       instConfig: currInst,
+      accountCurrency: currAccountCurrency,
+      reactionSession: currReactionSession,
       displayTimezone: currDisplayTimezone,
       candles: currCandles,
       timeframe: currTf,
@@ -1310,12 +1356,19 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       showVWAP: currShowVWAP,
       momentum: currMomentum,
       engulfingStudy: currEngulfing,
+      orderFlowStudy: currOrderFlow,
       forecast: currForecast,
     } = stateRef.current;
 
     const decimals = currInst.decimals;
     const pipSize = currInst.pipSize;
     const contractSize = currInst.contractSize;
+    const currCurrency = (currAccountCurrency ||
+      currReactionSession?.frozenConfig?.accountCurrency ||
+      currReactionSession?.accountCurrency ||
+      'USD') as AccountCurrency;
+    const unitLabel = getInstrumentPipLabel(currSymbol);
+    const unitSuffix = unitLabel === 'pts' ? 'pts' : 'p';
 
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
@@ -1584,6 +1637,334 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         }
 
         ctx.restore();
+      }
+    }
+
+    // 0a-2. Historical Order Flow Indicator (Volume Profile + POC/VA, Order Blocks, FVGs, Delta Footprint & Signals)
+    if (currOrderFlow && currCandles.length > 2) {
+      const ofCfg =
+        currIndicatorConfigs.orderFlow || {
+          lookbackBars: 120,
+          profileBuckets: 24,
+          minAbsorptionRvol: 1.3,
+          showVolumeProfile: true,
+          showOrderBlocks: true,
+          showFVG: true,
+          showSignals: true,
+          showDeltaFootprint: true,
+          buyColor: '#10b981',
+          sellColor: '#f43f5e',
+          pocColor: '#f59e0b',
+        };
+      const buyHex = ofCfg.buyColor || '#10b981';
+      const sellHex = ofCfg.sellColor || '#f43f5e';
+      const pocHex = ofCfg.pocColor || '#f59e0b';
+
+      const xSample0 = resolveTimeToX(currCandles[currCandles.length - 2].time, currCandles, chart);
+      const xSample1 = resolveTimeToX(currCandles[currCandles.length - 1].time, currCandles, chart);
+      const barSpacing =
+        xSample0 !== null && xSample1 !== null
+          ? Math.max(3, Math.min(28, Math.abs(xSample1 - xSample0)))
+          : 7.5;
+      const latestX = xSample1 ?? chartPlotWidth - 80;
+      const zoneRightEdge = Math.min(chartPlotWidth - 6, latestX + Math.max(18, barSpacing * 3));
+
+      // 1) Institutional Order Blocks (Supply / Demand Zones)
+      if (ofCfg.showOrderBlocks && currOrderFlow.orderBlocks.length > 0) {
+        for (const ob of currOrderFlow.orderBlocks) {
+          const xStart = resolveTimeToX(ob.startTime, currCandles, chart);
+          const yTop = priceToY(ob.top, chart);
+          const yBottom = priceToY(ob.bottom, chart);
+          if (yTop === null || yBottom === null) continue;
+          const x1 = Math.max(0, xStart ?? 0);
+          const x2 = Math.max(x1 + 24, zoneRightEdge);
+          if (x2 < 0 || x1 > chartPlotWidth) continue;
+
+          const topY = Math.min(yTop, yBottom);
+          const boxH = Math.max(4, Math.abs(yBottom - yTop));
+          const isBull = ob.direction === 'UP';
+
+          ctx.save();
+          ctx.fillStyle = isBull
+            ? currTheme === 'light'
+              ? 'rgba(16, 185, 129, 0.13)'
+              : 'rgba(16, 185, 129, 0.11)'
+            : currTheme === 'light'
+            ? 'rgba(244, 63, 94, 0.13)'
+            : 'rgba(244, 63, 94, 0.11)';
+          ctx.fillRect(x1, topY, x2 - x1, boxH);
+
+          // Left anchor bar
+          ctx.fillStyle = isBull ? buyHex : sellHex;
+          ctx.fillRect(x1, topY, 3, boxH);
+
+          // Top & bottom border
+          ctx.strokeStyle = isBull ? buyHex : sellHex;
+          ctx.globalAlpha = 0.55;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x1, topY + 0.5);
+          ctx.lineTo(x2, topY + 0.5);
+          ctx.moveTo(x1, topY + boxH - 0.5);
+          ctx.lineTo(x2, topY + boxH - 0.5);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 1;
+
+          // Compact zone label
+          if (x2 - x1 >= 65 && topY > 12 && topY < chartPlotHeight - 14) {
+            const obText = `${isBull ? 'BULL OB (Demand)' : 'BEAR OB (Supply)'} · ${ob.relativeVolume.toFixed(1)}×V`;
+            ctx.font = 'bold 8.5px JetBrains Mono, monospace';
+            ctx.fillStyle = isBull ? buyHex : sellHex;
+            ctx.textAlign = 'left';
+            ctx.fillText(obText, x1 + 6, topY + Math.min(11, boxH - 2));
+          }
+          ctx.restore();
+        }
+      }
+
+      // 2) Fair Value Gaps (FVG / Price Imbalances)
+      if (ofCfg.showFVG && currOrderFlow.fairValueGaps.length > 0) {
+        for (const fvg of currOrderFlow.fairValueGaps) {
+          const xStart = resolveTimeToX(fvg.startTime, currCandles, chart);
+          const yTop = priceToY(fvg.top, chart);
+          const yBottom = priceToY(fvg.bottom, chart);
+          if (yTop === null || yBottom === null) continue;
+          const x1 = Math.max(0, xStart ?? 0);
+          const x2 = Math.max(x1 + 20, zoneRightEdge - 10);
+          if (x2 < 0 || x1 > chartPlotWidth) continue;
+
+          const topY = Math.min(yTop, yBottom);
+          const boxH = Math.max(3, Math.abs(yBottom - yTop));
+          const midY = topY + boxH / 2;
+          const isBull = fvg.direction === 'UP';
+
+          ctx.save();
+          ctx.fillStyle = isBull
+            ? 'rgba(56, 189, 248, 0.09)'
+            : 'rgba(251, 146, 60, 0.09)';
+          ctx.fillRect(x1, topY, x2 - x1, boxH);
+
+          // 50% Consequent Encroachment (CE) midline
+          ctx.strokeStyle = isBull ? 'rgba(56, 189, 248, 0.5)' : 'rgba(251, 146, 60, 0.5)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x1, midY);
+          ctx.lineTo(x2, midY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          if (x2 - x1 >= 55 && boxH >= 8 && topY > 10 && topY < chartPlotHeight - 12) {
+            ctx.font = 'bold 8px JetBrains Mono, monospace';
+            ctx.fillStyle = isBull ? '#38bdf8' : '#fb923c';
+            ctx.textAlign = 'right';
+            ctx.fillText(isBull ? 'FVG ▲' : 'FVG ▼', x2 - 4, midY + 3);
+          }
+          ctx.restore();
+        }
+      }
+
+      // 3) Historical Volume Profile (Right-Anchored Horizontal Buy/Sell Histogram + POC / VAH / VAL)
+      if (ofCfg.showVolumeProfile && currOrderFlow.volumeProfile) {
+        const vp = currOrderFlow.volumeProfile;
+        const maxBarW = Math.min(130, Math.max(58, chartPlotWidth * 0.16));
+        const rightAnchorX = chartPlotWidth - 2;
+
+        ctx.save();
+        for (const bucket of vp.buckets) {
+          const yHigh = priceToY(bucket.priceHigh, chart);
+          const yLow = priceToY(bucket.priceLow, chart);
+          if (yHigh === null || yLow === null) continue;
+          const topY = Math.min(yHigh, yLow);
+          const rawH = Math.abs(yLow - yHigh);
+          const barH = Math.max(2, rawH - 1.2);
+          if (topY + barH < 0 || topY > chartPlotHeight) continue;
+
+          const totalW = Math.max(2, bucket.widthRatio * maxBarW);
+          const buyFrac =
+            bucket.totalVolume > 0 ? bucket.buyVolume / bucket.totalVolume : 0.5;
+          const buyW = totalW * buyFrac;
+          const sellW = totalW - buyW;
+          const startX = rightAnchorX - totalW;
+
+          const alpha = bucket.isPOC ? 0.52 : bucket.inValueArea ? 0.32 : 0.14;
+
+          // Sell segment (inner side) + Buy segment (outer side)
+          ctx.fillStyle = sellHex;
+          ctx.globalAlpha = alpha;
+          ctx.fillRect(startX, topY, sellW, barH);
+
+          ctx.fillStyle = buyHex;
+          ctx.globalAlpha = alpha;
+          ctx.fillRect(startX + sellW, topY, buyW, barH);
+
+          if (bucket.isPOC) {
+            ctx.globalAlpha = 0.95;
+            ctx.strokeStyle = pocHex;
+            ctx.lineWidth = 1.4;
+            ctx.strokeRect(startX, topY, totalW, barH);
+          }
+        }
+        ctx.globalAlpha = 1;
+
+        // POC Reference Line & Tag
+        const yPoc = priceToY(vp.pocPrice, chart);
+        if (yPoc !== null && yPoc >= 10 && yPoc <= chartPlotHeight - 10) {
+          const lookbackStartCandle =
+            currCandles[Math.max(0, currCandles.length - vp.lookbackBars)];
+          const xPocStart = lookbackStartCandle
+            ? Math.max(0, resolveTimeToX(lookbackStartCandle.time, currCandles, chart) ?? 0)
+            : Math.max(0, chartPlotWidth * 0.35);
+
+          ctx.strokeStyle = pocHex;
+          ctx.lineWidth = 1.3;
+          ctx.setLineDash([5, 4]);
+          ctx.beginPath();
+          ctx.moveTo(xPocStart, yPoc);
+          ctx.lineTo(rightAnchorX, yPoc);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          const pocLabel = `POC ${vp.pocPrice.toFixed(decimals)}`;
+          ctx.font = 'bold 8.5px JetBrains Mono, monospace';
+          const tw = ctx.measureText(pocLabel).width + 8;
+          const tx = Math.max(6, rightAnchorX - maxBarW - tw - 4);
+          const ty = Math.max(4, Math.min(chartPlotHeight - 16, yPoc - 7));
+          ctx.fillStyle = currTheme === 'light' ? 'rgba(254, 243, 199, 0.94)' : 'rgba(24, 24, 27, 0.92)';
+          ctx.strokeStyle = pocHex;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.roundRect(tx, ty, tw, 14, 3);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = currTheme === 'light' ? '#b45309' : pocHex;
+          ctx.textAlign = 'left';
+          ctx.fillText(pocLabel, tx + 4, ty + 10);
+        }
+
+        // VAH & VAL subtle guide ticks
+        for (const [tag, priceVal] of [
+          ['VAH', vp.vahPrice],
+          ['VAL', vp.valPrice],
+        ] as const) {
+          const yVal = priceToY(priceVal, chart);
+          if (yVal !== null && yVal >= 12 && yVal <= chartPlotHeight - 12) {
+            ctx.strokeStyle =
+              currTheme === 'light' ? 'rgba(71, 85, 105, 0.45)' : 'rgba(148, 163, 184, 0.45)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 3]);
+            ctx.beginPath();
+            ctx.moveTo(rightAnchorX - maxBarW * 0.85, yVal);
+            ctx.lineTo(rightAnchorX, yVal);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.font = 'bold 7.5px JetBrains Mono, monospace';
+            ctx.fillStyle =
+              currTheme === 'light' ? 'rgba(71, 85, 105, 0.85)' : 'rgba(148, 163, 184, 0.85)';
+            ctx.textAlign = 'right';
+            ctx.fillText(`${tag} ${priceVal.toFixed(decimals)}`, rightAnchorX - 4, yVal - 3);
+          }
+        }
+        ctx.restore();
+      }
+
+      // 4) Intrabar Delta Footprint Bar Imbalance Dots (when zoomed in enough)
+      if (ofCfg.showDeltaFootprint && barSpacing >= 7) {
+        const recentBars = currOrderFlow.bars.slice(-140);
+        for (const b of recentBars) {
+          if (b.relativeVolume < 1.15 || Math.abs(b.deltaPct) < 22) continue;
+          const x = resolveTimeToX(b.time, currCandles, chart);
+          if (x === null || x < 4 || x > chartPlotWidth - 4) continue;
+          const midPrice = (b.open + b.close) / 2;
+          const yMid = priceToY(midPrice, chart);
+          if (yMid === null || yMid < 6 || yMid > chartPlotHeight - 6) continue;
+
+          const isBuyImbalance = b.delta > 0;
+          ctx.save();
+          ctx.fillStyle = isBuyImbalance ? buyHex : sellHex;
+          ctx.strokeStyle = currTheme === 'light' ? '#ffffff' : '#0f172a';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(x, yMid, Math.min(3.6, Math.max(2.2, barSpacing * 0.22)), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      // 5) Absorption, Liquidity Sweep & CVD Divergence Signals
+      if (ofCfg.showSignals && currOrderFlow.signals.length > 0) {
+        let lastOfBadgeRightX = -999;
+        for (const sig of currOrderFlow.signals) {
+          const x = resolveTimeToX(sig.time, currCandles, chart);
+          if (x === null || x < -20 || x > chartPlotWidth + 20) continue;
+          const yHigh = priceToY(sig.high, chart);
+          const yLow = priceToY(sig.low, chart);
+          if (yHigh === null || yLow === null) continue;
+
+          const wickTop = Math.min(yHigh, yLow);
+          const wickBottom = Math.max(yHigh, yLow);
+          const isUp = sig.direction === 'UP';
+          const sigColor = isUp ? buyHex : sellHex;
+
+          ctx.save();
+          // Diamond rejection marker at the extreme wick
+          const diamondY = isUp
+            ? Math.min(chartPlotHeight - 8, wickBottom + 7)
+            : Math.max(8, wickTop - 7);
+          const r = sig.strength === 'STRONG' ? 4.2 : 3.2;
+          ctx.fillStyle = sigColor;
+          ctx.strokeStyle = currTheme === 'light' ? '#ffffff' : '#090d16';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(x, diamondY - r);
+          ctx.lineTo(x + r, diamondY);
+          ctx.lineTo(x, diamondY + r);
+          ctx.lineTo(x - r, diamondY);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          if (barSpacing >= 6 && x - 26 > lastOfBadgeRightX) {
+            const tagText = `${sig.label} · ${sig.relativeVolume.toFixed(1)}×V`;
+            ctx.font = 'bold 8px JetBrains Mono, monospace';
+            const tw = ctx.measureText(tagText).width + 8;
+            const th = 13;
+            const tx = Math.max(4, Math.min(chartPlotWidth - tw - 4, x - tw / 2));
+            const ty = isUp
+              ? Math.min(chartPlotHeight - th - 3, diamondY + 6)
+              : Math.max(4, diamondY - th - 6);
+
+            ctx.fillStyle =
+              currTheme === 'light'
+                ? isUp
+                  ? 'rgba(236, 253, 245, 0.95)'
+                  : 'rgba(255, 241, 242, 0.95)'
+                : isUp
+                ? 'rgba(6, 78, 59, 0.92)'
+                : 'rgba(136, 19, 55, 0.92)';
+            ctx.strokeStyle = sigColor;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(tx, ty, tw, th, 3);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle =
+              currTheme === 'light'
+                ? isUp
+                  ? '#047857'
+                  : '#be123c'
+                : '#ffffff';
+            ctx.textAlign = 'left';
+            ctx.fillText(tagText, tx + 4, ty + 9.2);
+            lastOfBadgeRightX = tx + tw + 6;
+          }
+          ctx.restore();
+        }
       }
     }
 
@@ -1891,12 +2272,36 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       const tpDist = takeProfit > 0 ? Math.abs(takeProfit - entryPrice) : 0;
       const tpPct = entryPrice > 0 ? (tpDist / entryPrice) * 100 : 0;
       const tpPips = (tpDist / pipSize).toFixed(1);
-      const tpAmount = Math.round(tpDist * lotSize * contractSize);
+      const tpAmount =
+        takeProfit > 0
+          ? Math.abs(
+              calculatePositionPnl(
+                side,
+                entryPrice,
+                takeProfit,
+                lotSize,
+                currSymbol,
+                currReactionSession
+              )
+            )
+          : 0;
 
       const slDist = stopLoss > 0 ? Math.abs(entryPrice - stopLoss) : 0;
       const slPct = entryPrice > 0 ? (slDist / entryPrice) * 100 : 0;
       const slPips = (slDist / pipSize).toFixed(1);
-      const slAmount = Math.round(slDist * lotSize * contractSize);
+      const slAmount =
+        stopLoss > 0
+          ? Math.abs(
+              calculatePositionPnl(
+                side,
+                entryPrice,
+                stopLoss,
+                lotSize,
+                currSymbol,
+                currReactionSession
+              )
+            )
+          : 0;
 
       const rrRatio = (tpDist / Math.max(currInst.minMove, slDist)).toFixed(2);
       const midX = left + boxW / 2;
@@ -1932,7 +2337,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
       // Top/Target Pill
       if (yTP !== null) {
-        const targetText = `Target: ${tpDist.toFixed(decimals)} (${tpPct.toFixed(2)}%) ${tpPips}p, Amount: $${tpAmount.toLocaleString()}`;
+        const targetText = `Target: ${tpDist.toFixed(decimals)} (${tpPct.toFixed(2)}%) ${tpPips}${unitSuffix}, Amount: ${formatMoney(tpAmount, currCurrency)}`;
         const targetW = ctx.measureText(targetText).width + 12;
         const targetY = side === 'LONG' ? yTP - 21 : yTP + 4;
         const clampedTargetX = Math.max(
@@ -1951,10 +2356,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       // Bottom/Stop Pill (adapts when moved to Break-Even or into Profit!)
       if (ySL !== null) {
         const stopText = isSlInProfit
-          ? `Stop (Profit Locked): +${slPips}p (${slPct.toFixed(2)}%), Locked: +$${slAmount.toLocaleString()}`
+          ? `Stop (Profit Locked): +${slPips}${unitSuffix} (${slPct.toFixed(2)}%), Locked: +${formatMoney(slAmount, currCurrency)}`
           : isSlAtBreakEven
-          ? `Stop (Break-Even): 0.0p (0.00%), Risk: $0`
-          : `Stop: ${slDist.toFixed(decimals)} (${slPct.toFixed(2)}%) ${slPips}p, Amount: -$${slAmount.toLocaleString()}`;
+          ? `Stop (Break-Even): 0.0${unitSuffix} (0.00%), Risk: ${formatMoney(0, currCurrency)}`
+          : `Stop: ${slDist.toFixed(decimals)} (${slPct.toFixed(2)}%) ${slPips}${unitSuffix}, Amount: -${formatMoney(slAmount, currCurrency)}`;
         const stopW = ctx.measureText(stopText).width + 12;
         const stopY = side === 'LONG' ? ySL + 4 : ySL - 21;
         const clampedStopX = Math.max(
@@ -1980,14 +2385,14 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           ? `PENDING ${side} @ ${entryPrice.toFixed(decimals)} · Lot: ${lotSize.toFixed(2)}`
           : boxMode === 'DRAWING'
           ? `${side} TOOL @ ${entryPrice.toFixed(decimals)} · Lot: ${lotSize.toFixed(2)}`
-          : `Open PnL: ${livePnl >= 0 ? '+' : ''}$${livePnl.toFixed(2)} · Lot: ${lotSize.toFixed(2)}`;
+          : `Open PnL: ${livePnl >= 0 ? '+' : '-'}${formatMoney(Math.abs(livePnl), currCurrency)} · Lot: ${lotSize.toFixed(2)}`;
       const pnlLine2 =
         boxMode === 'DRAWING'
           ? `R/R Ratio: ${rrRatio} (Click Execute below to trade)`
           : isSlInProfit
-          ? `Locked Profit @ SL: +$${slAmount.toLocaleString()} · Drag SL line to trail`
+          ? `Locked Profit @ SL: +${formatMoney(slAmount, currCurrency)} · Drag SL line to trail`
           : isSlAtBreakEven
-          ? `Break-Even Active ($0 Risk) · Drag SL line to lock profit`
+          ? `Break-Even Active (${formatMoney(0, currCurrency)} Risk) · Drag SL line to lock profit`
           : `Risk/Reward Ratio: ${rrRatio}`;
       const w1 = ctx.measureText(pnlLine1).width;
       const w2 = ctx.measureText(pnlLine2).width;
@@ -2569,6 +2974,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         const h = Math.max(4, Math.abs(y2 - y1));
         const diff = (d.price2 ?? d.price1) - d.price1;
         const pct = d.price1 > 0 ? (diff / d.price1) * 100 : 0;
+        const rulerPips = (Math.abs(diff) / Math.max(1e-9, pipSize)).toFixed(1);
 
         ctx.fillStyle =
           diff >= 0 ? 'rgba(41, 98, 255, 0.15)' : 'rgba(242, 54, 69, 0.15)';
@@ -2578,8 +2984,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         ctx.strokeRect(left, top, w, h);
 
         const text = `${diff >= 0 ? '+' : ''}${diff.toFixed(decimals)} (${
-          pct >= 0 ? '+' : ''
-        }${pct.toFixed(2)}%)`;
+          diff >= 0 ? '+' : '-'
+        }${rulerPips} ${unitLabel} · ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
         const tw = ctx.measureText(text).width + 12;
         ctx.fillStyle = diff >= 0 ? '#2962ff' : '#f23645';
         ctx.beginPath();
@@ -2688,10 +3094,14 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           );
         const lot = d.lotSize ?? 1.0;
         const lastClose = currCandles[currCandles.length - 1]?.close ?? d.price1;
-        const livePnl =
-          side === 'LONG'
-            ? (lastClose - d.price1) * lot * contractSize
-            : (d.price1 - lastClose) * lot * contractSize;
+        const livePnl = calculatePositionPnl(
+          side,
+          d.price1,
+          lastClose,
+          lot,
+          currSymbol,
+          currReactionSession
+        );
 
         renderTVPositionBox(
           side,
@@ -2716,6 +3126,66 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       }
       if (currDraft) {
         renderDrawing(currDraft, true);
+      }
+    }
+
+    // Keep the on-chart "Place Order" button anchored to the active Long/Short position tool
+    const posToolAnchor = positionToolActionAnchorRef.current;
+    if (posToolAnchor) {
+      const activePosDrawing = !currHideDrawings
+        ? currDrawings.find(
+            (d) =>
+              d.id === currSelectedId &&
+              (d.type === 'long_position' || d.type === 'short_position')
+          ) ||
+          [...currDrawings]
+            .reverse()
+            .find((d) => d.type === 'long_position' || d.type === 'short_position')
+        : undefined;
+      if (activePosDrawing && currCandles.length > 0) {
+        const px1 = resolveTimeToX(activePosDrawing.time1, currCandles, chart);
+        const px2 =
+          activePosDrawing.time2 !== undefined
+            ? resolveTimeToX(activePosDrawing.time2, currCandles, chart)
+            : null;
+        const pyEntry = priceToY(activePosDrawing.price1, chart);
+        if (px1 !== null && pyEntry !== null) {
+          const rX = px2 !== null ? px2 : px1 + 160;
+          const rawLeft = Math.min(px1, rX);
+          const rawRight = Math.max(rawLeft + 24, Math.max(px1, rX));
+          const left = Math.max(0, Math.min(rawLeft, chartPlotWidth - 48));
+          const right = Math.min(
+            chartPlotWidth,
+            Math.max(left + 44, rawRight < 0 ? Math.min(chartPlotWidth, 180) : rawRight)
+          );
+          const visible =
+            rawLeft <= chartPlotWidth &&
+            rawRight >= 0 &&
+            pyEntry >= 8 &&
+            pyEntry <= chartPlotHeight - 8;
+          posToolAnchor.style.opacity = visible ? '1' : '0';
+          posToolAnchor.style.pointerEvents = visible ? 'auto' : 'none';
+          if (visible) {
+            const btnW = posToolAnchor.offsetWidth || 82;
+            const btnH = posToolAnchor.offsetHeight || 22;
+            const preferredLeft = Math.max(left + 6, right - btnW - 6);
+            const clampedLeft = Math.max(
+              4,
+              Math.min(chartPlotWidth - btnW - 4, preferredLeft)
+            );
+            const clampedTop = Math.max(
+              8,
+              Math.min(chartPlotHeight - btnH - 8, pyEntry - btnH / 2)
+            );
+            posToolAnchor.style.transform = `translate3d(${Math.round(clampedLeft)}px, ${Math.round(clampedTop)}px, 0)`;
+          }
+        } else {
+          posToolAnchor.style.opacity = '0';
+          posToolAnchor.style.pointerEvents = 'none';
+        }
+      } else {
+        posToolAnchor.style.opacity = '0';
+        posToolAnchor.style.pointerEvents = 'none';
       }
     }
 
@@ -2761,8 +3231,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           if (xExit !== null && yExit !== null && xExit > 20 && xExit < chartPlotWidth - 20) {
             const won = pos.pnl >= 0;
             const text = `${won ? 'TP' : 'SL'} ${
-              won ? '+' : ''
-            }$${pos.pnl.toFixed(0)}`;
+              won ? '+' : '-'
+            }${formatMoney(Math.round(Math.abs(pos.pnl)), currCurrency)}`;
             ctx.font = '500 9.5px JetBrains Mono, monospace';
             const tw = ctx.measureText(text).width + 10;
             const px = Math.min(chartPlotWidth - tw - 4, Math.max(4, xExit - tw / 2));
@@ -5009,6 +5479,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     showSMA20,
     momentum,
     engulfingStudy,
+    orderFlowStudy,
     forecast,
     drawOverlay,
   ]);
@@ -5021,10 +5492,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
   const activeCandle = (hoveredCandle && candles.find(c => c.time === hoveredCandle.time)) || candles[candles.length - 1];
   const latestClose = marketPrice ?? candles[candles.length - 1]?.close ?? instConfig.basePrice;
-  const halfSpread = instConfig.defaultSpread / 2;
-  const sellBid = Number((latestClose - halfSpread).toFixed(instConfig.decimals));
-  const buyAsk = Number((latestClose + halfSpread).toFixed(instConfig.decimals));
-  const spreadPips = (instConfig.defaultSpread / instConfig.pipSize).toFixed(1);
+  const { bid: sellBid, ask: buyAsk, spreadPips: rawSpreadPips } = getBidAskFromMid(
+    latestClose,
+    symbol,
+    reactionSession
+  );
+  const spreadPips = rawSpreadPips.toFixed(1);
   const priceChange = activeCandle ? activeCandle.close - activeCandle.open : 0;
   const priceChangePct =
     activeCandle && activeCandle.open > 0 ? (priceChange / activeCandle.open) * 100 : 0;
@@ -5106,6 +5579,53 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       {mobileTradeControls && <div className="absolute right-2 top-[calc(50%+76px)] -translate-y-1/2 z-30 pointer-events-auto">{mobileTradeControls}</div>}
 
       <TradeReactions key={`${reactionScope}:${symbol}`} positions={positions} currency={accountCurrency} isLight={isLight} anchorRef={reactionAnchorRef} midPrice={marketPrice ?? candles[candles.length - 1]?.close} symbol={symbol} session={reactionSession} />
+
+      {(() => {
+        const activePosTool = !hideDrawings
+          ? drawings.find(
+              (d) =>
+                d.id === selectedId &&
+                (d.type === 'long_position' || d.type === 'short_position')
+            ) ||
+            [...drawings]
+              .reverse()
+              .find((d) => d.type === 'long_position' || d.type === 'short_position')
+          : undefined;
+        if (!activePosTool || !onPlaceOrderFromDrawing) return null;
+        const isLongTool = activePosTool.type === 'long_position';
+        const latestMid = marketPrice ?? candles[candles.length - 1]?.close ?? activePosTool.price1;
+        const { bid: currBid, ask: currAsk } = getBidAskFromMid(latestMid, symbol, reactionSession);
+        const refMarketPrice = isLongTool ? currAsk : currBid;
+        const isMarketEntry =
+          Math.abs(activePosTool.price1 - refMarketPrice) <=
+          Math.max(instConfig.pipSize * 5, instConfig.minMove * 10);
+        return (
+          <div
+            ref={positionToolActionAnchorRef}
+            style={{ opacity: 0, pointerEvents: 'none', left: 0, top: 0 }}
+            className="absolute z-30 transition-opacity duration-75"
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                onPlaceOrderFromDrawing(activePosTool, isMarketEntry ? 'MARKET' : 'PENDING');
+                onDeleteDrawing(activePosTool.id);
+                setSelectedId(null);
+              }}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-md border flex items-center gap-1 whitespace-nowrap active:scale-95 transition ${
+                isLongTool
+                  ? 'bg-[#089981] hover:bg-[#07856f] border-emerald-300/40'
+                  : 'bg-[#f23645] hover:bg-[#d92b3a] border-rose-300/40'
+              }`}
+              title={`Place ${isLongTool ? 'Buy' : 'Sell'} Order from Position Tool`}
+            >
+              <span>Place Order</span>
+            </button>
+          </div>
+        );
+      })()}
 
       {momentum && <MomentumStudy study={momentum} candles={candles} seconds={TIMEFRAME_CONFIG[timeframe]?.seconds || 900} options={momentumOptions} onOptions={setMomentumOptions} onClose={closeMomentum} decimals={instConfig.decimals} light={isLight} timezone={displayTimezone} feedLabel={feedLabel} onPlaceTool={signal => {
         const drawing: ChartDrawing = { id: `momentum-${Date.now()}`, type: signal.side === 'LONG' ? 'long_position' : 'short_position', time1: signal.time, time2: signal.time + (TIMEFRAME_CONFIG[timeframe]?.seconds || 900) * 12, price1: signal.entry, price2: signal.entry, stopLoss: signal.stop, takeProfit: signal.target, lotSize: 1, label: 'MOMENTUM · 2R PLAN', color: signal.side === 'LONG' ? '#089981' : '#f23645', lineWidth: 1 };
@@ -5282,6 +5802,154 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 onClick={closeEngulfing}
                 className="p-0.5 rounded hover:bg-slate-500/20 opacity-65 hover:opacity-100"
                 title="Hide Engulfing Volume / Momentum indicator (re-enable anytime in Indicators menu)"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
+          {/* Row 2b: Historical Order Flow Indicator HUD Pill */}
+          {orderFlowStudy && (
+            <div
+              role="region"
+              aria-label="Historical Order Flow Indicator"
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              className={`inline-flex flex-wrap items-center gap-1.5 px-2.5 py-1 rounded-lg border backdrop-blur-md shadow-sm pointer-events-auto w-fit text-[10px] ${
+                isLight
+                  ? 'bg-white/95 border-amber-300 text-slate-800'
+                  : 'bg-[#131722]/92 border-amber-500/35 text-slate-200'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setEffectiveActiveIndicatorSettingsId('showOrderFlow')}
+                title="Configure Order Flow (Volume Profile, Order Blocks, FVGs, Absorption & Delta)"
+                className="font-extrabold tracking-tight flex items-center gap-1 hover:text-amber-400 transition"
+              >
+                <span className="w-2 h-2 rounded-full bg-gradient-to-r from-amber-400 via-emerald-400 to-rose-500" />
+                <span>Order Flow</span>
+                <Settings2 className="w-2.5 h-2.5 opacity-70" />
+              </button>
+
+              {/* 20-bar Buy vs Sell Volume Split & Net Delta */}
+              <span
+                title="Rolling 20-bar Buy vs Sell Volume Pressure and Net Delta"
+                className={`px-1.5 py-0.5 rounded font-mono font-bold ${
+                  orderFlowStudy.summary.netDelta20Pct >= 4
+                    ? 'bg-emerald-500/15 text-emerald-400'
+                    : orderFlowStudy.summary.netDelta20Pct <= -4
+                    ? 'bg-rose-500/15 text-rose-400'
+                    : 'bg-slate-500/15 text-slate-300'
+                }`}
+              >
+                Buy {orderFlowStudy.summary.buyPressure20Pct}% / Sell{' '}
+                {orderFlowStudy.summary.sellPressure20Pct}% (Δ{' '}
+                {orderFlowStudy.summary.netDelta20Pct > 0 ? '+' : ''}
+                {orderFlowStudy.summary.netDelta20Pct}%)
+              </span>
+
+              {/* CVD Trend */}
+              <span
+                title="Cumulative Volume Delta (CVD) 20-bar trajectory"
+                className={`px-1.5 py-0.5 rounded font-mono font-bold ${
+                  orderFlowStudy.summary.cvdTrend === 'RISING'
+                    ? 'bg-emerald-500/15 text-emerald-400'
+                    : orderFlowStudy.summary.cvdTrend === 'FALLING'
+                    ? 'bg-rose-500/15 text-rose-400'
+                    : 'bg-slate-500/15 text-slate-400'
+                }`}
+              >
+                CVD{' '}
+                {orderFlowStudy.summary.cvdTrend === 'RISING'
+                  ? '▲'
+                  : orderFlowStudy.summary.cvdTrend === 'FALLING'
+                  ? '▼'
+                  : '▬'}
+              </span>
+
+              {/* Volume Profile POC */}
+              {orderFlowStudy.volumeProfile && (
+                <span
+                  title="Historical Volume Profile Point of Control (Price level with highest traded volume)"
+                  className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-mono font-bold"
+                >
+                  POC {orderFlowStudy.volumeProfile.pocPrice.toFixed(instConfig.decimals)}
+                </span>
+              )}
+
+              {/* Active Hovered / Latest Candle Intrabar Delta */}
+              {(() => {
+                const barMetric =
+                  orderFlowStudy.bars.find((b) => b.time === activeCandle.time) ||
+                  orderFlowStudy.bars[orderFlowStudy.bars.length - 1];
+                if (!barMetric) return null;
+                return (
+                  <span
+                    title="Selected candle intrabar Volume Delta & Relative Volume (RVOL)"
+                    className={`hidden md:inline-flex px-1.5 py-0.5 rounded font-mono font-bold border ${
+                      barMetric.delta >= 0
+                        ? 'border-emerald-500/30 text-emerald-400'
+                        : 'border-rose-500/30 text-rose-400'
+                    }`}
+                  >
+                    Bar Δ {barMetric.deltaPct > 0 ? '+' : ''}
+                    {barMetric.deltaPct.toFixed(0)}% · {barMetric.relativeVolume.toFixed(1)}×V
+                  </span>
+                );
+              })()}
+
+              {/* Direction Filter */}
+              <div className="flex items-center gap-0.5 border-l border-slate-500/25 pl-1.5">
+                {(['ALL', 'UP', 'DOWN'] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setOrderFlowFilter(f)}
+                    className={`px-1.5 py-0.5 rounded font-bold transition ${
+                      orderFlowFilter === f
+                        ? f === 'UP'
+                          ? 'bg-emerald-500 text-slate-950'
+                          : f === 'DOWN'
+                          ? 'bg-rose-500 text-white'
+                          : 'bg-amber-500 text-slate-950'
+                        : 'opacity-65 hover:opacity-100'
+                    }`}
+                  >
+                    {f === 'ALL' ? 'All' : f === 'UP' ? 'Bull ▲' : 'Bear ▼'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Latest Absorption / Liquidity Sweep / CVD Div Signal Jump Button */}
+              {orderFlowStudy.summary.latestSignal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sig = orderFlowStudy.summary.latestSignal;
+                    if (sig && chartRef.current) {
+                      chartRef.current.scrollToTimestamp(sig.time * 1000, 220);
+                      drawOverlay();
+                    }
+                  }}
+                  title="Jump to latest Order Flow Absorption / Liquidity Sweep / CVD Divergence signal"
+                  className={`px-1.5 py-0.5 rounded border font-mono font-bold transition ${
+                    orderFlowStudy.summary.latestSignal.direction === 'UP'
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                      : 'border-rose-500/40 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'
+                  }`}
+                >
+                  {orderFlowStudy.summary.latestSignal.label} (
+                  {orderFlowStudy.summary.latestSignal.relativeVolume.toFixed(1)}×V)
+                </button>
+              )}
+
+              <button
+                type="button"
+                aria-label="Hide Historical Order Flow indicator"
+                onClick={closeOrderFlow}
+                className="p-0.5 rounded hover:bg-slate-500/20 opacity-65 hover:opacity-100"
+                title="Hide Historical Order Flow indicator (re-enable anytime in Indicators menu)"
               >
                 <X className="w-3 h-3" />
               </button>

@@ -38,6 +38,7 @@ export type InstrumentCategory =
   | 'CRYPTO';
 
 export type AccountCurrency = 'USD' | 'ZAR' | 'EUR' | 'GBP' | 'AUD' | 'CAD' | 'JPY';
+export type InstrumentCurrency = AccountCurrency | 'CHF' | 'NZD';
 
 export type DisplayTimezone =
   | 'UTC'
@@ -59,9 +60,10 @@ export interface InstrumentConfig {
   decimals: number;
   minMove: number;
   pipSize: number;
-  contractSize: number; // Units per 1.00 standard lot (in USD PnL terms per 1.00 price move, or native contract units)
+  contractSize: number; // Standard units per 1.00 lot (e.g., 100,000 for FX, 100 oz for Gold, 1 for Indices/Crypto, 100 bbl for Oil)
   nativeContractUnits?: number; // e.g., 100 oz for XAUUSD, 100,000 units for FX pairs
-  quoteCurrency?: AccountCurrency; // e.g., 'USD', 'JPY', 'GBP', 'AUD', 'CAD'
+  baseCurrency?: InstrumentCurrency; // e.g., 'EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD'
+  quoteCurrency?: InstrumentCurrency; // e.g., 'USD', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'EUR'
   minQuantity?: number; // e.g., 0.01 lot
   quantityIncrement?: number; // e.g., 0.01 lot
   defaultSpread: number; // Price spread (e.g., 0.24 for XAUUSD, 0.00008 for EURUSD)

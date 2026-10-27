@@ -518,8 +518,6 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
         <div className="flex items-center gap-1 shrink-0">
           <BalanceBadge balance={computedBalance} equity={computedEquity} currency={accountCurrency} hidden={balanceHidden} onToggle={onToggleBalance} onChangeCurrency={onChangeCurrency} isLight={isLight} className="hidden sm:flex" />
 
-          {onOpenMindset && <button onClick={onOpenMindset} title="Trading mindset & psychology coach" aria-label="Trading mindset" className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border shrink-0 ${cardBg}`}><BrainCircuit className="w-3.5 h-3.5 text-emerald-400"/><span className="hidden md:inline">Mindset</span></button>}
-
           {onOpenPlan && (
             <button
               onClick={onOpenPlan}
@@ -876,36 +874,6 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
               <Moon className="w-3.5 h-3.5 text-slate-600" />
             ) : (
               <Sun className="w-3.5 h-3.5 text-amber-400" />
-            )}
-          </button>
-
-          {/* Chart Screenshot (Camera) */}
-          {onTakeScreenshot && (
-            <button
-              type="button"
-              onClick={onTakeScreenshot}
-              aria-label="Take chart screenshot"
-              className={`p-1.5 rounded border transition shrink-0 ${cardBg}`}
-              title="Take a snapshot / screenshot of the current chart (PNG)"
-            >
-              <Camera className="w-3.5 h-3.5 text-sky-400" />
-            </button>
-          )}
-
-          {/* Browser Full Screen */}
-          <button
-            onClick={onToggleFullscreen}
-            className={`p-1.5 rounded border transition shrink-0 ${
-              isFullscreen
-                ? 'bg-[#252a34] text-white keep-white border-[#3a404f]'
-                : cardBg
-            }`}
-            title={isFullscreen ? 'Exit Full Screen' : 'Enter Full Screen'}
-          >
-            {isFullscreen ? (
-              <Minimize2 className="w-3.5 h-3.5" />
-            ) : (
-              <Maximize2 className="w-3.5 h-3.5" />
             )}
           </button>
 

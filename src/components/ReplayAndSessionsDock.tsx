@@ -1399,9 +1399,9 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                         );
                         const netFloating = Number(
                           (
+                            (pos.bankedPartialPnl || 0) +
                             grossPnl -
-                            (pos.commissionPaid || 0) -
-                            (pos.slippageCost || 0)
+                            (pos.commissionPaid || 0)
                           ).toFixed(2)
                         );
                         const isEditing = editingRowId === pos.id;

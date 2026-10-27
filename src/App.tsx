@@ -58,6 +58,7 @@ import {
   getAggregatedCandlesUpToClock,
   getBidAskFromMid,
   getEffectiveInstrumentSpec,
+  getInstrumentPipLabel,
   hasRealMarketDataForSymbol,
   hydrateRealMarketDataForSymbol,
   modifyPositionOrOrder,
@@ -735,6 +736,11 @@ export function App() {
   }, [isMobile]);
   const [showMobileTools, setShowMobileTools] = useState<boolean>(false);
   const [showRightWidget, setShowRightWidget] = useState<boolean>(() => !detectMobile());
+  const [activeOrderSide, setActiveOrderSide] = useState<'LONG' | 'SHORT'>('LONG');
+  const [requestedOrderSide, setRequestedOrderSide] = useState<{
+    side: 'LONG' | 'SHORT';
+    seq: number;
+  } | null>(null);
   const handleToggleRightWidget = useCallback(() => {
     if (isChartWideMode) {
       // Panel is hidden by wide mode: leave wide mode and show the panel instead of silently flipping state
@@ -775,28 +781,36 @@ export function App() {
     showMACD: false,
     showRSI: false,
     showMomentum: false,
-    showForecast: (() => {
-      try {
-        return localStorage.getItem('chart_forecaster_enabled_v1') === '1';
-      } catch {
-        return false;
-      }
-    })(),
-    showEngulfing: (() => {
-      try {
-        return localStorage.getItem('chart_engulfing_enabled_v1') !== '0';
-      } catch {
-        return true;
-      }
-    })(),
-    showOrderFlow: (() => {
-      try {
-        return localStorage.getItem('chart_order_flow_enabled_v1') !== '0';
-      } catch {
-        return true;
-      }
-    })(),
+    showForecast: false,
+    showEngulfing: false,
+    showOrderFlow: false,
   }));
+  const resetChartIndicatorsOff = useCallback(() => {
+    setChartIndicators({
+      showEMA20: false,
+      showEMA50: false,
+      showEMA200: false,
+      showSMA20: false,
+      showVWAP: false,
+      showBOLL: false,
+      showVOL: false,
+      showMACD: false,
+      showRSI: false,
+      showMomentum: false,
+      showForecast: false,
+      showEngulfing: false,
+      showOrderFlow: false,
+    });
+    setIndicatorConfigs((prev) => {
+      if (!prev.customMAs?.some((ma) => ma.enabled)) return prev;
+      const next = {
+        ...prev,
+        customMAs: prev.customMAs.map((ma) => ({ ...ma, enabled: false })),
+      };
+      saveIndicatorConfigs(next);
+      return next;
+    });
+  }, []);
   const handleToggleIndicator = useCallback((key: keyof ChartIndicatorsState) => {
     setChartIndicators((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
@@ -1771,6 +1785,7 @@ export function App() {
             markTourSeen('completed', user.email);
           }
           resetMotivationVisit(user.email, user.isReturningLogin ?? true);
+          resetChartIndicatorsOff();
           setCurrentUser(user);
           // Fresh sign-in: re-arm the bottom workspace panel expand hint
           try {
@@ -1874,6 +1889,7 @@ export function App() {
           activeSessionId={activeSession.id}
           theme={theme}
           onCreateSession={(newSession) => {
+            resetChartIndicatorsOff();
             setTradingSessions((prev) => [newSession, ...prev]);
             setActiveSessionId(newSession.id);
             setSymbol(newSession.activeAsset);
@@ -2494,13 +2510,28 @@ export function App() {
           aria-controls="chart-order-panel"
           onClick={() => setShowRightWidget(value => !value)}
           title={showRightWidget ? 'Collapse order panel' : 'Expand order panel'}
-          style={{right: showRightWidget && !isMobile ? 320 : 0}}
-          className={`absolute top-1/2 z-40 -translate-y-1/2 rounded-l-lg border border-r-0 px-0.5 py-3 shadow-md order-panel-toggle ${theme === 'light' ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100' : 'border-[#303642] bg-[#1a1f28] text-slate-400 hover:text-white hover:bg-[#252c38]'}`}
+          style={{right: showRightWidget && !isMobile ? 320 : 58}}
+          className={`absolute top-1/2 z-40 -translate-y-1/2 rounded-l-xl border border-r-0 px-1 py-3.5 shadow-lg order-panel-toggle ${theme === 'light' ? 'border-emerald-500/30 bg-white text-teal-700 hover:bg-emerald-50' : 'border-emerald-500/25 bg-[#0d1722] text-emerald-300 hover:text-white hover:bg-[#132232] shadow-[0_0_16px_-4px_rgba(16,185,129,0.3)]'}`}
         >{showRightWidget ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}</button>}
 
         {/* Right Panel */}
         {!isChartWideMode && (
-          <AnimatedOrderPanel open={showRightWidget} mobile={isMobile} onClose={()=>setShowRightWidget(false)}>
+          <AnimatedOrderPanel
+            open={showRightWidget}
+            mobile={isMobile}
+            onClose={() => setShowRightWidget(false)}
+            onOpen={() => setShowRightWidget(true)}
+            onSelectSideAndOpen={(side) => {
+              setActiveOrderSide(side);
+              setRequestedOrderSide({ side, seq: Date.now() });
+              setShowRightWidget(true);
+            }}
+            activeSide={activeOrderSide}
+            spreadPips={getBidAskFromMid(currentMidPrice, symbol, activeSession).spreadPips}
+            unitLabel={getInstrumentPipLabel(symbol)}
+            isPropMode={activeSession.mode === 'PROP_FIRM'}
+            theme={theme}
+          >
           <RightOrderPanel
             key={activeSession.id}
             session={activeSession}
@@ -2521,6 +2552,9 @@ export function App() {
             availableStrategies={allStrategyNames}
             activePositionDrawing={activePositionDrawing}
             onAddOrUpdatePositionDrawing={handleAddOrUpdatePositionDrawingFromTicket}
+            onCollapse={() => setShowRightWidget(false)}
+            requestedSide={requestedOrderSide}
+            onSideChange={setActiveOrderSide}
           />
           </AnimatedOrderPanel>
         )}
@@ -2587,6 +2621,7 @@ export function App() {
         activeSessionId={activeSession.id}
         theme={theme}
         onCreateSession={(newSession) => {
+          resetChartIndicatorsOff();
           setTradingSessions((prev) => [newSession, ...prev]);
           setActiveSessionId(newSession.id);
           setSymbol(newSession.activeAsset);

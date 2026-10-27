@@ -260,8 +260,93 @@ export function getBidAskFromMid(
 }
 
 /**
+ * Returns the industry-standard unit label ('pips' or 'pts') for an instrument's pipSize movement.
+ * Forex, Metals, and Energies are quoted in 'pips', while Indices and Crypto are quoted in 'pts' (points).
+ */
+export function getInstrumentPipLabel(symbol: InstrumentSymbol): 'pips' | 'pts' {
+  const cat = getInstrumentConfig(symbol)?.category;
+  if (cat === 'INDICES' || cat === 'CRYPTO') return 'pts';
+  return 'pips';
+}
+
+/**
+ * Computes the absolute price distance in both pips (spec.pipSize) and points/ticks (spec.minMove).
+ */
+export function calculatePipAndPointDistance(
+  priceA: number,
+  priceB: number,
+  symbol: InstrumentSymbol,
+  session?: TradingSession | null
+): { priceDiff: number; pips: number; points: number; unitLabel: 'pips' | 'pts' } {
+  const spec = getEffectiveInstrumentSpec(symbol, session);
+  const priceDiff = Math.abs(priceB - priceA);
+  const pipSize = Math.max(1e-9, spec.pipSize);
+  const pointSize = Math.max(1e-9, spec.minMove || spec.pipSize);
+  const pips = Number((priceDiff / pipSize).toFixed(1));
+  const points = Math.round(priceDiff / pointSize);
+  return {
+    priceDiff,
+    pips,
+    points,
+    unitLabel: getInstrumentPipLabel(symbol),
+  };
+}
+
+/**
+ * Internal helper: Computes raw P&L in USD for a given price move and lot size.
+ * Handles:
+ * 1. Direct USD-quoted instruments (EURUSD, GBPUSD, XAUUSD, NAS100, USOIL, BTCUSD, etc.)
+ * 2. USD-base Forex pairs (USDJPY, USDCHF, USDCAD) where raw PnL is in quote currency and converted via the trade exit/reference price
+ * 3. Cross Forex pairs and non-USD Indices (EURGBP, GBPJPY, EURAUD, GER30, UK100, etc.) where raw PnL is in quote currency and converted via FX rates
+ */
+function calculateRawUsdPnl(
+  side: 'LONG' | 'SHORT',
+  entryPrice: number,
+  exitPrice: number,
+  lotSize: number,
+  symbol: InstrumentSymbol,
+  session?: TradingSession | null
+): number {
+  const spec = getEffectiveInstrumentSpec(symbol, session);
+  const priceDiff = side === 'LONG' ? exitPrice - entryPrice : entryPrice - exitPrice;
+  const rawQuotePnl = priceDiff * (lotSize * spec.contractSize);
+
+  const isForex =
+    spec.category === 'FOREX' ||
+    spec.category === 'FOREX_MAJORS' ||
+    spec.category === 'FOREX_CROSSES';
+
+  // Legacy session compatibility: if a saved session explicitly overrode a Forex contractSize
+  // to a pre-converted USD value (< 10,000), treat rawQuotePnl as already in USD.
+  if (isForex && spec.contractSize < 10000) {
+    return rawQuotePnl;
+  }
+
+  const baseCurr = spec.baseCurrency;
+  const quoteCurr = spec.quoteCurrency || 'USD';
+
+  if (quoteCurr === 'USD') {
+    return rawQuotePnl;
+  }
+
+  // USD-base pairs (USDJPY, USDCHF, USDCAD): quote currency per 1 USD IS the pair's current price
+  if (baseCurr === 'USD') {
+    const refRate = exitPrice > 0 ? exitPrice : entryPrice > 0 ? entryPrice : spec.basePrice;
+    return refRate > 0 ? rawQuotePnl / refRate : rawQuotePnl;
+  }
+
+  // Non-USD quote currency on cross pairs or indices (e.g., JPY, GBP, AUD, EUR, CAD)
+  const quotePerUsd = (ACCOUNT_CURRENCY_RATES as Record<string, number>)[quoteCurr];
+  if (quotePerUsd && quotePerUsd > 0) {
+    return rawQuotePnl / quotePerUsd;
+  }
+
+  return rawQuotePnl;
+}
+
+/**
  * Computes P&L in the session's AccountCurrency for a given price move and lot size.
- * Respects instrument-specific contract size and currency conversion.
+ * Respects instrument-specific contract size, base/quote currency conversion, and account currency.
  */
 export function calculatePositionPnl(
   side: 'LONG' | 'SHORT',
@@ -272,11 +357,120 @@ export function calculatePositionPnl(
   session?: TradingSession | null
 ): number {
   const spec = getEffectiveInstrumentSpec(symbol, session);
-  const priceDiff = side === 'LONG' ? exitPrice - entryPrice : entryPrice - exitPrice;
-  // In goldDataService, spec.contractSize is calibrated in USD PnL per 1.00 price move per 1.00 standard lot
-  const usdPnl = priceDiff * (lotSize * spec.contractSize);
-  const currency = session?.frozenConfig?.accountCurrency || session?.accountCurrency || 'USD';
-  return convertUsdToAccountCurrency(usdPnl, currency);
+  const accountCurrency =
+    session?.frozenConfig?.accountCurrency || session?.accountCurrency || 'USD';
+
+  const isForex =
+    spec.category === 'FOREX' ||
+    spec.category === 'FOREX_MAJORS' ||
+    spec.category === 'FOREX_CROSSES';
+
+  // Exact direct match when the instrument's quote currency IS the trader's account currency
+  if (
+    (!isForex || spec.contractSize >= 10000) &&
+    spec.quoteCurrency === accountCurrency &&
+    spec.baseCurrency !== 'USD'
+  ) {
+    const priceDiff = side === 'LONG' ? exitPrice - entryPrice : entryPrice - exitPrice;
+    return Number((priceDiff * (lotSize * spec.contractSize)).toFixed(2));
+  }
+
+  const usdPnl = calculateRawUsdPnl(side, entryPrice, exitPrice, lotSize, symbol, session);
+  return convertUsdToAccountCurrency(usdPnl, accountCurrency);
+}
+
+/**
+ * Computes the monetary value of 1 pip (or 1 point for Indices/Crypto) in the session's AccountCurrency
+ * for the given lot size and reference price.
+ */
+export function calculatePipValue(
+  lotSize: number,
+  referencePrice: number,
+  symbol: InstrumentSymbol,
+  session?: TradingSession | null
+): number {
+  const spec = getEffectiveInstrumentSpec(symbol, session);
+  const ref = referencePrice > 0 ? referencePrice : spec.basePrice;
+  return Math.abs(
+    calculatePositionPnl('LONG', ref, ref + spec.pipSize, lotSize, symbol, session)
+  );
+}
+
+/**
+ * Computes the Notional Value and Required Margin in both USD and the session's AccountCurrency,
+ * accurately respecting the instrument's contract size, base/quote currency, and account leverage.
+ */
+export function calculateRequiredMargin(
+  lotSize: number,
+  price: number,
+  symbol: InstrumentSymbol,
+  session?: TradingSession | null,
+  leverageOverride?: number
+): {
+  notionalUsd: number;
+  requiredMarginUsd: number;
+  requiredMarginAccount: number;
+  leverage: number;
+} {
+  const spec = getEffectiveInstrumentSpec(symbol, session);
+  const leverage = Math.max(
+    1,
+    leverageOverride ??
+      session?.frozenConfig?.moreOptions?.leverage ??
+      session?.moreOptions?.leverage ??
+      100
+  );
+  const accountCurrency =
+    session?.frozenConfig?.accountCurrency || session?.accountCurrency || 'USD';
+  const refPrice = price > 0 ? price : spec.basePrice;
+
+  const isForex =
+    spec.category === 'FOREX' ||
+    spec.category === 'FOREX_MAJORS' ||
+    spec.category === 'FOREX_CROSSES';
+
+  let notionalUsd = 0;
+
+  if (isForex && spec.contractSize >= 10000) {
+    const baseUnits = lotSize * spec.contractSize;
+    if (spec.baseCurrency === 'USD') {
+      // USDJPY, USDCHF, USDCAD: 1.00 lot = 100,000 USD notional
+      notionalUsd = baseUnits;
+    } else if (spec.quoteCurrency === 'USD') {
+      // EURUSD, GBPUSD, AUDUSD, NZDUSD: 1.00 lot = 100,000 * spot USD notional
+      notionalUsd = baseUnits * refPrice;
+    } else if (
+      spec.baseCurrency &&
+      (ACCOUNT_CURRENCY_RATES as Record<string, number>)[spec.baseCurrency]
+    ) {
+      // Cross pairs (EURGBP, GBPJPY, EURAUD, CADJPY, etc.): convert base currency units to USD
+      const basePerUsd = (ACCOUNT_CURRENCY_RATES as Record<string, number>)[spec.baseCurrency];
+      notionalUsd = baseUnits / basePerUsd;
+    } else {
+      notionalUsd = baseUnits * refPrice;
+    }
+  } else {
+    // Metals, Indices, Energies, Crypto: contractSize units at refPrice in quoteCurrency
+    const rawNotionalQuote = lotSize * spec.contractSize * refPrice;
+    const quoteCurr = spec.quoteCurrency || 'USD';
+    if (quoteCurr === 'USD') {
+      notionalUsd = rawNotionalQuote;
+    } else if ((ACCOUNT_CURRENCY_RATES as Record<string, number>)[quoteCurr]) {
+      notionalUsd = rawNotionalQuote / (ACCOUNT_CURRENCY_RATES as Record<string, number>)[quoteCurr];
+    } else {
+      notionalUsd = rawNotionalQuote;
+    }
+  }
+
+  const requiredMarginUsd = notionalUsd / leverage;
+  const requiredMarginAccount = convertUsdToAccountCurrency(requiredMarginUsd, accountCurrency);
+
+  return {
+    notionalUsd: Number(notionalUsd.toFixed(2)),
+    requiredMarginUsd: Number(requiredMarginUsd.toFixed(2)),
+    requiredMarginAccount,
+    leverage,
+  };
 }
 
 /**
@@ -1291,15 +1485,12 @@ export function computeLiveSessionMetrics(session: TradingSession): LiveSessionM
   const returnPct = startingBalance > 0 ? Number(((netPnl / startingBalance) * 100).toFixed(2)) : 0;
 
   // Margin calculation
-  const leverage = session.frozenConfig?.moreOptions?.leverage || session.moreOptions?.leverage || 100;
-  const currency = session.frozenConfig?.accountCurrency || session.accountCurrency || 'USD';
   const usedMargin = Number(
     openPositions
       .reduce((sum, p) => {
         const sym = p.symbol || session.activeAsset || 'XAUUSD';
-        const spec = getEffectiveInstrumentSpec(sym, session);
-        const notionalUsd = p.lotSize * spec.contractSize * p.entryPrice;
-        return sum + convertUsdToAccountCurrency(notionalUsd / leverage, currency);
+        const marginInfo = calculateRequiredMargin(p.lotSize, p.entryPrice, sym, session);
+        return sum + marginInfo.requiredMarginAccount;
       }, 0)
       .toFixed(2)
   );
@@ -1996,9 +2187,15 @@ export function evaluateSessionAt1mTimestamp(
       }
 
       const commAcc = convertUsdToAccountCurrency(commPerLotUsd * activePos.lotSize, currency);
-      const spreadCostAcc = convertUsdToAccountCurrency(
-        spread * activePos.lotSize * spec.contractSize,
-        currency
+      const spreadCostAcc = Math.abs(
+        calculatePositionPnl(
+          'LONG',
+          activePos.entryPrice,
+          activePos.entryPrice + spread,
+          activePos.lotSize,
+          sym,
+          session
+        )
       );
       nextRealizedPnL = Number((nextRealizedPnL - commAcc).toFixed(2));
 
@@ -3027,9 +3224,14 @@ export function validateAndPlaceOrder(
   // 8. Validate Free Margin
   const metrics = computeLiveSessionMetrics(session);
   const leverage = opts?.leverage || 100;
-  const requiredMarginUsd =
-    (normalizedLots * spec.contractSize * effectiveEntry) / leverage;
-  const requiredMarginAcc = convertUsdToAccountCurrency(requiredMarginUsd, currency);
+  const marginInfo = calculateRequiredMargin(
+    normalizedLots,
+    effectiveEntry,
+    sym,
+    session,
+    leverage
+  );
+  const requiredMarginAcc = marginInfo.requiredMarginAccount;
   if (requiredMarginAcc > metrics.freeMargin) {
     return {
       ok: false,
@@ -3050,13 +3252,25 @@ export function validateAndPlaceOrder(
   // 9. Compute Costs, Risk & Reward in Account Currency
   const commPerLotUsd = opts?.commissionPerLotUsd ?? 0;
   const commAcc = convertUsdToAccountCurrency(commPerLotUsd * normalizedLots, currency);
-  const spreadCostAcc = convertUsdToAccountCurrency(
-    spread * normalizedLots * spec.contractSize,
-    currency
+  const spreadCostAcc = Math.abs(
+    calculatePositionPnl(
+      'LONG',
+      effectiveEntry,
+      effectiveEntry + spread,
+      normalizedLots,
+      sym,
+      session
+    )
   );
-  const slippageCostAcc = convertUsdToAccountCurrency(
-    slippagePrice * normalizedLots * spec.contractSize,
-    currency
+  const slippageCostAcc = Math.abs(
+    calculatePositionPnl(
+      'LONG',
+      effectiveEntry,
+      effectiveEntry + slippagePrice,
+      normalizedLots,
+      sym,
+      session
+    )
   );
 
   const riskDollars =

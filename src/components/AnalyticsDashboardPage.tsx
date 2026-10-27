@@ -578,11 +578,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         </div>
       )}
 
-      {/* MAIN WORKSPACE CONTENT */}
-      <main ref={workspaceRef} className="min-w-0 max-w-full flex-1 flex flex-col overflow-y-auto overflow-x-hidden custom-scrollbar">
+      {/* MAIN WORKSPACE COLUMN */}
+      <div className="hub-workspace-shell min-w-0 max-w-full flex-1 flex flex-col overflow-hidden">
         {/* Top Bar inside Hub */}
         <header
-          className={`sticky top-0 z-20 min-h-16 py-3 px-4 sm:px-8 border-b backdrop-blur-xl flex items-center justify-between gap-2 shrink-0 ${sidebarBg}`}
+          className={`hub-header z-20 min-h-16 py-3 px-4 sm:px-8 border-b flex items-center justify-between gap-2 shrink-0 ${sidebarBg}`}
         >
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile Hamburger Button */}
@@ -643,15 +643,16 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
           </div>
         </header>
 
+        <main ref={workspaceRef} className="min-w-0 max-w-full flex-1 flex flex-col overflow-y-auto overflow-x-hidden custom-scrollbar">
         {/* SECTION 1 & 2: DASHBOARD & SESSIONS VIEW */}
         {(sidebarSection === 'dashboard' || sidebarSection === 'sessions') && (
-          <div className="px-3.5 sm:px-8 py-5 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 overflow-x-hidden mx-auto">
+          <div className="px-3.5 sm:px-8 pt-5 pb-10 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 mx-auto">
             {sidebarSection === 'dashboard' && (
               <DashboardOverview name={currentUser?.name} sessions={sessions} activeSession={activeSession} strategyCount={strategies.length} isLight={isLight} onResume={onReturnToChart} onCreate={onOpenCreateSessionModal} onNotes={()=>setSidebarSection('notes')} onGuide={()=>setSidebarSection('guide')} />
             )}
-            <div className="flex flex-wrap items-end justify-between gap-2.5 pt-2">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2.5 pt-2">
               <div className="min-w-0"><h2 className="text-base font-semibold tracking-tight">{sidebarSection==='dashboard'?'Your sessions':'All sessions'}</h2><p className="text-xs opacity-50 mt-1">Pick up where you left off.</p></div>
-              <label className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs min-w-0 max-w-full ${subCardBg}`}><Search className="w-4 h-4 opacity-50 shrink-0"/><input aria-label="Search sessions" value={sessionSearch} onChange={event=>setSessionSearch(event.target.value)} placeholder="Search sessions..." className="bg-transparent outline-none w-28 sm:w-44 min-w-0"/></label>
+              <label className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs min-w-0 w-full sm:w-56 ${subCardBg}`}><Search className="w-4 h-4 opacity-50 shrink-0"/><input aria-label="Search sessions" value={sessionSearch} onChange={event=>setSessionSearch(event.target.value)} placeholder="Search sessions..." className="bg-transparent outline-none flex-1 min-w-0"/></label>
             </div>
 
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 min-w-0">
@@ -720,11 +721,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 return (
                   <div
                     key={sess.id}
-                    className={`hub-session-card min-w-0 max-w-full overflow-hidden p-4 sm:p-5 rounded-2xl border flex flex-col justify-between space-y-4 transition-colors hover:border-emerald-500/30 ${
+                    className={`hub-session-card min-w-0 max-w-full p-4 sm:p-5 rounded-2xl border flex flex-col justify-between space-y-4 transition-colors hover:border-emerald-500/30 ${
                       status === 'FAILED'
-                        ? 'border-rose-500/60 ring-1 ring-rose-500/20'
+                        ? 'border-rose-500/60'
                         : isCurrent
-                        ? 'border-emerald-500/70 ring-1 ring-emerald-500/30'
+                        ? 'border-emerald-500/70'
                         : ''
                     } ${cardBg}`}
                   >
@@ -948,7 +949,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* SECTION 9: ANALYTICS VIEW */}
         {sidebarSection === 'analytics' && (
-          <div className="px-3.5 sm:px-8 py-5 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 overflow-x-hidden mx-auto">
+          <div className="px-3.5 sm:px-8 pt-5 pb-10 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 mx-auto">
             <div><h2 className="text-2xl lg:text-3xl font-semibold tracking-tight">Performance analytics</h2><p className="text-sm opacity-60 mt-2">Understand your edge. Improve every session.</p></div>
             {/* Filters Bar */}
             <div className="hub-surface p-3.5 sm:p-4 rounded-2xl space-y-3 min-w-0 max-w-full overflow-hidden">
@@ -2324,7 +2325,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             </div>
           </div>
         )}
-      </main>
+        </main>
+      </div>
 
       {/* MODAL: DELETE ACCOUNT CONFIRMATION */}
       {showDeleteAccountModal && (

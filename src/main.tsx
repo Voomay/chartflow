@@ -7,7 +7,10 @@ import {InstallAppPrompt} from './components/InstallAppPrompt';
 // Register only built deployments; keep development sessions free of worker caching.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(error => console.warn('App offline support unavailable', error));
+    navigator.serviceWorker
+      .register('/sw.js', { updateViaCache: 'none' })
+      .then(reg => reg.update().catch(() => {}))
+      .catch(error => console.warn('App offline support unavailable', error));
   });
 }
 

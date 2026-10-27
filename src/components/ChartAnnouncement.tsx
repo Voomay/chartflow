@@ -17,7 +17,8 @@ export function markChartAnnouncementSeen(userKey:string){
 
 export function ChartAnnouncement({open,onClose}:{open:boolean;onClose:()=>void}){
   const dialog=useRef<HTMLDialogElement>(null);
-  useEffect(()=>{const node=dialog.current;if(!node)return;if(open&&!node.open)node.showModal();else if(!open&&node.open)node.close();return()=>{if(node.open)node.close();};},[open]);
+  useEffect(()=>{if(!open)return;const node=dialog.current;if(!node)return;if(!node.open)node.showModal();return()=>{if(node.open)node.close();};},[open]);
+  if(!open)return null;
   return (
     <dialog
       ref={dialog}

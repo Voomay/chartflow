@@ -7,6 +7,7 @@ import { StrategyNotes } from './StrategyNotes';
 import { MotivationPreference } from './MotivationWelcome';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import {
+  AccountCurrency,
   BacktestPosition,
   CustomRuleProfile,
   InstrumentSymbol,
@@ -18,6 +19,8 @@ import {
 import { INSTRUMENTS } from '../services/goldDataService';
 import {
   computeLiveSessionMetrics,
+  convertBetweenAccountCurrencies,
+  CURRENCY_SYMBOLS,
   formatMoney,
   formatTimestampInTimezone,
   getEffectiveInstrumentSpec,
@@ -82,7 +85,12 @@ interface AnalyticsDashboardPageProps {
   onDeleteSession?: (sessionId: string) => void;
   onUpdateSessionSettings?: (
     sessionId: string,
-    updates: { name?: string; strategy?: string; description?: string }
+    updates: {
+      name?: string;
+      strategy?: string;
+      description?: string;
+      accountCurrency?: AccountCurrency;
+    }
   ) => void;
   onStartNewChallengeAttempt?: (
     sessionId: string,
@@ -181,6 +189,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   const [editSessionName, setEditSessionName] = useState('');
   const [editSessionStrategy, setEditSessionStrategy] = useState('');
   const [editSessionDesc, setEditSessionDesc] = useState('');
+  const [editSessionCurrency, setEditSessionCurrency] =
+    useState<AccountCurrency>('USD');
 
   const [analyticsRange,setAnalyticsRange]=useState('ALL');
 
@@ -195,6 +205,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
     direction: 'ALL',
     tag: 'ALL',
     searchQuery: '',
+    displayCurrency: 'SESSION',
   });
 
   useEffect(() => {
@@ -267,12 +278,16 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   }, [sessions]);
 
   const handleExportCsv = () => {
-    const csv = exportFilteredTradesToCsv(report.filteredClosedTrades, sessions);
+    const csv = exportFilteredTradesToCsv(
+      report.filteredClosedTrades,
+      sessions,
+      report.accountCurrency
+    );
     const filename = `aurum_replay_trades_${
       filters.sessionId === 'ALL'
         ? 'all_sessions'
         : selectedAnalyticsSession.name.replace(/\s+/g, '_')
-    }.csv`;
+    }_${report.accountCurrency}.csv`;
     triggerCsvDownload(csv, filename);
   };
 
@@ -648,7 +663,25 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         {(sidebarSection === 'dashboard' || sidebarSection === 'sessions') && (
           <div className="px-3.5 sm:px-8 pt-5 pb-10 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 mx-auto">
             {sidebarSection === 'dashboard' && (
-              <DashboardOverview name={currentUser?.name} sessions={sessions} activeSession={activeSession} strategyCount={strategies.length} isLight={isLight} onResume={onReturnToChart} onCreate={onOpenCreateSessionModal} onNotes={()=>setSidebarSection('notes')} onGuide={()=>setSidebarSection('guide')} />
+              <DashboardOverview
+                name={currentUser?.name}
+                sessions={sessions}
+                activeSession={activeSession}
+                strategyCount={strategies.length}
+                isLight={isLight}
+                onResume={onReturnToChart}
+                onCreate={onOpenCreateSessionModal}
+                onNotes={() => setSidebarSection('notes')}
+                onGuide={() => setSidebarSection('guide')}
+                onChangeCurrency={
+                  onUpdateSessionSettings && activeSession
+                    ? (nextCurrency) =>
+                        onUpdateSessionSettings(activeSession.id, {
+                          accountCurrency: nextCurrency,
+                        })
+                    : undefined
+                }
+              />
             )}
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2.5 pt-2">
               <div className="min-w-0"><h2 className="text-base font-semibold tracking-tight">{sidebarSection==='dashboard'?'Your sessions':'All sessions'}</h2><p className="text-xs opacity-50 mt-1">Pick up where you left off.</p></div>
@@ -772,6 +805,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                             setEditSessionName(sess.name);
                             setEditSessionStrategy(sess.strategyName || '');
                             setEditSessionDesc(sess.description || '');
+                            setEditSessionCurrency(
+                              sess.frozenConfig?.accountCurrency ||
+                                sess.accountCurrency ||
+                                'USD'
+                            );
                           }}
                           className="p-1.5 rounded-lg hover:bg-gray-500/15 opacity-70 hover:opacity-100 shrink-0"
                           title="Session Settings"
@@ -959,6 +997,42 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   <span>Analytics Filters</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex items-center rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-0.5 text-[11px] font-mono font-bold">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFilters((prev) => ({
+                          ...prev,
+                          displayCurrency: 'USD',
+                        }))
+                      }
+                      className={`px-2 py-1 rounded-md transition ${
+                        report.accountCurrency === 'USD'
+                          ? 'bg-emerald-600 text-white shadow'
+                          : 'opacity-75 hover:opacity-100'
+                      }`}
+                      title="Display analytics in US Dollar ($)"
+                    >
+                      USD ($)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFilters((prev) => ({
+                          ...prev,
+                          displayCurrency: 'ZAR',
+                        }))
+                      }
+                      className={`px-2 py-1 rounded-md transition ${
+                        report.accountCurrency === 'ZAR'
+                          ? 'bg-emerald-600 text-white shadow'
+                          : 'opacity-75 hover:opacity-100'
+                      }`}
+                      title="Display analytics in South African Rand (R)"
+                    >
+                      ZAR (R)
+                    </button>
+                  </div>
                   <button
                     onClick={() => setShowFormulaModal(true)}
                     className={`px-2.5 sm:px-3 py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold flex items-center gap-1.5 ${subCardBg}`}
@@ -978,8 +1052,9 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                 <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Session &amp; Trading Account</span><select aria-label="Analytics session" value={filters.sessionId} onChange={event=>setFilters(previous=>({...previous,sessionId:event.target.value}))} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="ALL">All sessions</option>{sessions.map(session=>{const bal=session.frozenConfig?.startingBalance??session.startingBalance;const cur=session.frozenConfig?.accountCurrency||session.accountCurrency||'USD';return <option key={session.id} value={session.id}>{session.name} ({formatMoney(bal,cur)})</option>;})}</select></label>
+                <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Account Currency</span><select aria-label="Analytics currency" value={filters.displayCurrency||'SESSION'} onChange={event=>setFilters(previous=>({...previous,displayCurrency:event.target.value as AnalyticsFilterState['displayCurrency']}))} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="SESSION">Session Default ({selectedAnalyticsSession?.frozenConfig?.accountCurrency||selectedAnalyticsSession?.accountCurrency||'USD'})</option><option value="ZAR">ZAR (R) · South African Rand</option><option value="USD">USD ($)</option><option value="EUR">EUR (€)</option><option value="GBP">GBP (£)</option><option value="AUD">AUD (A$)</option><option value="CAD">CAD (C$)</option><option value="JPY">JPY (¥)</option></select></label>
                 <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Instrument</span><select aria-label="Analytics instrument" value={filters.instrument} onChange={event=>setFilters(previous=>({...previous,instrument:event.target.value as AnalyticsFilterState['instrument']}))} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="ALL">All instruments</option>{INSTRUMENTS.map(instrument=><option key={instrument.symbol} value={instrument.symbol}>{instrument.symbol}</option>)}</select></label>
                 <label className="space-y-1.5"><span className="block opacity-55 text-[10px]">Date range · UTC</span><select aria-label="Analytics date range" value={!filters.dateFrom&&!filters.dateTo&&analyticsRange!=='CUSTOM'?'ALL':analyticsRange} onChange={event=>{const range=event.target.value;setAnalyticsRange(range);if(range==='CUSTOM')return;const today=new Date().toISOString().slice(0,10);setFilters(previous=>({...previous,dateFrom:range==='ALL'?'':new Date(Date.now()-(Number(range)-1)*86400000).toISOString().slice(0,10),dateTo:range==='ALL'?'':today}));}} className={`w-full rounded-xl border px-3 py-2.5 outline-none ${subCardBg}`}><option value="ALL">All time</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 365 days</option><option value="CUSTOM">Custom dates</option></select></label>
               </div>
@@ -1128,6 +1203,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                         direction: 'ALL',
                         tag: 'ALL',
                         searchQuery: '',
+                        displayCurrency: 'SESSION',
                       })
                     }
                     className={`w-full py-1.5 px-2.5 rounded-lg border font-bold text-xs ${subCardBg} hover:border-blue-400`}
@@ -1693,8 +1769,9 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                         </div>
                         {hasTrades && (
                           <div className="text-[10px] font-extrabold truncate">
-                            {cell.pnl >= 0 ? '+' : ''}
-                            {Math.round(cell.pnl)}
+                            {cell.pnl >= 0 ? '+' : '-'}
+                            {CURRENCY_SYMBOLS[report.accountCurrency] || '$'}
+                            {Math.round(Math.abs(cell.pnl)).toLocaleString('en-US')}
                           </div>
                         )}
                       </div>
@@ -1879,6 +1956,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                           parentSess.frozenConfig?.accountCurrency ||
                           parentSess.accountCurrency ||
                           'USD';
+                        const displayAcctBalance = convertBetweenAccountCurrencies(
+                          parentAcctBalance,
+                          parentAcctCurrency,
+                          report.accountCurrency
+                        );
                         const trSym =
                           tr.symbol || parentSess.activeAsset || 'XAUUSD';
                         const spec = getEffectiveInstrumentSpec(trSym, parentSess);
@@ -1901,7 +1983,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                               )}
                             </td>
                             <td className="py-2.5 px-2 font-semibold text-blue-400">
-                              {formatMoney(parentAcctBalance, parentAcctCurrency)}
+                              {formatMoney(displayAcctBalance, report.accountCurrency)}
                             </td>
                             <td className="py-2.5 px-2 font-bold">{trSym}</td>
                             <td className="py-2.5 px-2">
@@ -1947,14 +2029,14 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                               )}
                             </td>
                             <td className="py-2.5 px-2 text-amber-400">
-                              {formatMoney(costs, parentSess.accountCurrency)}
+                              {formatMoney(costs, report.accountCurrency)}
                             </td>
                             <td
                               className={`py-2.5 px-2 font-extrabold ${
                                 tr.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
                               }`}
                             >
-                              {formatMoney(tr.pnl, parentSess.accountCurrency, true)}
+                              {formatMoney(tr.pnl, report.accountCurrency, true)}
                             </td>
                             <td className="py-2.5 px-2 text-right font-sans">
                               <span className="px-2 py-1 rounded bg-blue-500/15 text-blue-400 text-[10px] font-bold inline-flex items-center gap-1">
@@ -2536,11 +2618,15 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 <div>
                   Trading Account Balance:{' '}
                   {formatMoney(
-                    inspectedTrade.session.frozenConfig?.startingBalance ??
-                      inspectedTrade.session.startingBalance,
-                    inspectedTrade.session.frozenConfig?.accountCurrency ||
-                      inspectedTrade.session.accountCurrency ||
-                      'USD'
+                    convertBetweenAccountCurrencies(
+                      inspectedTrade.session.frozenConfig?.startingBalance ??
+                        inspectedTrade.session.startingBalance,
+                      inspectedTrade.session.frozenConfig?.accountCurrency ||
+                        inspectedTrade.session.accountCurrency ||
+                        'USD',
+                      report.accountCurrency
+                    ),
+                    report.accountCurrency
                   )}
                 </div>
                 <div>
@@ -2571,7 +2657,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   Net P&L:{' '}
                   {formatMoney(
                     inspectedTrade.trade.pnl,
-                    inspectedTrade.session.accountCurrency,
+                    report.accountCurrency,
                     true
                   )}
                 </div>
@@ -2703,6 +2789,24 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   className={`w-full px-3 py-2 rounded-xl border ${subCardBg}`}
                 />
               </div>
+              <div>
+                <label className="block font-bold mb-1">Account Currency</label>
+                <select
+                  value={editSessionCurrency}
+                  onChange={(e) =>
+                    setEditSessionCurrency(e.target.value as AccountCurrency)
+                  }
+                  className={`w-full px-3 py-2 rounded-xl border ${subCardBg}`}
+                >
+                  <option value="USD">USD ($) · US Dollar</option>
+                  <option value="ZAR">ZAR (R) · South African Rand</option>
+                  <option value="EUR">EUR (€) · Euro</option>
+                  <option value="GBP">GBP (£) · British Pound</option>
+                  <option value="AUD">AUD (A$) · Australian Dollar</option>
+                  <option value="CAD">CAD (C$) · Canadian Dollar</option>
+                  <option value="JPY">JPY (¥) · Japanese Yen</option>
+                </select>
+              </div>
               {editingSession.mode === 'PROP_FIRM' && (
                 <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px]">
                   Note: Prop Firm Challenge rules are frozen once the challenge starts. To change challenge rules, start a new challenge or a new attempt.
@@ -2736,6 +2840,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                       name: editSessionName.trim() || editingSession.name,
                       strategy: editSessionStrategy.trim(),
                       description: editSessionDesc.trim(),
+                      accountCurrency: editSessionCurrency,
                     });
                     setEditingSession(null);
                   }}

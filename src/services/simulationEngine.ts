@@ -50,6 +50,7 @@ import {
  */
 export const ACCOUNT_CURRENCY_RATES: Record<AccountCurrency, number> = {
   USD: 1.0,
+  ZAR: 18.0,
   EUR: 0.92,
   GBP: 0.78,
   AUD: 1.51,
@@ -59,6 +60,7 @@ export const ACCOUNT_CURRENCY_RATES: Record<AccountCurrency, number> = {
 
 export const CURRENCY_SYMBOLS: Record<AccountCurrency, string> = {
   USD: '$',
+  ZAR: 'R',
   EUR: '€',
   GBP: '£',
   AUD: 'A$',
@@ -89,6 +91,116 @@ export function convertUsdToAccountCurrency(
   const rate = ACCOUNT_CURRENCY_RATES[currency] || 1.0;
   const decimals = currency === 'JPY' ? 0 : 2;
   return Number((usdAmount * rate).toFixed(decimals));
+}
+
+export function convertBetweenAccountCurrencies(
+  amount: number,
+  fromCurrency: AccountCurrency = 'USD',
+  toCurrency: AccountCurrency = 'USD'
+): number {
+  if (fromCurrency === toCurrency || !Number.isFinite(amount)) return amount;
+  const fromRate = ACCOUNT_CURRENCY_RATES[fromCurrency] || 1.0;
+  const toRate = ACCOUNT_CURRENCY_RATES[toCurrency] || 1.0;
+  const decimals = toCurrency === 'JPY' ? 0 : 2;
+  return Number(((amount / fromRate) * toRate).toFixed(decimals));
+}
+
+export function convertSessionAccountCurrency(
+  session: TradingSession,
+  nextCurrency: AccountCurrency
+): TradingSession {
+  const currentCurrency: AccountCurrency =
+    session.frozenConfig?.accountCurrency || session.accountCurrency || 'USD';
+  if (currentCurrency === nextCurrency) {
+    return { ...session, accountCurrency: nextCurrency };
+  }
+  const conv = (val: number) =>
+    convertBetweenAccountCurrencies(val, currentCurrency, nextCurrency);
+  const convOpt = (val?: number) => (val !== undefined ? conv(val) : undefined);
+
+  return {
+    ...session,
+    accountCurrency: nextCurrency,
+    startingBalance: conv(session.startingBalance),
+    realizedPnL: convOpt(session.realizedPnL) ?? 0,
+    frozenConfig: session.frozenConfig
+      ? {
+          ...session.frozenConfig,
+          accountCurrency: nextCurrency,
+          startingBalance: conv(session.frozenConfig.startingBalance),
+        }
+      : undefined,
+    positions: (session.positions || []).map((p) => ({
+      ...p,
+      grossPnl: convOpt(p.grossPnl),
+      pnl: conv(p.pnl),
+      openFloatingPnl: convOpt(p.openFloatingPnl),
+      initialRiskDollars: convOpt(p.initialRiskDollars),
+      riskDollars: conv(p.riskDollars),
+      rewardDollars: conv(p.rewardDollars),
+      commissionPaid: convOpt(p.commissionPaid),
+      spreadCost: convOpt(p.spreadCost),
+      slippageCost: convOpt(p.slippageCost),
+      bankedPartialPnl: convOpt(p.bankedPartialPnl),
+    })),
+    fills: (session.fills || []).map((f) => ({
+      ...f,
+      commission: conv(f.commission),
+      spreadCost: conv(f.spreadCost),
+      slippageCost: conv(f.slippageCost),
+      realizedPnl: conv(f.realizedPnl),
+    })),
+    tradeEvents: (session.tradeEvents || []).map((ev) => ({
+      ...ev,
+      pnlDelta: convOpt(ev.pnlDelta),
+    })),
+    equitySnapshots: (session.equitySnapshots || []).map((snap) => ({
+      ...snap,
+      balance: conv(snap.balance),
+      equity: conv(snap.equity),
+      unrealizedPnl: conv(snap.unrealizedPnl),
+      realizedPnl: conv(snap.realizedPnl),
+      drawdownAmount: conv(snap.drawdownAmount),
+    })),
+    challengeState: session.challengeState
+      ? {
+          ...session.challengeState,
+          highWaterMarkBalance: conv(session.challengeState.highWaterMarkBalance),
+          highWaterMarkEquity: conv(session.challengeState.highWaterMarkEquity),
+          dailyResetBalance: conv(session.challengeState.dailyResetBalance),
+          dailyResetEquity: conv(session.challengeState.dailyResetEquity),
+          dailyBaseline: conv(session.challengeState.dailyBaseline),
+          maxDailyLossUsed: conv(session.challengeState.maxDailyLossUsed),
+          maxOverallLossUsed: conv(session.challengeState.maxOverallLossUsed),
+          dailySnapshots: (session.challengeState.dailySnapshots || []).map((ds) => ({
+            ...ds,
+            balanceAtReset: conv(ds.balanceAtReset),
+            equityAtReset: conv(ds.equityAtReset),
+            dailyBaseline: conv(ds.dailyBaseline),
+            dailyLossThreshold: conv(ds.dailyLossThreshold),
+          })),
+          breachEvent: session.challengeState.breachEvent
+            ? {
+                ...session.challengeState.breachEvent,
+                threshold: conv(session.challengeState.breachEvent.threshold),
+                measuredValue: conv(session.challengeState.breachEvent.measuredValue),
+                lossAmount: conv(session.challengeState.breachEvent.lossAmount),
+                lossLimitAmount: conv(session.challengeState.breachEvent.lossLimitAmount),
+              }
+            : undefined,
+          passedEvent: session.challengeState.passedEvent
+            ? {
+                ...session.challengeState.passedEvent,
+                finalBalance: conv(session.challengeState.passedEvent.finalBalance),
+                finalEquity: conv(session.challengeState.passedEvent.finalEquity),
+                netPnl: conv(session.challengeState.passedEvent.netPnl),
+              }
+            : undefined,
+        }
+      : undefined,
+    replayCheckpoints: [],
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 /**

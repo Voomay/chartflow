@@ -34,6 +34,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  AccountCurrency,
   CandleColorStyle,
   ChartIndicatorConfigs,
   DisplayTimezone,
@@ -72,6 +73,7 @@ export interface ChartIndicatorsState {
   showMomentum: boolean;
   showForecast: boolean;
   showEngulfing: boolean;
+  showOrderFlow?: boolean;
 }
 
 interface TopNavigationProps {
@@ -131,6 +133,7 @@ interface TopNavigationProps {
   balanceHidden?:boolean;
   onToggleBalance?:()=>void;
   onChangeTimezone?:(timezone:DisplayTimezone)=>void;
+  onChangeCurrency?:(currency:AccountCurrency)=>void;
 }
 
 const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M'];
@@ -196,6 +199,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   balanceHidden=false,
   onToggleBalance=()=>{},
   onChangeTimezone,
+  onChangeCurrency,
 }) => {
   const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false);
   const [isCandleMenuOpen, setIsCandleMenuOpen] = useState(false);
@@ -512,7 +516,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
 
         {/* Center/Right: Account Balance & Equity + Data Status + Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          <BalanceBadge balance={computedBalance} equity={computedEquity} currency={accountCurrency} hidden={balanceHidden} onToggle={onToggleBalance} isLight={isLight} className="hidden sm:flex" />
+          <BalanceBadge balance={computedBalance} equity={computedEquity} currency={accountCurrency} hidden={balanceHidden} onToggle={onToggleBalance} onChangeCurrency={onChangeCurrency} isLight={isLight} className="hidden sm:flex" />
 
           {onOpenMindset && <button onClick={onOpenMindset} title="Trading mindset & psychology coach" aria-label="Trading mindset" className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border shrink-0 ${cardBg}`}><BrainCircuit className="w-3.5 h-3.5 text-emerald-400"/><span className="hidden md:inline">Mindset</span></button>}
 
@@ -613,6 +617,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                         { label: `MACD (${cfg.macd.fastPeriod}, ${cfg.macd.slowPeriod}, ${cfg.macd.signalPeriod})`, key: 'showMACD', color: cfg.macd.macdColor, settingsId: 'showMACD' },
                         { label: `RSI (${cfg.rsi.period})`, key: 'showRSI', color: cfg.rsi.color, settingsId: 'showRSI' },
                         { label: '__ai__', key: null, color: '' },
+                        { label: 'Order Flow (VP · OB/FVG · Delta)', key: 'showOrderFlow', color: cfg.orderFlow?.pocColor || '#f59e0b', settingsId: 'showOrderFlow' },
                         { label: 'Engulfing Vol / Momentum', key: 'showEngulfing', color: cfg.engulfing.upColor, settingsId: 'showEngulfing' },
                         { label: 'Momentum Pullback · 2R', key: 'showMomentum', color: cfg.momentum.fastColor, settingsId: 'showMomentum' },
                         { label: 'Forecaster', key: 'showForecast', color: cfg.forecast.secondaryColor, settingsId: 'showForecast' },

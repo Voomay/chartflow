@@ -52,6 +52,7 @@ import {
   advanceOrRewindSessionToTimestamp,
   closeOrCancelPosition,
   computeLiveSessionMetrics,
+  convertSessionAccountCurrency,
   createPracticeBranchSession,
   formatMoney,
   getAggregatedCandlesUpToClock,
@@ -784,6 +785,13 @@ export function App() {
     showEngulfing: (() => {
       try {
         return localStorage.getItem('chart_engulfing_enabled_v1') !== '0';
+      } catch {
+        return true;
+      }
+    })(),
+    showOrderFlow: (() => {
+      try {
+        return localStorage.getItem('chart_order_flow_enabled_v1') !== '0';
       } catch {
         return true;
       }
@@ -1803,17 +1811,19 @@ export function App() {
           onDeleteSession={handleDeleteSession}
           onUpdateSessionSettings={(sessId, updates) => {
             setTradingSessions((prev) =>
-              prev.map((s) =>
-                s.id === sessId
-                  ? {
-                      ...s,
-                      name: updates.name ?? s.name,
-                      strategyName: updates.strategy ?? s.strategyName,
-                      description: updates.description ?? s.description,
-                      updatedAt: new Date().toISOString(),
-                    }
-                  : s
-              )
+              prev.map((s) => {
+                if (s.id !== sessId) return s;
+                const converted = updates.accountCurrency
+                  ? convertSessionAccountCurrency(s, updates.accountCurrency)
+                  : s;
+                return {
+                  ...converted,
+                  name: updates.name ?? converted.name,
+                  strategyName: updates.strategy ?? converted.strategyName,
+                  description: updates.description ?? converted.description,
+                  updatedAt: new Date().toISOString(),
+                };
+              })
             );
           }}
           onStartNewChallengeAttempt={(sessId, targetPhase) =>
@@ -1999,6 +2009,7 @@ export function App() {
         balanceHidden={balanceHidden}
         onToggleBalance={toggleBalance}
         onChangeTimezone={timezone=>updateActiveSession(session=>({...session,displayTimezone:timezone}))}
+        onChangeCurrency={nextCurrency=>updateActiveSession(session=>convertSessionAccountCurrency(session,nextCurrency))}
         onLogout={signOut}
         liveBalance={liveMetrics.currentBalance}
         liveEquity={liveMetrics.currentEquity}
@@ -2359,7 +2370,7 @@ export function App() {
               <span>Place</span><span>Order</span>
             </button>
           </div>) : undefined}
-              mobileAccountSummary={isMobile?<BalanceBadge balance={liveMetrics.currentBalance} equity={liveMetrics.currentEquity} currency={activeSession.accountCurrency||'USD'} hidden={balanceHidden} onToggle={toggleBalance} isLight={theme==='light'} className="inline-flex"/>:undefined}
+              mobileAccountSummary={isMobile?<BalanceBadge balance={liveMetrics.currentBalance} equity={liveMetrics.currentEquity} currency={activeSession.accountCurrency||'USD'} hidden={balanceHidden} onToggle={toggleBalance} onChangeCurrency={nextCurrency=>updateActiveSession(session=>convertSessionAccountCurrency(session,nextCurrency))} isLight={theme==='light'} className="inline-flex"/>:undefined}
 
             />
           </div>

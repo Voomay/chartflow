@@ -28,6 +28,7 @@ import {
 } from '../services/goldDataService';
 import {
   createInitialChallengeState,
+  CURRENCY_SYMBOLS,
   formatMoney,
   validateSessionHistoricalData,
 } from '../services/simulationEngine';
@@ -156,16 +157,28 @@ const EXAMPLE_PROP_PROFILES: Record<
 };
 
 const BALANCE_PRESETS = [
-  { label: '$5K', value: 5000 },
-  { label: '$10K', value: 10000 },
-  { label: '$25K', value: 25000 },
-  { label: '$50K', value: 50000 },
-  { label: '$100K', value: 100000 },
-  { label: '$200K', value: 200000 },
+  { label: '5K', value: 5000 },
+  { label: '10K', value: 10000 },
+  { label: '25K', value: 25000 },
+  { label: '50K', value: 50000 },
+  { label: '100K', value: 100000 },
+  { label: '200K', value: 200000 },
 ];
 
-const CURRENCY_OPTIONS: { code: AccountCurrency; label: string }[] = [
+const ZAR_BALANCE_PRESETS = [
+  { label: 'R5K', value: 5000 },
+  { label: 'R10K', value: 10000 },
+  { label: 'R25K', value: 25000 },
+  { label: 'R50K', value: 50000 },
+  { label: 'R100K', value: 100000 },
+  { label: 'R250K', value: 250000 },
+  { label: 'R500K', value: 500000 },
+  { label: 'R1M', value: 1000000 },
+];
+
+export const CURRENCY_OPTIONS: { code: AccountCurrency; label: string }[] = [
   { code: 'USD', label: 'USD ($)' },
+  { code: 'ZAR', label: 'ZAR (R) · South African Rand' },
   { code: 'EUR', label: 'EUR (€)' },
   { code: 'GBP', label: 'GBP (£)' },
   { code: 'AUD', label: 'AUD (A$)' },
@@ -1233,10 +1246,14 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                       <span>Step 4: Starting Balance &amp; Session Details</span>
                     </label>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {BALANCE_PRESETS.map((preset) => {
+                      {(accountCurrency === 'ZAR' ? ZAR_BALANCE_PRESETS : BALANCE_PRESETS).map((preset) => {
                         const active =
                           balanceMode === 'PRESET' &&
                           selectedBalance === preset.value;
+                        const labelText =
+                          accountCurrency === 'ZAR'
+                            ? preset.label
+                            : `${CURRENCY_SYMBOLS[accountCurrency] || '$'}${preset.label}`;
                         return (
                           <button
                             key={preset.value}
@@ -1250,7 +1267,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                               active ? pillActive : pillIdle
                             }`}
                           >
-                            {preset.label}
+                            {labelText}
                           </button>
                         );
                       })}

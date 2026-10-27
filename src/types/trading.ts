@@ -37,7 +37,7 @@ export type InstrumentCategory =
   | 'ENERGIES'
   | 'CRYPTO';
 
-export type AccountCurrency = 'USD' | 'EUR' | 'GBP' | 'AUD' | 'CAD' | 'JPY';
+export type AccountCurrency = 'USD' | 'ZAR' | 'EUR' | 'GBP' | 'AUD' | 'CAD' | 'JPY';
 
 export type DisplayTimezone =
   | 'UTC'
@@ -655,6 +655,20 @@ export interface VolumeIndicatorConfig {
   maColor: string;
 }
 
+export interface OrderFlowIndicatorConfig {
+  lookbackBars: number;
+  profileBuckets: number;
+  minAbsorptionRvol: number;
+  showVolumeProfile: boolean;
+  showOrderBlocks: boolean;
+  showFVG: boolean;
+  showSignals: boolean;
+  showDeltaFootprint: boolean;
+  buyColor: string;
+  sellColor: string;
+  pocColor: string;
+}
+
 export interface ChartIndicatorConfigs {
   maConfigs: Record<string, MovingAverageIndicatorConfig>;
   customMAs: MovingAverageIndicatorConfig[];
@@ -666,6 +680,7 @@ export interface ChartIndicatorConfigs {
   engulfing: { upColor: string; downColor: string };
   momentum: { fastColor: string; slowColor: string; lineWidth: number };
   forecast: { lookback: number; horizon: number; primaryColor: string; secondaryColor: string };
+  orderFlow: OrderFlowIndicatorConfig;
 }
 
 export interface ChartDrawing {

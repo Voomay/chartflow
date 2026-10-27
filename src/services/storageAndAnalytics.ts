@@ -24,6 +24,7 @@ import {
 import {
   computeAuthoritativeRealizedPnl,
   computeLiveSessionMetrics,
+  convertBetweenAccountCurrencies,
   createInitialChallengeState,
   formatMoney,
   getEffectiveInstrumentSpec,
@@ -853,6 +854,7 @@ export interface AnalyticsFilterState {
   direction: 'ALL' | 'LONG' | 'SHORT';
   tag: string; // 'ALL' or specific tag
   searchQuery: string;
+  displayCurrency?: 'SESSION' | AccountCurrency;
 }
 
 export interface ComputedAnalyticsReport {
@@ -993,13 +995,29 @@ export function computeAnalyticsReport(
       ? sessionMap.get(filters.sessionId) || activeSession
       : activeSession;
 
-  const accountCurrency: AccountCurrency =
+  const primarySessionCurrency: AccountCurrency =
     primarySession.frozenConfig?.accountCurrency ||
     primarySession.accountCurrency ||
     'USD';
 
-  const getSessionAccountBalance = (sess: TradingSession): number =>
-    Number(sess.frozenConfig?.startingBalance ?? sess.startingBalance ?? 100000);
+  const accountCurrency: AccountCurrency =
+    filters.displayCurrency && filters.displayCurrency !== 'SESSION'
+      ? filters.displayCurrency
+      : primarySessionCurrency;
+
+  const getSessionCurrency = (sess: TradingSession): AccountCurrency =>
+    sess.frozenConfig?.accountCurrency || sess.accountCurrency || 'USD';
+
+  const getSessionAccountBalance = (sess: TradingSession): number => {
+    const rawBal = Number(
+      sess.frozenConfig?.startingBalance ?? sess.startingBalance ?? 100000
+    );
+    return convertBetweenAccountCurrencies(
+      rawBal,
+      getSessionCurrency(sess),
+      accountCurrency
+    );
+  };
 
   let startingBalance: number;
   if (filters.sessionId !== 'ALL') {
@@ -1034,6 +1052,9 @@ export function computeAnalyticsReport(
 
   const allPositions: BacktestPosition[] = [];
   for (const s of targetSessions) {
+    const sessCurr = getSessionCurrency(s);
+    const conv = (val: number | undefined): number =>
+      convertBetweenAccountCurrencies(val ?? 0, sessCurr, accountCurrency);
     for (const p of s.positions ?? []) {
       const j = s.journals?.[p.id];
       const mergedTags = Array.from(
@@ -1043,6 +1064,22 @@ export function computeAnalyticsReport(
         ...p,
         sessionId: p.sessionId || s.id,
         symbol: p.symbol || s.activeAsset,
+        pnl: conv(p.pnl),
+        openFloatingPnl:
+          p.openFloatingPnl !== undefined ? conv(p.openFloatingPnl) : undefined,
+        bankedPartialPnl:
+          p.bankedPartialPnl !== undefined ? conv(p.bankedPartialPnl) : undefined,
+        commissionPaid:
+          p.commissionPaid !== undefined ? conv(p.commissionPaid) : undefined,
+        spreadCost: p.spreadCost !== undefined ? conv(p.spreadCost) : undefined,
+        slippageCost:
+          p.slippageCost !== undefined ? conv(p.slippageCost) : undefined,
+        initialRiskDollars:
+          p.initialRiskDollars !== undefined
+            ? conv(p.initialRiskDollars)
+            : undefined,
+        riskDollars: conv(p.riskDollars),
+        rewardDollars: conv(p.rewardDollars),
         journalTags: mergedTags,
         journalNotes: p.journalNotes ?? j?.notes,
         journalEntryReasoning: p.journalEntryReasoning ?? j?.entryReasoning,
@@ -1500,7 +1537,8 @@ export function computeAnalyticsReport(
  */
 export function exportFilteredTradesToCsv(
   trades: BacktestPosition[],
-  sessions: TradingSession[]
+  sessions: TradingSession[],
+  displayCurrency?: AccountCurrency
 ): string {
   const sessionMap = new Map(sessions.map((s) => [s.id, s]));
   const headers = [
@@ -1546,10 +1584,12 @@ export function exportFilteredTradesToCsv(
   const rows = trades.map((t) => {
     const sess = t.sessionId ? sessionMap.get(t.sessionId) : undefined;
     const j = sess?.journals?.[t.id];
-    const acctBal = sess
+    const sessCur = sess?.frozenConfig?.accountCurrency || sess?.accountCurrency || 'USD';
+    const acctCur = displayCurrency || sessCur;
+    const rawBal = sess
       ? Number(sess.frozenConfig?.startingBalance ?? sess.startingBalance ?? 100000)
       : 100000;
-    const acctCur = sess?.frozenConfig?.accountCurrency || sess?.accountCurrency || 'USD';
+    const acctBal = convertBetweenAccountCurrencies(rawBal, sessCur, acctCur);
     const sym = t.symbol || sess?.activeAsset || 'XAUUSD';
     const spec = getEffectiveInstrumentSpec(sym, sess);
     const dec = spec.decimals;

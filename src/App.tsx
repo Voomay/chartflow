@@ -267,7 +267,9 @@ export function App() {
 
   // 3. Per-User Persistent Sessions, Strategies & Custom Prop Profiles
   const [tradingSessions, setTradingSessions] = useState<TradingSession[]>(() => {
-    const loaded = loadUserSessions(userEmail);
+    const loaded = loadUserSessions(userEmail).filter(
+      (s) => !isUntouchedStarterSession(s)
+    );
     return loaded.map((s) =>
       !s.displayTimezone || s.displayTimezone === 'UTC'
         ? { ...s, displayTimezone: 'Africa/Johannesburg' as const }
@@ -287,11 +289,13 @@ export function App() {
   useEffect(() => {
     if (!currentUser) return;
     hasHydratedSessionsRef.current = null;
-    const loadedSessions: TradingSession[] = loadUserSessions(currentUser.email).map((s) =>
-      !s.displayTimezone || s.displayTimezone === 'UTC'
-        ? { ...s, displayTimezone: 'Africa/Johannesburg' as const }
-        : s
-    );
+    const loadedSessions: TradingSession[] = loadUserSessions(currentUser.email)
+      .filter((s) => !isUntouchedStarterSession(s))
+      .map((s) =>
+        !s.displayTimezone || s.displayTimezone === 'UTC'
+          ? { ...s, displayTimezone: 'Africa/Johannesburg' as const }
+          : s
+      );
     setTradingSessions(loadedSessions);
     setStrategies(loadUserStrategies(currentUser.email));
     setCustomRuleProfiles(loadUserCustomRuleProfiles(currentUser.email));
@@ -306,10 +310,7 @@ export function App() {
       if (remotePrefs.deletedSessionIds?.length) {
         mergeRemoteDeletedSessionIds(email, remotePrefs.deletedSessionIds);
         const delSet = getDeletedSessionIds(email);
-        setTradingSessions((prev) => {
-          const filtered = prev.filter((s) => !delSet.has(s.id));
-          return filtered.length > 0 ? filtered : [createFreshReplacementSessionForUser(email)];
-        });
+        setTradingSessions((prev) => prev.filter((s) => !delSet.has(s.id)));
       }
       if (remotePrefs.deletedStrategyIds?.length) {
         mergeRemoteDeletedStrategyIds(email, remotePrefs.deletedStrategyIds);
@@ -330,7 +331,9 @@ export function App() {
         hasHydratedSessionsRef.current = email;
         if (!remoteSessions || remoteSessions.length === 0) return;
         const deletedIds = getDeletedSessionIds(email);
-        const activeRemoteSessions = remoteSessions.filter((r) => !deletedIds.has(r.id));
+        const activeRemoteSessions = remoteSessions.filter(
+          (r) => !deletedIds.has(r.id) && !isUntouchedStarterSession(r)
+        );
         if (activeRemoteSessions.length === 0) return;
         setTradingSessions((prev) => {
           const nonStarterPrev = prev.filter(
@@ -405,11 +408,22 @@ export function App() {
     () => tradingSessions[0]?.id || 'session-default'
   );
 
+  const fallbackSession = useMemo<TradingSession>(() => {
+    const base = createFreshReplacementSessionForUser(userEmail);
+    return {
+      ...base,
+      id: `session-empty-${userEmail}`,
+      name: 'New Session',
+      displayTimezone: 'Africa/Johannesburg',
+    };
+  }, [userEmail]);
+
   const activeSession = useMemo(
     () =>
       tradingSessions.find((s) => s.id === activeSessionId) ||
-      tradingSessions[0],
-    [tradingSessions, activeSessionId]
+      tradingSessions[0] ||
+      fallbackSession,
+    [tradingSessions, activeSessionId, fallbackSession]
   );
 
   useEffect(() => {
@@ -436,16 +450,15 @@ export function App() {
   const handleDeleteSession = useCallback(
     (sessId: string) => {
       const ownerEmail = currentUser?.email || 'guest';
-      const updatedFromStore = deleteUserSession(ownerEmail, sessId);
+      deleteUserSession(ownerEmail, sessId);
       setTradingSessions((prev) => {
-        const filtered = prev.filter((s) => s.id !== sessId);
-        const remaining =
-          filtered.length > 0
-            ? filtered
-            : updatedFromStore.length > 0
-            ? updatedFromStore
-            : [createFreshReplacementSessionForUser(ownerEmail)];
-        if (activeSessionId === sessId || activeSession?.id === sessId || !remaining.some((s) => s.id === activeSessionId)) {
+        const remaining = prev.filter((s) => s.id !== sessId);
+        if (
+          remaining.length > 0 &&
+          (activeSessionId === sessId ||
+            activeSession?.id === sessId ||
+            !remaining.some((s) => s.id === activeSessionId))
+        ) {
           setActiveSessionId(remaining[0].id);
         }
         return remaining;
@@ -1913,7 +1926,14 @@ export function App() {
           initialSection={
             activeView === 'analytics_page' ? 'analytics' : hubInitialSection
           }
-          onReturnToChart={() => setActiveView('terminal')}
+          onReturnToChart={() => {
+            if (tradingSessions.length === 0) {
+              setCreateSessionModalMode('BACKTESTING');
+              setIsCreateSessionModalOpen(true);
+              return;
+            }
+            setActiveView('terminal');
+          }}
           onOpenLanding={() => setActiveView('landing')}
           onOpenTradersInsight={() => openTradersInsight()}
         />
@@ -2095,7 +2115,7 @@ export function App() {
         onStartTour={handleStartTour}
       />
 
-      <TradingMindset key={`${currentUser?.email || "guest"}:${activeSession.id}`} session={activeSession} userKey={currentUser?.email || "guest"} displayName={currentUser?.name} onOpen={()=>setMindsetOpen(true)} open={mindsetOpen} onClose={()=>setMindsetOpen(false)} rightPanelOpen={!isChartWideMode && !isMobile && showRightWidget} welcomeBlocking={motivationOpen || isCreateSessionModalOpen || isTourOpen || chartSponsorLoading} planToggleCount={planToggleCount} onPlanPinnedChange={setIsPlanPinned} onUpdatePlanNote={(nextNote)=>{if(currentUser?.email&&nextNote.text&&!nextNote.text.startsWith('MY TRADING PLAN\n\n• Wait for my setup.')&&!loadUserStrategyNotes(currentUser.email).text)saveUserStrategyNotes(currentUser.email,nextNote.text);updateActiveSession(s=>{if(JSON.stringify(s.mindsetNote)===JSON.stringify(nextNote))return s;return {...s,mindsetNote:nextNote,updatedAt:new Date().toISOString()};});}}/>
+      <TradingMindset key={`${currentUser?.email || "guest"}:${activeSession.id}`} session={activeSession} userKey={currentUser?.email || "guest"} displayName={currentUser?.name} onOpen={()=>setMindsetOpen(true)} open={mindsetOpen} onClose={()=>setMindsetOpen(false)} rightPanelOpen={!isChartWideMode && !isMobile && showRightWidget} welcomeBlocking={motivationOpen || isCreateSessionModalOpen || isTourOpen || chartSponsorLoading} planToggleCount={planToggleCount} onPlanPinnedChange={setIsPlanPinned} onUpdatePlanNote={(nextNote)=>{if(currentUser?.email&&nextNote.text&&!nextNote.text.startsWith('MY TRADING PLAN\n\n• Wait for my setup.')&&!nextNote.text.startsWith('MY TRADING PLAN\n\nYou can write your trading plan here')&&!loadUserStrategyNotes(currentUser.email).text)saveUserStrategyNotes(currentUser.email,nextNote.text);updateActiveSession(s=>{if(JSON.stringify(s.mindsetNote)===JSON.stringify(nextNote))return s;return {...s,mindsetNote:nextNote,updatedAt:new Date().toISOString()};});}}/>
 
       {/* Toast Notification */}
       {toastMessage && (

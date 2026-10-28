@@ -526,8 +526,8 @@ test('Resend integration sends welcome email on signup and completes signed pass
         method,
         body,
         headers: {
-          host: 'chartreplay.co.za',
-          origin: 'https://chartreplay.co.za',
+          host: 'chartflow-preview.vercel.app',
+          origin: 'https://chartflow-preview.vercel.app',
           cookie,
           'content-type': 'application/json',
         },
@@ -554,6 +554,9 @@ test('Resend integration sends welcome email on signup and completes signed pass
   assert.deepEqual(sentEmails[0].payload.to, ['naledi@chartreplay.co.za']);
   assert.match(sentEmails[0].payload.subject, /Welcome to Chart Replay/);
   assert.match(sentEmails[0].payload.html, /Welcome aboard, Naledi Khumalo!/);
+  assert.match(sentEmails[0].payload.html, /https:\/\/chartreplay\.co\.za\/email-welcome-banner\.png/);
+  assert.doesNotMatch(sentEmails[0].payload.html, /vercel\.app/);
+  assert.match(sentEmails[0].payload.html, /5 Benefits of Practicing on Chart Replay/);
 
   // 2. User requests password reset -> Reset link email is sent via Resend
   const reqResetRes = await call('request-password-reset', {
@@ -564,6 +567,8 @@ test('Resend integration sends welcome email on signup and completes signed pass
   assert.equal(sentEmails.length, 2);
   assert.deepEqual(sentEmails[1].payload.to, ['naledi@chartreplay.co.za']);
   assert.match(sentEmails[1].payload.subject, /Reset your Chart Replay password/);
+  assert.doesNotMatch(sentEmails[1].payload.html, /vercel\.app/);
+  assert.match(sentEmails[1].payload.html, /https:\/\/chartreplay\.co\.za\/\?reset_token=/);
 
   // Extract reset_token from email text
   const tokenMatch = sentEmails[1].payload.text.match(/reset_token=([^&\s]+)/);

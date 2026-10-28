@@ -8,7 +8,9 @@ import {Check,GripHorizontal,Maximize2,PartyPopper,Pin,PenLine,StickyNote,X} fro
 import {TradingSession} from '../types/trading';
 import {createMindsetTracker,nextMindsetMoment,fitMindsetNote,MindsetMoment,NoteBounds} from '../services/mindsetEvents';
 
-const starter='MY TRADING PLAN\n\n• Wait for my setup. No chasing.\n• Define my risk before entry.\n• Respect my stop.\n• Review the process, not just the P&L.\n\nPatience is a position, too.';
+const legacyStarter='MY TRADING PLAN\n\n• Wait for my setup. No chasing.\n• Define my risk before entry.\n• Respect my stop.\n• Review the process, not just the P&L.\n\nPatience is a position, too.';
+const starter='MY TRADING PLAN\n\nYou can write your trading plan here — a shorter, sticky-note version of your trading plan to keep your key rules visible on the chart while you trade.\n\nClick the edit icon (✎) above to write your sticky note trading plan.';
+const isStarterText=(text?:string)=>!text||text===starter||text===legacyStarter||text.startsWith('MY TRADING PLAN\n\n• Wait for my setup.')||text.startsWith('MY TRADING PLAN\n\nYou can write your trading plan here');
 const memoryMindsetStore=new Map<string,string>();
 function read<T,>(key:string,fallback:T,legacyKey?:string):T{
   for(const k of [key,legacyKey].filter((x):x is string=>Boolean(x))){
@@ -43,17 +45,17 @@ export function TradingMindset({session,userKey,displayName,open,onClose,onOpen,
   const [prefs,setPrefs]=useState(()=>{const saved=read<Partial<{coachEnabled:boolean;celebrate:boolean}>>(prefKey,{},legacyPrefKey);return {coachEnabled:saved.coachEnabled??true,celebrate:saved.celebrate??true};});
   const [note,setNote]=useState<Note>(()=>{
     const saved=read<Partial<Note>>(noteKey,{},legacyNoteKey);
-    const hasCustomSaved=Boolean(saved.text && saved.text!==starter);
-    const hasCustomSession=Boolean(session.mindsetNote?.text && session.mindsetNote.text!==starter);
-    const resolvedText=hasCustomSaved?saved.text!:hasCustomSession?session.mindsetNote!.text:saved.text||session.mindsetNote?.text||starter;
+    const hasCustomSaved=Boolean(saved.text && !isStarterText(saved.text));
+    const hasCustomSession=Boolean(session.mindsetNote?.text && !isStarterText(session.mindsetNote.text));
+    const resolvedText=hasCustomSaved?saved.text!:hasCustomSession?session.mindsetNote!.text:starter;
     return {...{text:starter,pinned:false,x:28,y:110,width:286,height:300},...(session.mindsetNote||{}),...saved,text:resolvedText};
   });
   const lastToggleCount=useRef(planToggleCount);
   useEffect(()=>{if(planToggleCount!==lastToggleCount.current){lastToggleCount.current=planToggleCount;setNote(n=>({...n,pinned:!n.pinned}));}},[planToggleCount]);
   useEffect(()=>{onPlanPinnedChange?.(note.pinned);},[note.pinned,onPlanPinnedChange]);
   useEffect(()=>{
-    if(session.mindsetNote?.text && session.mindsetNote.text!==starter){
-      setNote(prev=>prev.text===starter?{...prev,...session.mindsetNote}:prev);
+    if(session.mindsetNote?.text && !isStarterText(session.mindsetNote.text)){
+      setNote(prev=>isStarterText(prev.text)?{...prev,...session.mindsetNote}:prev);
     }
   },[session.mindsetNote?.text]);
   const [expanded,setExpanded]=useState(false);

@@ -212,7 +212,8 @@ export function createSupabaseAccountStore({
             (t) =>
               typeof t === 'string' &&
               t.trim().length > 0 &&
-              !t.startsWith('MY TRADING PLAN\n\n• Wait for my setup.')
+              !t.startsWith('MY TRADING PLAN\n\n• Wait for my setup.') &&
+              !t.startsWith('MY TRADING PLAN\n\nYou can write your trading plan here')
           ) || '';
       const firstNoteLine =
         (noteText || sessionMindsetText)

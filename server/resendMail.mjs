@@ -2,6 +2,7 @@ const RESEND_API_URL = 'https://api.resend.com/emails';
 const DEFAULT_FROM_EMAIL = 'Chart Replay <noreply@chartreplay.co.za>';
 const DEFAULT_REPLY_TO = 'info@chartreplay.co.za';
 const DEFAULT_APP_URL = 'https://chartreplay.co.za';
+const WELCOME_BANNER_URL = 'https://chartreplay.co.za/email-welcome-banner.png';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -12,14 +13,33 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function sanitizeOfficialAppUrl(rawUrl) {
+  const cleaned = String(rawUrl || '').trim().replace(/\/+$/, '');
+  if (!cleaned) return DEFAULT_APP_URL;
+  try {
+    const parsed = new URL(cleaned);
+    if (
+      parsed.hostname.endsWith('.vercel.app') ||
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1'
+    ) {
+      return DEFAULT_APP_URL;
+    }
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return `${parsed.protocol}//${parsed.host}`;
+    }
+  } catch {
+    // fall through
+  }
+  return DEFAULT_APP_URL;
+}
+
 export function resolveResendConfig(env = process.env) {
   const apiKey = String(env.RESEND_API_KEY || '').trim();
   if (!apiKey || env.RESEND_ENABLED === 'false') return null;
   const fromEmail = String(env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL).trim() || DEFAULT_FROM_EMAIL;
   const replyTo = String(env.RESEND_REPLY_TO || DEFAULT_REPLY_TO).trim() || DEFAULT_REPLY_TO;
-  const appUrl = String(env.PUBLIC_APP_URL || env.APP_URL || DEFAULT_APP_URL)
-    .trim()
-    .replace(/\/+$/, '');
+  const appUrl = sanitizeOfficialAppUrl(env.PUBLIC_APP_URL || env.APP_URL || DEFAULT_APP_URL);
   return { apiKey, fromEmail, replyTo, appUrl };
 }
 
@@ -27,19 +47,9 @@ export function isResendConfigured(env = process.env) {
   return Boolean(resolveResendConfig(env));
 }
 
-export function resolvePublicAppUrl(originHeader, env = process.env) {
-  if (typeof originHeader === 'string' && originHeader.trim()) {
-    try {
-      const parsed = new URL(originHeader.trim());
-      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
-        return `${parsed.protocol}//${parsed.host}`;
-      }
-    } catch {
-      // fall through
-    }
-  }
+export function resolvePublicAppUrl(_originHeader, env = process.env) {
   const cfg = resolveResendConfig(env);
-  return cfg?.appUrl || DEFAULT_APP_URL;
+  return sanitizeOfficialAppUrl(cfg?.appUrl || env.PUBLIC_APP_URL || env.APP_URL || DEFAULT_APP_URL);
 }
 
 export async function sendResendEmail(
@@ -106,25 +116,29 @@ export async function sendResendEmail(
 
 export function buildWelcomeEmail({ name, email, appUrl = DEFAULT_APP_URL }) {
   const cleanName = escapeHtml(String(name || 'Trader').trim() || 'Trader');
-  const safeAppUrl = escapeHtml(String(appUrl || DEFAULT_APP_URL).replace(/\/+$/, ''));
-  const subject = 'Welcome to Chart Replay — Your trading workspace is ready';
+  const officialUrl = sanitizeOfficialAppUrl(appUrl);
+  const safeAppUrl = escapeHtml(officialUrl);
+  const safeEmail = escapeHtml(String(email || '').trim().toLowerCase());
+  const subject = 'Welcome to Chart Replay — Your Trading Practice Starts Here';
 
   const text = [
     `Hi ${String(name || 'Trader').trim() || 'Trader'},`,
     '',
-    'Welcome to Chart Replay! Your free account has been created and your trading workspace is ready.',
+    'Welcome aboard! Your free Chart Replay account is active and your trading workspace is ready.',
     '',
-    'What you can do right away:',
-    '• Replay historical charts on Gold (XAU/USD), NAS100, EUR/USD, and more',
-    '• Test 1-Step and 2-Step Prop Firm Challenge rules with zero financial risk',
-    '• Document your Trading Plan, strategies, and trade journal notes in one place',
+    '5 Benefits of Practicing on Chart Replay:',
+    '1. Bar-by-Bar Historical Chart Replay — Practice on real historical price action across Gold (XAU/USD), NAS100, Forex majors, and Crypto at your own pace.',
+    '2. Prop Firm Challenge Simulator — Test 1-Step, 2-Step, and custom prop firm evaluation rules with live daily and maximum drawdown tracking.',
+    '3. 100% Free & Zero Financial Risk — Build screen time and validate your setups with simulated capital (USD or ZAR) before risking real money.',
+    '4. On-Chart Sticky Trading Plan & Playbooks — Pin a concise sticky-note version of your trading plan right on the chart and journal every trade.',
+    '5. Deep Performance Analytics & Psychology Coach — Track win rate, profit factor, R-multiples, and stay disciplined with Michael, your AI psychology coach.',
     '',
-    `Open your workspace: ${String(appUrl || DEFAULT_APP_URL).replace(/\/+$/, '')}`,
+    `Open Your Trading Workspace: ${officialUrl}`,
     '',
-    `Signed-up account: ${String(email || '').trim().toLowerCase()}`,
+    `Registered email: ${String(email || '').trim().toLowerCase()}`,
     '',
-    'Built in South Africa for deliberate trader development. Simulated money only.',
-    'Need help? Reply to this email or contact info@chartreplay.co.za.',
+    'Chart Replay · https://chartreplay.co.za · Simulated money only.',
+    'Questions or feedback? Contact info@chartreplay.co.za.',
   ].join('\n');
 
   const html = `<!DOCTYPE html>
@@ -134,56 +148,163 @@ export function buildWelcomeEmail({ name, email, appUrl = DEFAULT_APP_URL }) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(subject)}</title>
 </head>
-<body style="margin:0;padding:0;background-color:#06080d;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e2e8f0;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#06080d;padding:32px 16px;">
+<body style="margin:0;padding:0;background-color:#050811;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e2e8f0;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#050811;padding:36px 14px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background-color:#0c121e;border:1px solid #1e293b;border-radius:20px;overflow:hidden;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#0b111e;border:1px solid #1e293b;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,0.65);">
+          <!-- Hero Banner Image -->
           <tr>
-            <td style="padding:28px 32px 20px 32px;background:linear-gradient(135deg,#0f1f2e 0%,#0c121e 100%);border-bottom:1px solid #1e293b;">
-              <div style="display:inline-block;padding:5px 12px;border-radius:999px;background-color:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);color:#34d399;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">
-                Chart Replay · Free Forever
+            <td style="padding:0;background-color:#080d18;border-bottom:1px solid #1e293b;">
+              <a href="${safeAppUrl}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;">
+                <img src="${WELCOME_BANNER_URL}" alt="Welcome to Chart Replay — Replay. Practice. Perfect Your Edge." width="600" style="width:100%;max-width:600px;height:auto;display:block;border:0;" />
+              </a>
+            </td>
+          </tr>
+
+          <!-- Greeting & Intro -->
+          <tr>
+            <td style="padding:32px 34px 20px 34px;background:linear-gradient(180deg,#0f1829 0%,#0b111e 100%);">
+              <div style="display:inline-block;padding:5px 14px;border-radius:999px;background-color:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.35);color:#34d399;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">
+                Account Active · Free Forever
               </div>
-              <h1 style="margin:16px 0 6px 0;font-size:24px;line-height:1.25;font-weight:800;color:#ffffff;">
+              <h1 style="margin:16px 0 10px 0;font-size:26px;line-height:1.25;font-weight:800;color:#ffffff;letter-spacing:-0.02em;">
                 Welcome aboard, ${cleanName}!
               </h1>
-              <p style="margin:0;font-size:14px;line-height:1.6;color:#94a3b8;">
-                Your trading simulator account is active and ready for deliberate practice.
+              <p style="margin:0;font-size:15px;line-height:1.65;color:#cbd5e1;">
+                Your trading workspace on <a href="${safeAppUrl}" style="color:#38bdf8;text-decoration:none;font-weight:600;">chartreplay.co.za</a> is ready. Create your first session, pin your trading plan to the chart, and sharpen your execution with zero financial risk.
               </p>
             </td>
           </tr>
+
+          <!-- Primary CTA Button -->
           <tr>
-            <td style="padding:28px 32px;">
-              <p style="margin:0 0 18px 0;font-size:14px;line-height:1.65;color:#cbd5e1;">
-                We built Chart Replay so traders can test their edge, refine execution, and master prop-firm rules without risking real capital.
-              </p>
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;background-color:#090e17;border:1px solid #1e293b;border-radius:14px;padding:18px 20px;">
+            <td style="padding:4px 34px 28px 34px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
-                  <td style="font-size:13px;line-height:1.7;color:#cbd5e1;">
-                    <strong style="color:#34d399;">✓ Historical Chart Replay</strong> — Bar-by-bar playback across XAU/USD, NAS100, FX &amp; crypto.<br/>
-                    <strong style="color:#38bdf8;">✓ Prop Firm Simulator</strong> — Practice FTMO &amp; custom daily/overall drawdown rules.<br/>
-                    <strong style="color:#a78bfa;">✓ Strategy &amp; Trade Journal</strong> — Keep your trading plan, checklists, and trade reviews synced.
-                  </td>
-                </tr>
-              </table>
-              <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;">
-                <tr>
-                  <td align="center" style="border-radius:12px;background:linear-gradient(90deg,#10b981,#2962ff);">
-                    <a href="${safeAppUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:14px 28px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">
+                  <td align="center" style="border-radius:14px;background:linear-gradient(90deg,#10b981 0%,#0ea5e9 55%,#2563eb 100%);box-shadow:0 10px 25px rgba(16,185,129,0.25);">
+                    <a href="${safeAppUrl}" target="_blank" rel="noopener noreferrer" style="display:block;padding:16px 28px;font-size:15px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:0.01em;border-radius:14px;">
                       Open Your Trading Workspace →
                     </a>
                   </td>
                 </tr>
               </table>
-              <p style="margin:0;font-size:12px;line-height:1.6;color:#64748b;">
-                Registered email: <span style="color:#94a3b8;">${escapeHtml(String(email || '').trim().toLowerCase())}</span>
+            </td>
+          </tr>
+
+          <!-- 5 Platform Benefits -->
+          <tr>
+            <td style="padding:0 34px 28px 34px;">
+              <div style="margin:0 0 14px 0;font-size:11px;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;color:#38bdf8;">
+                5 Benefits of Practicing on Chart Replay
+              </div>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#080d17;border:1px solid #1e293b;border-radius:16px;overflow:hidden;">
+                <!-- Benefit 1 -->
+                <tr>
+                  <td style="padding:16px 20px;border-bottom:1px solid #162032;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td width="36" valign="top" style="padding-right:12px;">
+                          <div style="width:28px;height:28px;line-height:28px;text-align:center;border-radius:8px;background-color:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.35);color:#34d399;font-size:13px;font-weight:800;">1</div>
+                        </td>
+                        <td valign="top">
+                          <div style="font-size:14px;font-weight:700;color:#ffffff;margin-bottom:3px;">Bar-by-Bar Historical Chart Replay</div>
+                          <div style="font-size:13px;line-height:1.55;color:#94a3b8;">Step through real historical price action on Gold (XAU/USD), NAS100, Forex majors, and Crypto at your own speed.</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Benefit 2 -->
+                <tr>
+                  <td style="padding:16px 20px;border-bottom:1px solid #162032;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td width="36" valign="top" style="padding-right:12px;">
+                          <div style="width:28px;height:28px;line-height:28px;text-align:center;border-radius:8px;background-color:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;font-size:13px;font-weight:800;">2</div>
+                        </td>
+                        <td valign="top">
+                          <div style="font-size:14px;font-weight:700;color:#ffffff;margin-bottom:3px;">Prop Firm Challenge Simulator</div>
+                          <div style="font-size:13px;line-height:1.55;color:#94a3b8;">Practice 1-Step, 2-Step, and custom prop firm evaluation rules with live daily and maximum drawdown tracking.</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Benefit 3 -->
+                <tr>
+                  <td style="padding:16px 20px;border-bottom:1px solid #162032;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td width="36" valign="top" style="padding-right:12px;">
+                          <div style="width:28px;height:28px;line-height:28px;text-align:center;border-radius:8px;background-color:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.35);color:#a78bfa;font-size:13px;font-weight:800;">3</div>
+                        </td>
+                        <td valign="top">
+                          <div style="font-size:14px;font-weight:700;color:#ffffff;margin-bottom:3px;">100% Free &amp; Zero Financial Risk</div>
+                          <div style="font-size:13px;line-height:1.55;color:#94a3b8;">Build months of market screen time in hours using simulated capital in USD ($) or ZAR (R) before risking real money.</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Benefit 4 -->
+                <tr>
+                  <td style="padding:16px 20px;border-bottom:1px solid #162032;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td width="36" valign="top" style="padding-right:12px;">
+                          <div style="width:28px;height:28px;line-height:28px;text-align:center;border-radius:8px;background-color:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.35);color:#fbbf24;font-size:13px;font-weight:800;">4</div>
+                        </td>
+                        <td valign="top">
+                          <div style="font-size:14px;font-weight:700;color:#ffffff;margin-bottom:3px;">On-Chart Sticky Trading Plan &amp; Trade Journal</div>
+                          <div style="font-size:13px;line-height:1.55;color:#94a3b8;">Keep a short sticky-note version of your trading plan pinned directly on your chart and log every setup with notes.</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Benefit 5 -->
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td width="36" valign="top" style="padding-right:12px;">
+                          <div style="width:28px;height:28px;line-height:28px;text-align:center;border-radius:8px;background-color:rgba(244,63,94,0.15);border:1px solid rgba(244,63,94,0.35);color:#fb7185;font-size:13px;font-weight:800;">5</div>
+                        </td>
+                        <td valign="top">
+                          <div style="font-size:14px;font-weight:700;color:#ffffff;margin-bottom:3px;">Deep Analytics &amp; Psychology Coach</div>
+                          <div style="font-size:13px;line-height:1.55;color:#94a3b8;">Review your win rate, profit factor, equity curve, and R-multiples while getting real-time discipline check-ins.</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Quick Start Tip Box -->
+          <tr>
+            <td style="padding:0 34px 28px 34px;">
+              <div style="padding:16px 18px;background:linear-gradient(135deg,rgba(16,185,129,0.08) 0%,rgba(56,189,248,0.06) 100%);border:1px solid rgba(56,189,248,0.25);border-radius:14px;font-size:13px;line-height:1.6;color:#cbd5e1;">
+                <strong style="color:#34d399;">Ready to start?</strong> Click <strong>New Session</strong> in your dashboard to configure your first Backtesting or Prop Firm Challenge session, then click <strong>My Plan</strong> on the chart to write your sticky-note trading rules.
+              </div>
+              <p style="margin:16px 0 0 0;font-size:12px;line-height:1.6;color:#64748b;">
+                Registered account: <span style="color:#94a3b8;font-weight:600;">${safeEmail}</span> · Website: <a href="${safeAppUrl}" style="color:#38bdf8;text-decoration:none;">chartreplay.co.za</a>
               </p>
             </td>
           </tr>
+
+          <!-- Footer -->
           <tr>
-            <td style="padding:20px 32px;background-color:#080c14;border-top:1px solid #1e293b;font-size:11px;line-height:1.6;color:#64748b;">
-              Built in South Africa · Technology for trader development · Simulated money only.<br/>
-              Questions? Contact <a href="mailto:info@chartreplay.co.za" style="color:#34d399;text-decoration:underline;">info@chartreplay.co.za</a>.
+            <td style="padding:22px 34px;background-color:#070b14;border-top:1px solid #1e293b;font-size:11px;line-height:1.7;color:#64748b;text-align:center;">
+              <strong style="color:#94a3b8;">Chart Replay</strong> · Built in South Africa for deliberate trader development · Simulated capital only.<br/>
+              Need help? Reply to this email or contact <a href="mailto:info@chartreplay.co.za" style="color:#34d399;text-decoration:underline;">info@chartreplay.co.za</a> · <a href="${safeAppUrl}" style="color:#38bdf8;text-decoration:underline;">chartreplay.co.za</a>
             </td>
           </tr>
         </table>
@@ -198,7 +319,13 @@ export function buildWelcomeEmail({ name, email, appUrl = DEFAULT_APP_URL }) {
 
 export function buildPasswordResetEmail({ name, email, resetUrl, expiresMinutes = 30 }) {
   const cleanName = escapeHtml(String(name || 'Trader').trim() || 'Trader');
-  const safeResetUrl = escapeHtml(String(resetUrl || ''));
+  const rawReset = String(resetUrl || '').trim();
+  const normalizedResetUrl = rawReset.replace(
+    /^https?:\/\/[^/]+/i,
+    DEFAULT_APP_URL
+  );
+  const safeResetUrl = escapeHtml(normalizedResetUrl);
+  const safeEmail = escapeHtml(String(email || '').trim().toLowerCase());
   const subject = 'Reset your Chart Replay password';
 
   const text = [
@@ -206,14 +333,14 @@ export function buildPasswordResetEmail({ name, email, resetUrl, expiresMinutes 
     '',
     'We received a request to reset the password for your Chart Replay account.',
     '',
-    'Click the link below to choose a new password:',
-    String(resetUrl || ''),
+    'Click the secure link below to choose a new password:',
+    normalizedResetUrl,
     '',
     `This secure link expires in ${expiresMinutes} minutes and can only be used once.`,
     '',
-    'If you did not request a password reset, you can safely ignore this email—your password will remain unchanged.',
+    'If you did not request a password reset, you can safely ignore this email — your password will remain unchanged.',
     '',
-    'Chart Replay · info@chartreplay.co.za',
+    'Chart Replay · https://chartreplay.co.za · info@chartreplay.co.za',
   ].join('\n');
 
   const html = `<!DOCTYPE html>
@@ -223,51 +350,78 @@ export function buildPasswordResetEmail({ name, email, resetUrl, expiresMinutes 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(subject)}</title>
 </head>
-<body style="margin:0;padding:0;background-color:#06080d;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e2e8f0;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#06080d;padding:32px 16px;">
+<body style="margin:0;padding:0;background-color:#050811;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e2e8f0;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#050811;padding:36px 14px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background-color:#0c121e;border:1px solid #1e293b;border-radius:20px;overflow:hidden;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#0b111e;border:1px solid #1e293b;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,0.65);">
+          <!-- Top Brand Banner -->
           <tr>
-            <td style="padding:28px 32px 20px 32px;background:linear-gradient(135deg,#0f1f2e 0%,#0c121e 100%);border-bottom:1px solid #1e293b;">
-              <div style="display:inline-block;padding:5px 12px;border-radius:999px;background-color:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">
-                Account Security
+            <td style="padding:0;background-color:#080d18;border-bottom:1px solid #1e293b;">
+              <a href="${DEFAULT_APP_URL}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;">
+                <img src="${WELCOME_BANNER_URL}" alt="Chart Replay — Account Security" width="600" style="width:100%;max-width:600px;height:auto;display:block;border:0;" />
+              </a>
+            </td>
+          </tr>
+
+          <!-- Header Copy -->
+          <tr>
+            <td style="padding:32px 34px 20px 34px;background:linear-gradient(180deg,#0f1829 0%,#0b111e 100%);">
+              <div style="display:inline-block;padding:5px 14px;border-radius:999px;background-color:rgba(56,189,248,0.14);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">
+                Account Security · Password Reset
               </div>
-              <h1 style="margin:16px 0 6px 0;font-size:22px;line-height:1.25;font-weight:800;color:#ffffff;">
-                Reset your password
+              <h1 style="margin:16px 0 10px 0;font-size:25px;line-height:1.25;font-weight:800;color:#ffffff;letter-spacing:-0.02em;">
+                Reset your Chart Replay password
               </h1>
-              <p style="margin:0;font-size:14px;line-height:1.6;color:#94a3b8;">
-                Hi ${cleanName}, use the secure link below to set a new password for your Chart Replay account.
+              <p style="margin:0;font-size:15px;line-height:1.65;color:#cbd5e1;">
+                Hi ${cleanName}, we received a request to reset the password for your account (<strong style="color:#ffffff;">${safeEmail}</strong>) on <a href="${DEFAULT_APP_URL}" style="color:#38bdf8;text-decoration:none;font-weight:600;">chartreplay.co.za</a>.
               </p>
             </td>
           </tr>
+
+          <!-- Primary Reset CTA -->
           <tr>
-            <td style="padding:28px 32px;">
-              <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;">
+            <td style="padding:6px 34px 26px 34px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
-                  <td align="center" style="border-radius:12px;background:linear-gradient(90deg,#10b981,#2962ff);">
-                    <a href="${safeResetUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:14px 28px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">
+                  <td align="center" style="border-radius:14px;background:linear-gradient(90deg,#10b981 0%,#0ea5e9 55%,#2563eb 100%);box-shadow:0 10px 25px rgba(14,165,233,0.25);">
+                    <a href="${safeResetUrl}" target="_blank" rel="noopener noreferrer" style="display:block;padding:16px 28px;font-size:15px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:0.01em;border-radius:14px;">
                       Choose a New Password →
                     </a>
                   </td>
                 </tr>
               </table>
-              <p style="margin:0 0 14px 0;font-size:13px;line-height:1.6;color:#94a3b8;">
-                This link expires in <strong style="color:#e2e8f0;">${Number(expiresMinutes)} minutes</strong>. Once you set a new password, this link is automatically invalidated.
-              </p>
-              <p style="margin:0 0 18px 0;font-size:12px;line-height:1.6;color:#64748b;word-break:break-all;">
-                If the button above doesn’t open, copy and paste this link into your browser:<br/>
-                <a href="${safeResetUrl}" style="color:#38bdf8;text-decoration:underline;">${safeResetUrl}</a>
-              </p>
-              <div style="padding:14px 16px;background-color:#090e17;border:1px solid #1e293b;border-radius:12px;font-size:12px;line-height:1.5;color:#94a3b8;">
-                Didn’t request this change? You can safely ignore this email. Your password for <strong>${escapeHtml(String(email || '').trim().toLowerCase())}</strong> will not be changed.
-              </div>
             </td>
           </tr>
+
+          <!-- Security Details & Direct Link -->
           <tr>
-            <td style="padding:20px 32px;background-color:#080c14;border-top:1px solid #1e293b;font-size:11px;line-height:1.6;color:#64748b;">
-              Built in South Africa · Chart Replay · Simulated money only.<br/>
-              Need assistance? Contact <a href="mailto:info@chartreplay.co.za" style="color:#34d399;text-decoration:underline;">info@chartreplay.co.za</a>.
+            <td style="padding:0 34px 28px 34px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#080d17;border:1px solid #1e293b;border-radius:16px;margin-bottom:20px;">
+                <tr>
+                  <td style="padding:18px 20px;font-size:13px;line-height:1.65;color:#94a3b8;">
+                    <div style="margin-bottom:8px;">
+                      <strong style="color:#34d399;">✓ Single-Use Security Link:</strong> This link is valid for <strong style="color:#ffffff;">${Number(expiresMinutes)} minutes</strong> and automatically expires as soon as your password is updated.
+                    </div>
+                    <div>
+                      <strong style="color:#38bdf8;">✓ Didn’t request this?</strong> You can safely ignore this email. Your existing password remains secure and untouched.
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0;font-size:12px;line-height:1.65;color:#64748b;word-break:break-all;">
+                If the button above doesn’t open automatically, copy and paste this official link into your browser:<br/>
+                <a href="${safeResetUrl}" style="color:#38bdf8;text-decoration:underline;">${safeResetUrl}</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:22px 34px;background-color:#070b14;border-top:1px solid #1e293b;font-size:11px;line-height:1.7;color:#64748b;text-align:center;">
+              <strong style="color:#94a3b8;">Chart Replay</strong> · Built in South Africa · Simulated capital only.<br/>
+              Need assistance? Contact <a href="mailto:info@chartreplay.co.za" style="color:#34d399;text-decoration:underline;">info@chartreplay.co.za</a> · <a href="${DEFAULT_APP_URL}" style="color:#38bdf8;text-decoration:underline;">chartreplay.co.za</a>
             </td>
           </tr>
         </table>

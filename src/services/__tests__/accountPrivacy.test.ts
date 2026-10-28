@@ -1,5 +1,6 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {
+  createFreshReplacementSessionForUser,
   deleteUserAccount,
   deleteUserSession,
   loadUserSessions,
@@ -79,23 +80,29 @@ describe('Account-scoped privacy controls',()=>{
   expect(loadUserStrategyNotes(alice).text).toBe('Alice London Silver Bullet plan');
   expect(loadUserStrategyNotes(bob).text).toBe('Bob Asian Range reversal notes');
 
-  // Session deletion persists and does not resurrect deleted starter sessions
+  // New users start with 0 pre-created sessions and must create their own
   const aliceInitial = loadUserSessions(alice);
-  expect(aliceInitial).toHaveLength(2);
-  const deletedId = aliceInitial[0].id;
+  expect(aliceInitial).toHaveLength(0);
+  expect(loadUserSessions(bob)).toHaveLength(0);
+
+  const sessionA1 = { ...createFreshReplacementSessionForUser(alice), id: 'session-alice-1', name: 'Alice Session 1' };
+  const sessionA2 = { ...createFreshReplacementSessionForUser(alice), id: 'session-alice-2', name: 'Alice Session 2' };
+  saveUserSessions(alice, [sessionA1, sessionA2]);
+  expect(loadUserSessions(alice)).toHaveLength(2);
+
+  const deletedId = sessionA1.id;
   const afterFirstDelete = deleteUserSession(alice, deletedId);
   expect(afterFirstDelete).toHaveLength(1);
   expect(loadUserSessions(alice).map(s => s.id)).not.toContain(deletedId);
 
-  // Deleting the last remaining session creates a fresh replacement session
+  // Deleting the last remaining session leaves 0 sessions
   const lastId = afterFirstDelete[0].id;
   const afterSecondDelete = deleteUserSession(alice, lastId);
-  expect(afterSecondDelete).toHaveLength(1);
-  expect(afterSecondDelete[0].id).not.toBe(lastId);
-  expect(afterSecondDelete[0].id).not.toBe(deletedId);
+  expect(afterSecondDelete).toHaveLength(0);
+  expect(loadUserSessions(alice)).toHaveLength(0);
 
   // Journal & trade persistence on Alice's session does not leak to Bob
-  const aliceSession = afterSecondDelete[0];
+  const aliceSession = { ...createFreshReplacementSessionForUser(alice), id: 'session-alice-3', name: 'Alice Custom Session' };
   aliceSession.mindsetNote = { text: 'My custom sticky plan', pinned: true, x: 20, y: 100, width: 280, height: 300 };
   aliceSession.journals = {
     'pos-1': {
@@ -117,7 +124,7 @@ describe('Account-scoped privacy controls',()=>{
   saveUserSessions(alice, [aliceSession]);
   expect(loadUserSessions(alice)[0].journals?.['pos-1']?.entryReasoning).toBe('15m sweep');
   expect(loadUserSessions(alice)[0].mindsetNote?.text).toBe('My custom sticky plan');
-  expect(loadUserSessions(bob)[0].journals).toBeUndefined();
+  expect(loadUserSessions(bob)).toHaveLength(0);
 
   // Strategy deletion persists per user
   const aliceStrats = loadUserStrategies(alice);

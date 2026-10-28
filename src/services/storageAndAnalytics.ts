@@ -544,24 +544,14 @@ export function loadUserSessions(userId: string): TradingSession[] {
     const raw = store.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const filtered = parsed.filter((s: TradingSession) => !deletedIds.has(s.id));
-        if (filtered.length > 0) {
-          return filtered;
-        }
+      if (Array.isArray(parsed)) {
+        return parsed.filter((s: TradingSession) => !deletedIds.has(s.id));
       }
     }
   } catch {
     // ignore
   }
-  const seeded = createDefaultSessionsForUser(userId).filter((s) => !deletedIds.has(s.id));
-  const finalSessions = seeded.length > 0 ? seeded : [createFreshReplacementSessionForUser(userId)];
-  try {
-    store.setItem(key, JSON.stringify(finalSessions));
-  } catch {
-    // ignore
-  }
-  return finalSessions;
+  return [];
 }
 
 const sessionSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1665,9 +1655,7 @@ export function deleteUserSession(userId: string, sessionId: string): TradingSes
   const current = loadUserSessions(userId);
   markSessionDeleted(userId, sessionId);
   const filtered = current.filter((s) => s.id !== sessionId);
-  const remaining =
-    filtered.length > 0 ? filtered : [createFreshReplacementSessionForUser(userId)];
-  saveUserSessions(userId, remaining);
+  saveUserSessions(userId, filtered);
   void deleteUserSessionFromSupabase(userId, sessionId);
   const store = runtimeStorage();
   try {
@@ -1682,7 +1670,7 @@ export function deleteUserSession(userId: string, sessionId: string): TradingSes
   } catch {
     // ignore
   }
-  return remaining;
+  return filtered;
 }
 
 /**

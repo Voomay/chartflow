@@ -133,7 +133,8 @@ export function isUntouchedStarterSession(s: TradingSession): boolean {
   const hasRealized = Math.abs(s.realizedPnL ?? 0) > 0.005;
   const hasCustomPlan =
     Boolean(s.mindsetNote?.text) &&
-    !s.mindsetNote!.text.startsWith('MY TRADING PLAN\n\n• Wait for my setup.');
+    !s.mindsetNote!.text.startsWith('MY TRADING PLAN\n\n• Wait for my setup.') &&
+    !s.mindsetNote!.text.startsWith('MY TRADING PLAN\n\nYou can write your trading plan here');
   const hasDrawings = Boolean(
     s.drawingsBySymbol &&
       Object.values(s.drawingsBySymbol).some(

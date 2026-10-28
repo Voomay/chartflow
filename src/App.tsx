@@ -68,7 +68,6 @@ import {
 } from './services/simulationEngine';
 import {
   getActiveLoggedInUser,
-  authenticateUserAccount,
   cacheUserStrategyNotesLocally,
   createFreshReplacementSessionForUser,
   getDeletedSessionIds,
@@ -213,23 +212,38 @@ export function App() {
   >(() => {
     purgeBrowserSensitiveStorage();
     try {
-      localStorage.removeItem('chart_replay_active_view_v2');
-    } catch {
-      // ignore
-    }
-    try {
       if (new URLSearchParams(window.location.search).get('reset_token')) {
         return 'login';
       }
     } catch {
       // ignore
     }
+    const savedUser = getActiveLoggedInUser();
+    if (savedUser) {
+      try {
+        const savedView = localStorage.getItem('chart_replay_active_view_v2') as
+          | 'terminal'
+          | 'dashboard'
+          | 'analytics_page'
+          | null;
+        if (
+          savedView === 'terminal' ||
+          savedView === 'dashboard' ||
+          savedView === 'analytics_page'
+        ) {
+          return savedView;
+        }
+      } catch {
+        // ignore
+      }
+      return 'dashboard';
+    }
     return 'landing';
   });
 
   useEffect(() => {
     purgeBrowserSensitiveStorage();
-    if (currentUser || activeView === 'login') return;
+    if (activeView === 'login') return;
     let cancelled = false;
     void platformRequest('status')
       .then((res) => {
@@ -252,6 +266,7 @@ export function App() {
             hasSeenChartAnnouncement(u.email) ||
             hasSeenWorkspaceTour(u.email),
         });
+        setActiveView((prev) => (prev === 'landing' ? 'dashboard' : prev));
       })
       .catch(() => {});
     return () => {
@@ -260,7 +275,30 @@ export function App() {
   }, []);
 
   const [hubInitialSection, setHubInitialSection] =
-    useState<HubSidebarSection>('dashboard');
+    useState<HubSidebarSection>(() => {
+      try {
+        const savedSection = localStorage.getItem(
+          'chart_replay_hub_section_v1'
+        ) as HubSidebarSection | null;
+        if (
+          savedSection &&
+          [
+            'dashboard',
+            'sessions',
+            'analytics',
+            'strategies',
+            'notes',
+            'guide',
+            'settings',
+          ].includes(savedSection)
+        ) {
+          return savedSection;
+        }
+      } catch {
+        // ignore
+      }
+      return 'dashboard';
+    });
   const [loginInitialMode, setLoginInitialMode] = useState<'login' | 'signup'>(
     'login'
   );
@@ -404,9 +442,22 @@ export function App() {
     };
   }, [currentUser?.email]);
 
-  const [activeSessionId, setActiveSessionId] = useState<string>(
-    () => tradingSessions[0]?.id || 'session-default'
-  );
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
+    try {
+      const savedSessionId = localStorage.getItem(
+        `chart_replay_active_session_id_v1:${userEmail}`
+      );
+      if (
+        savedSessionId &&
+        tradingSessions.some((s) => s.id === savedSessionId)
+      ) {
+        return savedSessionId;
+      }
+    } catch {
+      // ignore
+    }
+    return tradingSessions[0]?.id || 'session-default';
+  });
 
   const fallbackSession = useMemo<TradingSession>(() => {
     const base = createFreshReplacementSessionForUser(userEmail);
@@ -436,7 +487,25 @@ export function App() {
 
   useEffect(() => {
     purgeBrowserSensitiveStorage();
-  }, [activeView, currentUser?.email, activeSession?.id]);
+    try {
+      if (
+        currentUser &&
+        (activeView === 'terminal' ||
+          activeView === 'dashboard' ||
+          activeView === 'analytics_page')
+      ) {
+        localStorage.setItem('chart_replay_active_view_v2', activeView);
+      }
+      if (currentUser?.email && activeSession?.id) {
+        localStorage.setItem(
+          `chart_replay_active_session_id_v1:${currentUser.email}`,
+          activeSession.id
+        );
+      }
+    } catch {
+      // ignore
+    }
+  }, [activeView, currentUser, activeSession?.id]);
 
   const updateActiveSession = useCallback(
     (updater: (prev: TradingSession) => TradingSession) => {
@@ -1732,9 +1801,9 @@ export function App() {
 
   const openLegal=(page:LegalDocumentKey)=>{const url=new URL(window.location.href);url.searchParams.set('legal',page);window.history.pushState({},'',url);setLegalPage(page);};
   const closeLegal=()=>{const url=new URL(window.location.href);url.searchParams.delete('legal');window.history.pushState({},'',url);setLegalPage(null);};
-  const signOut=()=>{setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
+  const signOut=()=>{try{localStorage.removeItem('chart_replay_active_view_v2');localStorage.removeItem('chart_replay_hub_section_v1');}catch{}setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
   const openComingSoon=()=>{window.history.pushState({},'','/coming-soon');setComingSoon(true);};
-  const closeComingSoon=()=>{window.history.pushState({},'','/');setComingSoon(false);setActiveView('landing');};
+  const closeComingSoon=()=>{window.history.pushState({},'','/');setComingSoon(false);setActiveView(currentUser?'dashboard':'landing');};
   const openTradersInsight=(slug:string|null=null)=>{
     const path=slug?`/traders-insight/${slug}`:'/traders-insight';
     window.history.pushState({},'',path);
@@ -1743,9 +1812,8 @@ export function App() {
   const closeTradersInsight=()=>{
     window.history.pushState({},'','/');
     setInsightRoute({active:false,slug:null});
-    setActiveView('landing');
+    setActiveView(currentUser?'dashboard':'landing');
   };
-  const enterDemo=()=>{const result=authenticateUserAccount('trader@chartflow.io','demo1234');const user=result.user||{id:'user-demo-trader',name:'Alex Mercer',email:'trader@chartflow.io',passwordHash:'',plan:'FREE_FOREVER' as const,joinedAt:new Date().toISOString()};setActiveLoggedInUser(user);const isReturning=(user.loginCount??1)>1||hasSeenChartAnnouncement(user.email)||hasSeenWorkspaceTour(user.email);if(isReturning){markChartAnnouncementSeen(user.email);markWorkspaceTourSeen(user.email);markTourSeen('completed',user.email);}resetMotivationVisit(user.email,isReturning);setCurrentUser({id:user.id,name:user.name,email:user.email,plan:user.plan,joinedAt:user.joinedAt,loginCount:user.loginCount,isReturningLogin:isReturning});setHubInitialSection('dashboard');setActiveView('dashboard');};
   if(legalPage)return <LegalPage page={legalPage} onNavigate={openLegal} onBack={closeLegal}/>;
 
   if(insightRoute.active)return (
@@ -1785,7 +1853,7 @@ export function App() {
   // VIEW 1: LANDING PAGE (HOMEPAGE)
   if (activeView === 'landing') {
     return (
-      <LandingPage onDemoLogin={enterDemo} onOpenComingSoon={openComingSoon} onOpenTradersInsight={openTradersInsight} onOpenLegal={openLegal}
+      <LandingPage onOpenComingSoon={openComingSoon} onOpenTradersInsight={openTradersInsight} onOpenLegal={openLegal}
         onLaunchTerminal={(action) => {
           if (action === 'prop_firm') {
             setCreateSessionModalMode('PROP_FIRM');
@@ -1836,16 +1904,38 @@ export function App() {
           }
           resetMotivationVisit(user.email, user.isReturningLogin ?? true);
           resetChartIndicatorsOff();
+          const existingSaved = getActiveLoggedInUser();
+          if (
+            !existingSaved ||
+            existingSaved.email.toLowerCase() !== user.email.toLowerCase()
+          ) {
+            setActiveLoggedInUser({
+              id: user.id || `user-${Date.now()}`,
+              name: user.name,
+              email: user.email,
+              passwordHash: '',
+              plan: user.plan || 'FREE_FOREVER',
+              joinedAt: user.joinedAt || new Date().toISOString(),
+              loginCount: user.loginCount ?? 1,
+            });
+          }
           setCurrentUser(user);
           // Fresh sign-in: re-arm the bottom workspace panel expand hint
           try {
             localStorage.removeItem(DOCK_HINT_KEY);
+            localStorage.setItem('chart_replay_active_view_v2', 'dashboard');
           } catch {
             // ignore
           }
           setActiveView('dashboard');
         }}
         onLogout={() => {
+          try {
+            localStorage.removeItem('chart_replay_active_view_v2');
+            localStorage.removeItem('chart_replay_hub_section_v1');
+          } catch {
+            // ignore
+          }
           setActiveLoggedInUser(null);
           setCurrentUser(null);
           setActiveView('landing');

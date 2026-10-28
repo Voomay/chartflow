@@ -174,7 +174,14 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
     }
   },[announcementPending,sidebarSection,isSessionSetupOpen,announcementUser]);
   const workspaceRef=useRef<HTMLElement>(null);
-  useEffect(()=>{workspaceRef.current?.scrollTo({top:0});},[sidebarSection]);
+  useEffect(()=>{
+    workspaceRef.current?.scrollTo({top:0});
+    try{
+      localStorage.setItem('chart_replay_hub_section_v1',sidebarSection);
+    }catch{
+      // ignore
+    }
+  },[sidebarSection]);
 
   useEffect(() => {
     setSidebarSection(initialSection);

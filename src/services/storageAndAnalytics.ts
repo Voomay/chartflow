@@ -214,7 +214,7 @@ export function authenticateUserAccount(
   if (!found) {
     return {
       ok: false,
-      error: 'No account found for this email address. Create a new account or use Demo Login.',
+      error: 'No account found for this email address. Please create a free account.',
     };
   }
 

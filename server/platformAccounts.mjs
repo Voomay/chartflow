@@ -145,7 +145,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    const secure=req.socket?.encrypted||req.headers['x-forwarded-proto']==='https';
    const cookieOptions=`Path=/api/platform; HttpOnly; SameSite=Strict${secure?'; Secure':''}`;
    const userCookieOptions=`Path=/api/platform; HttpOnly; SameSite=Strict${secure?'; Secure':''}`;
-   const setUserCookie=user=>res.setHeader('Set-Cookie',`chart_replay_user=${createUserSession(user.id,config,now())}; ${userCookieOptions}; Max-Age=28800`);
+   const setUserCookie=user=>res.setHeader('Set-Cookie',`chart_replay_user=${createUserSession(user.id,config,now())}; ${userCookieOptions}; Max-Age=2592000`);
    if(action==='sponsorship'){
     if(!admin)return send(401,{error:'Administrator sign-in required.'});
     const candidate=body.sponsorship&&typeof body.sponsorship==='object'?body.sponsorship:body;
@@ -256,7 +256,7 @@ export function readPasswordResetToken(token,config,now=Date.now()){
 
 // Separate encrypted user sessions prevent activity from being attributed by a supplied email or ID and hide identifiers in cookies.
 export function createUserSession(userId,config,now=Date.now()){
- return sealToken({role:'user',userId,expires:now+8*3600000},config.sessionSecret);
+ return sealToken({role:'user',userId,expires:now+30*86400000},config.sessionSecret);
 }
 export function readUserSession(token,config,now=Date.now()){
  const value=openToken(token,config?.sessionSecret);

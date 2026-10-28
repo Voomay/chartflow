@@ -34,7 +34,6 @@ export type LandingLaunchAction =
   | 'dashboard';
 
 interface LandingPageProps {
-  onDemoLogin?:()=>void;
   onOpenComingSoon?:()=>void;
   onOpenTradersInsight?:(slug?:string|null)=>void;
   onOpenLegal?:(page:LegalDocumentKey)=>void;
@@ -218,7 +217,7 @@ const CompareMark: React.FC<{ v: CompareCell; strong?: boolean }> = ({ v, strong
   return <span className={`font-bold ${strong ? 'text-sm sm:text-base font-black text-emerald-300' : 'text-xs sm:text-sm text-[#cbd5e1]'}`}>{v}</span>;
 };
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal,onOpenComingSoon,onOpenTradersInsight,onDemoLogin }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal,onOpenComingSoon,onOpenTradersInsight }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -416,6 +415,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                 Sign In
               </button>
             </div>
+            <p className="lp-fade-up lp-d3 mt-3.5 inline-flex items-center justify-center gap-1.5 text-xs sm:text-sm text-emerald-300/90 font-medium">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>100% Free · No credit card needed</span>
+            </p>
 
           </div>
 
@@ -763,6 +766,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                     Sign In
                   </button>
                 </div>
+                <p className="mt-3.5 inline-flex items-center justify-center gap-1.5 text-xs sm:text-sm text-emerald-300/90 font-medium">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>100% Free · No credit card needed</span>
+                </p>
               </div>
             </div>
           </div>

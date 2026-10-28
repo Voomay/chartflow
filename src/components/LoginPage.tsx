@@ -15,7 +15,6 @@ import {
   Lock,
   Mail,
   User,
-  Zap,
 } from 'lucide-react';
 import {
   authenticateUserAccount,
@@ -256,22 +255,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         `Password for ${res.user.email} has been reset! You can now sign in.`
       );
       setMode('login');
-    }
-  };
-
-  const handleQuickDemoLogin = () => {
-    const res = authenticateUserAccount('trader@chartflow.io', 'demo1234');
-    if (res.ok && res.user) {
-      handleCompleteUser(res.user, true);
-    } else {
-      onSuccessAuth({
-        id: 'user-demo-trader',
-        name: 'Alex Mercer',
-        email: 'trader@chartflow.io',
-        plan: 'FREE_FOREVER',
-        joinedAt: new Date().toISOString().slice(0, 10),
-        isReturningLogin: true,
-      });
     }
   };
 
@@ -583,27 +566,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </button>
           </form>
 
-          {serverAccounts&&<p className="text-[11px] text-slate-500 leading-5 mt-4">Accounts, trading sessions, and journals are securely stored in Supabase. Login details are never saved in localhost storage or readable cookies.</p>}
-          {/* Quick Demo Access */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/[0.08]" />
-            </div>
-            <div className="relative flex justify-center text-[11px] uppercase">
-              <span className="bg-[#06080d] px-3 text-[#787b86] font-mono">
-                Or Instant Access
-              </span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleQuickDemoLogin}
-            className="w-full min-h-[48px] py-3 px-4 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1] hover:border-emerald-400/40 text-gray-200 font-semibold text-sm sm:text-xs flex items-center justify-center gap-2 transition"
-          >
-            <Zap className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Sign in as Guest</span>
-          </button>
+          <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-emerald-300/90 font-medium">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>100% Free · No credit card needed</span>
+          </p>
+          {serverAccounts&&<p className="text-[11px] text-slate-500 leading-5 mt-3 text-center">Accounts, trading sessions, and journals are securely stored in Supabase. Login details are never saved in localhost storage or readable cookies.</p>}
           <p className="text-[10px] text-slate-500 mt-5 text-center">Technology for learning · Simulated money only</p><LegalLinks onOpen={onOpenLegal} className="justify-center mt-3 text-slate-400"/>
         </div>
       </div>

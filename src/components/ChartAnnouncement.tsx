@@ -72,7 +72,7 @@ export function ChartAnnouncement({open,onClose}:{open:boolean;onClose:()=>void}
             <p className="text-[11px] italic text-slate-400">Warm regards,</p>
             <p className="mt-0.5 text-[13px] font-bold tracking-tight text-white">The Chart Replay Team</p>
             <a
-              href="mailto:info@voomay.co.za?subject=Chart%20Replay%20feedback"
+              href="mailto:info@chartreplay.co.za?subject=Chart%20Replay%20feedback"
               className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 hover:text-emerald-300 hover:underline"
             >
               <Mail size={11}/>

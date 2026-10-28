@@ -180,13 +180,47 @@ export function App() {
   const toggleBalance=()=>setBalanceHidden(previous=>!previous);
 
 
-  // 2. View Navigation State (always open on the landing / home page)
+  // 2. View Navigation State (always open on the landing / home page unless a password reset token is in the URL)
+  const [urlResetParams, setUrlResetParams] = useState<{
+    token: string | null;
+    email: string | null;
+  }>(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      return {
+        token: sp.get('reset_token'),
+        email: sp.get('email'),
+      };
+    } catch {
+      return { token: null, email: null };
+    }
+  });
+
+  const clearUrlResetParams = useCallback(() => {
+    setUrlResetParams({ token: null, email: null });
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('reset_token');
+      url.searchParams.delete('email');
+      window.history.replaceState({}, '', url);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const [activeView, setActiveView] = useState<
     'terminal' | 'dashboard' | 'analytics_page' | 'login' | 'landing'
   >(() => {
     purgeBrowserSensitiveStorage();
     try {
       localStorage.removeItem('chart_replay_active_view_v2');
+    } catch {
+      // ignore
+    }
+    try {
+      if (new URLSearchParams(window.location.search).get('reset_token')) {
+        return 'login';
+      }
     } catch {
       // ignore
     }
@@ -1777,7 +1811,10 @@ export function App() {
   if (activeView === 'login' || !currentUser) {
     return (
       <LoginPage onOpenLegal={openLegal}
-        initialMode={loginInitialMode}
+        initialMode={urlResetParams.token ? 'reset' : loginInitialMode}
+        initialResetToken={urlResetParams.token}
+        initialEmail={urlResetParams.email}
+        onClearResetToken={clearUrlResetParams}
         onSuccessAuth={(user: ChartFlowUser) => {
           if (user.isReturningLogin || (user.loginCount ?? 1) > 1) {
             markChartAnnouncementSeen(user.email);
@@ -1866,7 +1903,7 @@ export function App() {
             setActiveLoggedInUser(null);
             setCurrentUser(null);
             setActiveView('login');
-            showToast('This browser’s account and practice data were deleted. For server registration records, contact info@voomay.co.za.', 'info');
+            showToast('This browser’s account and practice data were deleted. For server registration records, contact info@chartreplay.co.za.', 'info');
           }}
           onLogout={signOut}
           theme={theme}

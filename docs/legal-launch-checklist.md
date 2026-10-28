@@ -2,7 +2,7 @@
 
 The Terms & Conditions, Privacy Policy and POPIA pages are implementation-informed drafts dated 23 October 2026. Routes: `?legal=terms`, `?legal=privacy`, `?legal=popia`.
 
-Before adopting these for a public service, confirm the registered operator name, registration details where applicable, physical address, designated Information Officer and applicable registration, privacy-request procedure, hosting and subprocessors, retention periods, cross-border transfer arrangements, incident-response process, age eligibility, and whether a PAIA manual is required. The existing general website contact is info@voomay.co.za; designation as an Information Officer contact is not established.
+Before adopting these for a public service, confirm the registered operator name, registration details where applicable, physical address, designated Information Officer and applicable registration, privacy-request procedure, hosting and subprocessors, retention periods, cross-border transfer arrangements, incident-response process, age eligibility, and whether a PAIA manual is required. The existing general website contact is info@chartreplay.co.za; designation as an Information Officer contact is not established.
 
 The current application stores profiles, local password verification values, trading sessions and notes in browser storage. Local authentication is a prototype implementation, not a production-grade server authentication or access-control system. A policy page does not fix that limitation or certify compliance. Do not describe local data as encrypted, securely backed up or synchronised. Balance masking only changes the displayed header amounts.
 

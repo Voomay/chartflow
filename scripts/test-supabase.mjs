@@ -440,3 +440,173 @@ test('User signs up, creates a session, creates their own trading plan, trades 3
   assert.equal(recordedUser.sessionCount, 1);
   assert.equal(recordedUser.tradeCount, 3);
 });
+
+test('Resend integration sends welcome email on signup and completes signed password reset link flow', async () => {
+  const userRows = [];
+  const sentEmails = [];
+  const envWithResend = {
+    ...SUPABASE_ENV,
+    RESEND_ENABLED: 'true',
+    RESEND_API_KEY: 're_test_key_12345',
+    RESEND_FROM_EMAIL: 'Chart Replay <noreply@chartreplay.co.za>',
+    RESEND_REPLY_TO: 'info@chartreplay.co.za',
+    ADMIN_SESSION_SECRET: 'test-resend-session-secret-2026',
+  };
+
+  const mockRequest = async (url, options = {}) => {
+    const method = options.method || 'GET';
+    if (String(url).includes('api.resend.com/emails')) {
+      const payload = JSON.parse(options.body);
+      sentEmails.push({
+        authHeader: options.headers?.Authorization,
+        payload,
+      });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id: `email_${sentEmails.length}` }),
+      };
+    }
+    if (String(url).includes('platform_users')) {
+      if (method === 'GET') {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(userRows),
+        };
+      }
+      if (method === 'POST') {
+        const incoming = JSON.parse(options.body);
+        for (const item of Array.isArray(incoming) ? incoming : [incoming]) {
+          const idx = userRows.findIndex((r) => r.email === item.email);
+          if (idx >= 0) userRows[idx] = { ...userRows[idx], ...item };
+          else userRows.push(item);
+        }
+        return { ok: true, status: 201, text: async () => '' };
+      }
+      if (method === 'PATCH') {
+        const patch = JSON.parse(options.body);
+        const idMatch = String(url).match(/id=eq\.([^&]+)/);
+        const targetId = idMatch ? decodeURIComponent(idMatch[1]) : null;
+        const idx = userRows.findIndex((r) => r.id === targetId);
+        if (idx >= 0) {
+          userRows[idx] = { ...userRows[idx], ...patch };
+        }
+        return { ok: true, status: 204, text: async () => '' };
+      }
+    }
+    return { ok: true, status: 200, text: async () => '[]' };
+  };
+
+  let currentNow = Date.UTC(2026, 9, 28, 14, 0, 0);
+  const store = createSupabaseAccountStore({
+    env: envWithResend,
+    request: mockRequest,
+  });
+  const handler = createPlatformHandler({
+    store,
+    now: () => currentNow,
+    env: envWithResend,
+    request: mockRequest,
+  });
+
+  const call = async (action, { method = 'POST', body = {}, cookie = '' } = {}) => {
+    const res = {
+      headers: {},
+      setHeader(k, v) {
+        this.headers[k] = v;
+      },
+      end(v) {
+        this.body = JSON.parse(v);
+      },
+    };
+    await handler(
+      {
+        url: `/?action=${action}`,
+        method,
+        body,
+        headers: {
+          host: 'chartreplay.co.za',
+          origin: 'https://chartreplay.co.za',
+          cookie,
+          'content-type': 'application/json',
+        },
+        socket: { remoteAddress: '127.0.0.1' },
+      },
+      res
+    );
+    return res;
+  };
+
+  // 1. User registers -> Welcome email is sent via Resend
+  const regRes = await call('register', {
+    body: {
+      name: 'Naledi Khumalo',
+      email: 'naledi@chartreplay.co.za',
+      password: 'OldPassword#123',
+    },
+  });
+  assert.equal(regRes.statusCode, 201);
+  assert.equal(regRes.body.welcomeEmailSent, true);
+  assert.equal(sentEmails.length, 1);
+  assert.equal(sentEmails[0].authHeader, 'Bearer re_test_key_12345');
+  assert.equal(sentEmails[0].payload.from, 'Chart Replay <noreply@chartreplay.co.za>');
+  assert.deepEqual(sentEmails[0].payload.to, ['naledi@chartreplay.co.za']);
+  assert.match(sentEmails[0].payload.subject, /Welcome to Chart Replay/);
+  assert.match(sentEmails[0].payload.html, /Welcome aboard, Naledi Khumalo!/);
+
+  // 2. User requests password reset -> Reset link email is sent via Resend
+  const reqResetRes = await call('request-password-reset', {
+    body: { email: 'naledi@chartreplay.co.za' },
+  });
+  assert.equal(reqResetRes.statusCode, 200);
+  assert.equal(reqResetRes.body.ok, true);
+  assert.equal(sentEmails.length, 2);
+  assert.deepEqual(sentEmails[1].payload.to, ['naledi@chartreplay.co.za']);
+  assert.match(sentEmails[1].payload.subject, /Reset your Chart Replay password/);
+
+  // Extract reset_token from email text
+  const tokenMatch = sentEmails[1].payload.text.match(/reset_token=([^&\s]+)/);
+  assert.ok(tokenMatch, 'Expected reset_token in password reset email');
+  const resetToken = decodeURIComponent(tokenMatch[1]);
+
+  // 3. Complete password reset using the token from the email
+  const completeRes = await call('reset-password', {
+    body: {
+      token: resetToken,
+      password: 'NewStrongPassword#456',
+    },
+  });
+  assert.equal(completeRes.statusCode, 200);
+  assert.equal(completeRes.body.ok, true);
+  assert.equal(completeRes.body.user.email, 'naledi@chartreplay.co.za');
+
+  // 4. Reusing the same reset token a second time is rejected (single-use)
+  const reuseRes = await call('reset-password', {
+    body: {
+      token: resetToken,
+      password: 'AnotherPassword#789',
+    },
+  });
+  assert.equal(reuseRes.statusCode, 400);
+  assert.match(reuseRes.body.error, /already been used|no longer valid/i);
+
+  // 5. Old password no longer works, new password succeeds
+  const oldLogin = await call('login', {
+    body: {
+      email: 'naledi@chartreplay.co.za',
+      password: 'OldPassword#123',
+    },
+  });
+  assert.equal(oldLogin.statusCode, 401);
+
+  const newLogin = await call('login', {
+    body: {
+      email: 'naledi@chartreplay.co.za',
+      password: 'NewStrongPassword#456',
+    },
+  });
+  assert.equal(newLogin.statusCode, 200);
+  assert.equal(newLogin.body.user.email, 'naledi@chartreplay.co.za');
+});
+

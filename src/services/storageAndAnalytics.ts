@@ -257,7 +257,7 @@ export function resetUserPassword(
     return { ok: false, error: 'No registered account found with that email address.' };
   }
 
-  if(users[idx].authSource==='server')return {ok:false,error:'For this server account, contact info@voomay.co.za for password recovery.'};
+  if(users[idx].authSource==='server')return {ok:false,error:'For this server account, contact info@chartreplay.co.za for password recovery.'};
   const updatedUser: RegisteredUser = {
     ...users[idx],
     passwordHash: simpleHash(newPassword),

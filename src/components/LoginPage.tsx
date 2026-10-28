@@ -1,4 +1,4 @@
-import {platformRequest,serverAccountRequest} from '../services/platformAccounts';
+import {platformRequest,serverAccountRequest,requestPasswordResetEmail,completePasswordResetWithToken} from '../services/platformAccounts';
 import {hasSeenChartAnnouncement} from './ChartAnnouncement';
 import {hasSeenWorkspaceTour} from './WorkspaceTour';
 import {LegalLinks,LegalDocumentKey} from './LegalLinks';
@@ -38,6 +38,9 @@ export interface ChartFlowUser {
 interface LoginPageProps {
   onOpenLegal?:(page:LegalDocumentKey)=>void;
   initialMode?: 'login' | 'signup' | 'reset';
+  initialResetToken?: string | null;
+  initialEmail?: string | null;
+  onClearResetToken?: () => void;
   currentUser: ChartFlowUser | null;
   onSuccessAuth: (user: ChartFlowUser) => void;
   onLogout: () => void;
@@ -47,6 +50,9 @@ interface LoginPageProps {
 
 export const LoginPage: React.FC<LoginPageProps> = ({
   initialMode = 'login',
+  initialResetToken = null,
+  initialEmail = null,
+  onClearResetToken,
   onSuccessAuth,
   onBackToLanding,
   onOpenLegal,
@@ -54,9 +60,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [submitting,setSubmitting]=useState(false);
   const [serverAccounts,setServerAccounts]=useState(false);
   useEffect(()=>{void platformRequest('status').then(result=>setServerAccounts(result.enabled===true)).catch(()=>{});},[]);
-  const [mode, setMode] = useState<'login' | 'signup' | 'reset'>(initialMode);
+  const [mode, setMode] = useState<'login' | 'signup' | 'reset'>(
+    initialResetToken ? 'reset' : initialMode
+  );
+  const [resetToken, setResetToken] = useState<string | null>(initialResetToken);
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -65,6 +74,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    if (initialResetToken) {
+      setResetToken(initialResetToken);
+      setMode('reset');
+      if (initialEmail) setEmail(initialEmail);
+      setErrorMsg(null);
+      setSuccessMsg(null);
+      return;
+    }
     setMode(initialMode);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -75,7 +92,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setEmail((prev) => prev);
       setPassword((prev) => prev);
     }
-  }, [initialMode]);
+  }, [initialMode, initialResetToken, initialEmail]);
 
   const handleCompleteUser = (u: RegisteredUser, isReturning = mode === 'login') => {
     const returning =
@@ -134,6 +151,77 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
 
     if (mode === 'reset') {
+      // Case A: User opened the password reset link from their email (?reset_token=...)
+      if (resetToken) {
+        if (password.length < 4) {
+          setErrorMsg('New password must be at least 4 characters long.');
+          return;
+        }
+        if (confirmPassword && password !== confirmPassword) {
+          setErrorMsg('Passwords do not match. Please verify your new password.');
+          return;
+        }
+        setSubmitting(true);
+        try {
+          const res = await completePasswordResetWithToken(resetToken, password);
+          if (!res.ok || !res.user) {
+            setErrorMsg(res.error || 'Unable to reset password.');
+            return;
+          }
+          setResetToken(null);
+          onClearResetToken?.();
+          setPassword('');
+          setConfirmPassword('');
+          setSuccessMsg(
+            `Password for ${res.user.email} has been updated! You can now sign in.`
+          );
+          setMode('login');
+          return;
+        } catch (reason) {
+          setErrorMsg(
+            reason instanceof Error
+              ? reason.message
+              : 'Unable to update password right now.'
+          );
+          return;
+        } finally {
+          setSubmitting(false);
+        }
+      }
+
+      // Case B: User clicked "Forgot password?" and is requesting a password reset link by email
+      if (serverAccounts && !password) {
+        if (!email.trim() || !email.includes('@')) {
+          setErrorMsg('Please enter the email address for your account.');
+          return;
+        }
+        setSubmitting(true);
+        try {
+          const reqRes = await requestPasswordResetEmail(email.trim());
+          if (reqRes.available) {
+            if (!reqRes.ok) {
+              setErrorMsg(reqRes.error || 'Unable to send password reset email.');
+              return;
+            }
+            setSuccessMsg(
+              reqRes.message ||
+                'Check your inbox! We have sent a password reset link to your email address.'
+            );
+            return;
+          }
+        } catch (reason) {
+          setErrorMsg(
+            reason instanceof Error
+              ? reason.message
+              : 'Could not send password reset email.'
+          );
+          return;
+        } finally {
+          setSubmitting(false);
+        }
+      }
+
+      // Case C: Legacy browser-only profile reset fallback
       if (password.length < 4) {
         setErrorMsg('New password must be at least 4 characters long.');
         return;
@@ -141,6 +229,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       if (confirmPassword && password !== confirmPassword) {
         setErrorMsg('Passwords do not match. Please verify your new password.');
         return;
+      }
+      if (serverAccounts) {
+        setSubmitting(true);
+        try {
+          const reqRes = await requestPasswordResetEmail(email.trim());
+          if (reqRes.available && reqRes.ok) {
+            setSuccessMsg(
+              reqRes.message ||
+                'Check your inbox! We have sent a password reset link to your email address.'
+            );
+            return;
+          }
+        } catch {
+          // fall through to local check
+        } finally {
+          setSubmitting(false);
+        }
       }
       const res = resetUserPassword(email, password);
       if (!res.ok || !res.user) {
@@ -251,6 +356,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 ? 'Sign in to your account'
                 : mode === 'signup'
                 ? 'Create your account'
+                : resetToken
+                ? 'Set your new password'
+                : serverAccounts
+                ? 'Forgot your password?'
                 : 'Reset your password'}
             </h1>
             <p className="text-xs sm:text-sm text-[#8b909a] mt-1.5">
@@ -258,6 +367,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 ? 'Enter your details below to enter the trading system.'
                 : mode === 'signup'
                 ? 'Start replaying historical charts and testing strategies.'
+                : resetToken
+                ? 'Enter and confirm your new password below.'
+                : serverAccounts
+                ? 'Enter your account email and we will send you a secure password reset link.'
                 : 'Choose a new password for your trading account.'}
             </p>
           </div>
@@ -268,6 +381,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               type="button"
               onClick={() => {
                 setMode('login');
+                setResetToken(null);
+                onClearResetToken?.();
                 setErrorMsg(null);
                 setSuccessMsg(null);
               }}
@@ -283,6 +398,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               type="button"
               onClick={() => {
                 setMode('signup');
+                setResetToken(null);
+                onClearResetToken?.();
                 setErrorMsg(null);
                 setSuccessMsg(null);
                 if (email === 'trader@chartflow.io') {
@@ -336,6 +453,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <input
                   type="email"
                   required
+                  readOnly={Boolean(mode === 'reset' && resetToken && email)}
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -344,6 +462,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             </div>
 
+            {(mode !== 'reset' || Boolean(resetToken) || !serverAccounts) && (
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-semibold text-gray-300">
@@ -354,8 +473,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     type="button"
                     onClick={() => {
                       setMode('reset');
+                      setResetToken(null);
                       setPassword('');
+                      setConfirmPassword('');
                       setErrorMsg(null);
+                      setSuccessMsg(null);
                     }}
                     className="min-h-[44px] -my-3 px-1 text-xs sm:text-[11px] text-sky-400 hover:text-sky-300 hover:underline font-medium"
                   >
@@ -389,8 +511,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </button>
               </div>
             </div>
+            )}
 
-            {mode === 'reset' && (
+            {mode === 'reset' && (Boolean(resetToken) || !serverAccounts) && (
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1.5">
                   Confirm New Password
@@ -444,10 +567,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               className="lp-btn-primary w-full py-3.5 min-h-[48px] text-base sm:text-sm"
             >
               <span>
-                {mode === 'login'
+                {submitting
+                  ? 'Please wait…'
+                  : mode === 'login'
                   ? 'Sign In'
                   : mode === 'signup'
                   ? 'Create Account'
+                  : resetToken
+                  ? 'Save New Password'
+                  : serverAccounts
+                  ? 'Send Reset Link'
                   : 'Update Password'}
               </span>
               <ArrowRight className="w-4 h-4" />

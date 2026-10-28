@@ -2428,7 +2428,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             </div>
 
             <p className="text-xs text-[#9ca3af] leading-relaxed">
-              Are you sure you want to permanently delete your account (<strong className="text-white">{currentUser?.email || 'this account'}</strong>)? All sessions, trades, and playbooks will be wiped immediately. This removes this browser’s records. Server registration records, if any, require a separate request to info@voomay.co.za.
+              Are you sure you want to permanently delete your account (<strong className="text-white">{currentUser?.email || 'this account'}</strong>)? All sessions, trades, and playbooks will be wiped immediately. This removes this browser’s records. Server registration records, if any, require a separate request to info@chartreplay.co.za.
             </p>
 
             <div className="space-y-1.5 text-xs">

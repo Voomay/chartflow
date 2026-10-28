@@ -392,7 +392,7 @@ export function createSupabaseAccountStore({
             request,
           }
         );
-        userByIdCache.set(user.id, { user: updated, at: Date.now() });
+        userByIdCache.set( user.id, { user: updated, at: Date.now() });
         cachedAdminUsers = null;
         return updated;
       } catch (err) {
@@ -402,6 +402,57 @@ export function createSupabaseAccountStore({
             if (!current) return null;
             current.loginCount = (current.loginCount || 0) + 1;
             current.lastLoginAt = nowIso;
+            current.lastSeenAt = nowIso;
+            return current;
+          });
+        }
+        throw err;
+      }
+    },
+    async updatePassword(userId, passwordHash, nowIso = new Date().toISOString()) {
+      if (!userId || !passwordHash) return null;
+      if (!isSupabaseConfigured(env)) {
+        if (!fallbackStore) throw new Error('Account store is not configured');
+        return fallbackStore.change((users) => {
+          const current = users.find((item) => item.id === userId);
+          if (!current) return null;
+          current.passwordHash = passwordHash;
+          current.lastSeenAt = nowIso;
+          return current;
+        });
+      }
+      try {
+        const existing = await this.findById(userId);
+        if (!existing) return null;
+        const updated = {
+          ...existing,
+          passwordHash,
+          authSource: 'server',
+          lastSeenAt: nowIso,
+        };
+        await supabaseRestRequest(
+          `platform_users?id=eq.${encodeURIComponent(userId)}`,
+          {
+            method: 'PATCH',
+            prefer: 'return=minimal',
+            body: {
+              password_hash: passwordHash,
+              auth_source: 'server',
+              last_seen_at: nowIso,
+            },
+            env,
+            request,
+          }
+        );
+        userByIdCache.set(userId, { user: updated, at: Date.now() });
+        cachedAdminUsers = null;
+        return updated;
+      } catch (err) {
+        if (fallbackStore && (err.code === 'PGRST205' || err.status === 404)) {
+          return fallbackStore.change((users) => {
+            const current = users.find((item) => item.id === userId);
+            if (!current) return null;
+            current.passwordHash = passwordHash;
             current.lastSeenAt = nowIso;
             return current;
           });

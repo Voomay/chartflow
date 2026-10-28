@@ -8,11 +8,27 @@ export async function platformRequest(action:string,body?:object){
 export async function serverAccountRequest(action:'register'|'login',body:{name?:string;email:string;password:string}){
  const result=await platformRequest(action,body);
  if(result.status===503&&String(result.error||'').toLowerCase().includes('not configured')){
-  return {available:false,ok:false,user:undefined as RegisteredUser|undefined,error:undefined as string|undefined};
+  return {available:false,ok:false,user:undefined as RegisteredUser|undefined,error:undefined as string|undefined,welcomeEmailSent:false};
  }
  if(result.status>=500)throw Error('Account service unavailable. Please try again.');
- if(!result.ok||!result.user)return {available:true,ok:false,user:undefined as RegisteredUser|undefined,error:result.error as string};
+ if(!result.ok||!result.user)return {available:true,ok:false,user:undefined as RegisteredUser|undefined,error:result.error as string,welcomeEmailSent:false};
  const user:RegisteredUser={...result.user,authSource:'server',passwordHash:''};
  purgeBrowserSensitiveStorage();
- setActiveLoggedInUser(user);return {available:true,ok:true,user,error:undefined};
+ setActiveLoggedInUser(user);return {available:true,ok:true,user,error:undefined,welcomeEmailSent:Boolean(result.welcomeEmailSent)};
+}
+export async function requestPasswordResetEmail(email:string){
+ const result=await platformRequest('request-password-reset',{email});
+ if(result.status===503){
+  return {available:false,ok:false,message:undefined as string|undefined,error:result.error as string|undefined};
+ }
+ if(!result.ok)return {available:true,ok:false,message:undefined as string|undefined,error:(result.error as string)||'Could not send password reset email.'};
+ return {available:true,ok:true,message:(result.message as string)||'If an account exists for that email address, we have sent a password reset link.',error:undefined};
+}
+export async function completePasswordResetWithToken(token:string,newPassword:string){
+ const result=await platformRequest('reset-password',{token,password:newPassword});
+ if(!result.ok||!result.user)return {ok:false,user:undefined as RegisteredUser|undefined,error:(result.error as string)||'Unable to reset password.'};
+ const user:RegisteredUser={...result.user,authSource:'server',passwordHash:''};
+ purgeBrowserSensitiveStorage();
+ setActiveLoggedInUser(user);
+ return {ok:true,user,error:undefined};
 }

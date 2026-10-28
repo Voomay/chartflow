@@ -96,7 +96,7 @@ const ANALYTICS_KPIS = [
 
 /* ---------- Small presentational helpers ---------- */
 
-const PARTNER_EMAIL = 'info@voomay.co.za';
+const PARTNER_EMAIL = 'info@chartreplay.co.za';
 const PARTNER_SUBJECT = 'Partnership Enquiry — Chart Replay';
 const PARTNER_BODY =
   "Hi Chart Replay team,\n\nI'm interested in partnering with Chart Replay.\n\nName:\nCompany / Brand:\nWebsite / Socials:\nPartnership idea (affiliate, prop firm, education, sponsorship, other):\n\nLooking forward to hearing from you.\n\nKind regards,";

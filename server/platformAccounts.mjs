@@ -1,5 +1,6 @@
 import {readAdminWaitlist} from './waitlistStore.mjs';
 import {createSupabaseAccountStore} from './supabaseStore.mjs';
+import {sendWelcomeEmail,sendPasswordResetEmail,isResendConfigured} from './resendMail.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
@@ -93,13 +94,14 @@ export function validAdminSession(token,config,now=Date.now()){
  const value=openToken(token,config?.sessionSecret);
  return Boolean(value&&value.role==='admin'&&value.email===config.email&&value.expires>now);
 }
-export function createPlatformHandler({store=createSupabaseAccountStore({fallbackStore:createFileAccountStore(platformDataDirectory())}),now=()=>Date.now(),waitlistReader=readAdminWaitlist}={}){
+export function createPlatformHandler({store=createSupabaseAccountStore({fallbackStore:createFileAccountStore(platformDataDirectory())}),now=()=>Date.now(),waitlistReader=readAdminWaitlist,env=process.env,request=fetch}={}){
  const attempts=new Map();
  const visitors=new Map();
  const online=()=>{const cutoff=now()-120000;for(const[id,visit]of visitors)if(visit.seen<cutoff)visitors.delete(id);return {onlineVisitors:visitors.size,onlineAccounts:new Set([...visitors.values()].map(v=>v.userId).filter(Boolean)).size};};
  const limited=(key,max)=>{const time=now();for(const [entry,value]of attempts)if(value.until<=time)attempts.delete(entry);if(attempts.size>20000)return true;const value=attempts.get(key)||{count:0,until:time+15*60*1000};value.count++;attempts.set(key,value);return value.count>max;};
  const findUserById=async id=>typeof store.findById==='function'?store.findById(id):(await store.read()).find(u=>u.id===id)||null;
  const findUserByEmail=async email=>typeof store.findByEmail==='function'?store.findByEmail(email):(await store.read()).find(u=>u.email===email)||null;
+ const updateUserPassword=async(userId,passwordHash,nowIso)=>typeof store.updatePassword==='function'?store.updatePassword(userId,passwordHash,nowIso):store.change(users=>{const u=users.find(item=>item.id===userId);if(!u)return null;u.passwordHash=passwordHash;u.lastSeenAt=nowIso;return u;});
  return async(req,res)=>{
   res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');
   const send=(status,body)=>{res.statusCode=status;res.end(JSON.stringify(body));};
@@ -176,10 +178,39 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    const email=typeof body.email==='string'?body.email.trim().toLowerCase():'';
    const password=typeof body.password==='string'?body.password:'';
    const ip=req.socket?.remoteAddress||'local';
-   if(limited(`${action}:${ip}`,action==='admin-login'?10:120)){res.setHeader('Retry-After','900');return send(429,{error:'Too many attempts. Please try again in fifteen minutes.'});}
+   if(limited(`${action}:${ip}`,action==='admin-login'||action==='request-password-reset'||action==='reset-password'?10:120)){res.setHeader('Retry-After','900');return send(429,{error:'Too many attempts. Please try again in fifteen minutes.'});}
    if(action==='admin-login'){
     if(!hasAdmin||password.length>256||email!==config.email||!await verifyPassword(password,config.passwordHash))return send(401,{error:'Incorrect administrator email or password.'});
     res.setHeader('Set-Cookie',`chart_replay_admin=${createAdminSession(config,now())}; ${cookieOptions}; Max-Age=28800`);return send(200,{admin:{email:config.email}});
+   }
+   if(action==='request-password-reset'){
+    if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return send(400,{error:'Please enter a valid email address.'});
+    if(!isResendConfigured(env))return send(503,{error:'Email delivery is not configured on this server yet.'});
+    const found=await findUserByEmail(email);
+    if(found){
+     const resetToken=createPasswordResetToken(found,config,now());
+     await sendPasswordResetEmail({name:found.name,email:found.email,resetToken,origin:req.headers.origin},{env,request});
+    }
+    // Always return the same success response to prevent account enumeration
+    return send(200,{ok:true,emailSent:true,message:'If an account exists for that email address, we have sent a password reset link.'});
+   }
+   if(action==='reset-password'){
+    const token=typeof body.token==='string'?body.token.trim():'';
+    if(!token)return send(400,{error:'Invalid or missing password reset link. Please request a new reset email.'});
+    if(password.length<4||password.length>256)return send(400,{error:'New password must be between 4 and 256 characters.'});
+    const parsed=readPasswordResetToken(token,config,now());
+    if(!parsed)return send(400,{error:'This password reset link is invalid or has expired. Please request a new reset email.'});
+    const found=await findUserById(parsed.userId);
+    if(!found||digestPasswordVerifier(found.passwordHash)!==parsed.pwdDigest){
+     return send(400,{error:'This password reset link has already been used or is no longer valid. Please request a new link.'});
+    }
+    const newHash=await hashPassword(password);
+    const time=new Date(now()).toISOString();
+    const updated=await updateUserPassword(found.id,newHash,time);
+    if(!updated)return send(404,{error:'Account not found.'});
+    const result=publicAccount(updated);
+    setUserCookie(result);
+    return send(200,{ok:true,user:result});
    }
    if(action!=='register'&&action!=='login')return send(404,{error:'Unknown action.'});
    if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<4||password.length>256)return send(400,{error:'Enter a valid email address and password.'});
@@ -193,8 +224,11 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
      ?await store.createUser(newUser)
      :await store.change(users=>{if(users.some(user=>user.email===email))return null;users.push(newUser);return newUser;});
     if(!created)return send(409,{error:'An account with this email already exists. Please sign in.'});
+    if(isResendConfigured(env)){
+     await sendWelcomeEmail({name:created.name,email:created.email,origin:req.headers.origin},{env,request}).catch(()=>{});
+    }
     const result=publicAccount(created);
-    setUserCookie(result);return send(201,{user:result});
+    setUserCookie(result);return send(201,{user:result,welcomeEmailSent:isResendConfigured(env)});
    }
    const found=await findUserByEmail(email);
    if(!found||!await verifyPassword(password,found.passwordHash))return send(401,{error:'Incorrect email or password.'});
@@ -207,6 +241,17 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    return user?send(200,{user}):send(401,{error:'Incorrect email or password.'});
   }catch{return send(503,{error:'The account service is temporarily unavailable. Please try again.'});}
  };
+}
+
+function digestPasswordVerifier(passwordHash){
+ return createHash('sha256').update(String(passwordHash||'')).digest('hex').slice(0,24);
+}
+export function createPasswordResetToken(user,config,now=Date.now()){
+ return sealToken({role:'password-reset',userId:user.id,email:String(user.email||'').toLowerCase(),pwdDigest:digestPasswordVerifier(user.passwordHash),expires:now+30*60*1000,nonce:randomBytes(8).toString('hex')},config.sessionSecret);
+}
+export function readPasswordResetToken(token,config,now=Date.now()){
+ const value=openToken(token,config?.sessionSecret);
+ return value&&value.role==='password-reset'&&typeof value.userId==='string'&&typeof value.email==='string'&&typeof value.pwdDigest==='string'&&value.expires>now?value:null;
 }
 
 // Separate encrypted user sessions prevent activity from being attributed by a supplied email or ID and hide identifiers in cookies.

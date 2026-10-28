@@ -7,7 +7,7 @@ const privateEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(),
 for (const [key,value] of Object.entries(privateEnv)) if (process.env[key] === undefined) process.env[key] = value;
 const waitlistEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), 'WAITLIST_');
 for (const [key,value] of Object.entries(waitlistEnv)) if (process.env[key] === undefined) process.env[key] = value;
-const supabaseEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), ['SUPABASE_', 'VITE_SUPABASE_', 'ADMIN_']);
+const supabaseEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), ['SUPABASE_', 'VITE_SUPABASE_', 'ADMIN_', 'RESEND_', 'PUBLIC_APP_URL', 'APP_URL']);
 for (const [key,value] of Object.entries(supabaseEnv)) if (process.env[key] === undefined) process.env[key] = value;
 import react from '@vitejs/plugin-react';
 import spotHandler from './api/spot-candles.js';
@@ -127,12 +127,12 @@ export default defineConfig({
   cacheDir: 'd:/fx/.vite-cache',
   server: {
     fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.chart-replay/**'] },
-    port: 3003,
+    port: 3007,
     strictPort: true,
     host: '127.0.0.1',
   },
   preview: {
-    port: 3003,
+    port: 3007,
     strictPort: true,
     host: '127.0.0.1',
   },

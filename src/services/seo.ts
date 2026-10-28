@@ -76,7 +76,7 @@ export function buildHomeJsonLd() {
         },
         contactPoint: {
           '@type': 'ContactPoint',
-          email: 'info@voomay.co.za',
+          email: 'info@chartreplay.co.za',
           contactType: 'customer support',
           availableLanguage: ['English'],
         },

@@ -158,6 +158,12 @@ export function ChartSponsorLoader({
     return subscribeSponsorshipConfig(setStoredConfig);
   }, []);
 
+  useEffect(() => {
+    if (open && !configOverride) {
+      void loadSponsorshipConfig().then(setStoredConfig);
+    }
+  }, [open, configOverride]);
+
   const config = configOverride
     ? normalizeSponsorshipConfig({ ...storedConfig, ...configOverride })
     : storedConfig;

@@ -164,10 +164,44 @@ export function createSupabaseAccountStore({
         ? notesRes.value
         : [];
 
+    const isStarterSessionId = (id, email) => {
+      const sId = String(id || '').trim();
+      if (!sId) return true;
+      if (/^session-empty-/i.test(sId)) return true;
+      if (!/^session-(normal|prop)-/i.test(sId)) return false;
+      const slug =
+        (String(email || '').split('@')[0] || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '')
+          .slice(0, 12) || 'trader';
+      if (sId === 'session-normal-trader' || sId === 'session-prop-trader') {
+        return true;
+      }
+      if (
+        sId === `session-normal-${slug}` ||
+        sId === `session-prop-${slug}`
+      ) {
+        return true;
+      }
+      return true;
+    };
+
+    const isDefaultMindsetText = (text) => {
+      const trimmed = typeof text === 'string' ? text.trim() : '';
+      if (!trimmed) return true;
+      return (
+        trimmed.startsWith('MY TRADING PLAN\n\n• Wait for my setup.') ||
+        trimmed.startsWith('MY TRADING PLAN\n\nYou can write your trading plan here')
+      );
+    };
+
     return users.map((user) => {
       const email = String(user.email || '').toLowerCase();
-      const userSessions = sessionRows.filter(
+      const rawUserSessions = sessionRows.filter(
         (r) => String(r?.user_email || '').toLowerCase() === email
+      );
+      const userSessions = rawUserSessions.filter(
+        (s) => !isStarterSessionId(s?.id, email)
       );
       const userStrategies = strategyRows.filter(
         (r) => String(r?.user_email || '').toLowerCase() === email
@@ -178,21 +212,15 @@ export function createSupabaseAccountStore({
       const userNote = noteRows.find(
         (r) => String(r?.user_email || '').toLowerCase() === email
       );
-      const noteText =
+      const rawNoteText =
         typeof userNote?.notes_text === 'string' ? userNote.notes_text.trim() : '';
+      const noteText = isDefaultMindsetText(rawNoteText) ? '' : rawNoteText;
 
       const nonStarterSessionIds = new Set([
         ...(Array.isArray(user.sessionIds) ? user.sessionIds : []).filter(
-          (id) => !/^session-(normal|prop)-/.test(String(id))
+          (id) => !isStarterSessionId(id, email)
         ),
-        ...userSessions
-          .filter(
-            (s) =>
-              !/^session-(normal|prop)-/.test(String(s?.id || '')) ||
-              (Array.isArray(s?.session_data?.positions) &&
-                s.session_data.positions.length > 0)
-          )
-          .map((s) => String(s.id)),
+        ...userSessions.map((s) => String(s.id)),
       ]);
 
       const tradeCount = userSessions.reduce(
@@ -208,13 +236,7 @@ export function createSupabaseAccountStore({
       const sessionMindsetText =
         userSessions
           .map((s) => s?.session_data?.mindsetNote?.text || '')
-          .find(
-            (t) =>
-              typeof t === 'string' &&
-              t.trim().length > 0 &&
-              !t.startsWith('MY TRADING PLAN\n\n• Wait for my setup.') &&
-              !t.startsWith('MY TRADING PLAN\n\nYou can write your trading plan here')
-          ) || '';
+          .find((t) => !isDefaultMindsetText(t)) || '';
       const firstNoteLine =
         (noteText || sessionMindsetText)
           .split(/\r?\n/)
@@ -223,7 +245,6 @@ export function createSupabaseAccountStore({
       const sessionStrategyName =
         userSessions.find(
           (s) =>
-            !/^session-(normal|prop)-/.test(String(s?.id || '')) &&
             typeof s?.session_data?.strategyName === 'string' &&
             s.session_data.strategyName.trim().length > 0
         )?.session_data?.strategyName || '';
@@ -685,30 +706,76 @@ export function createSupabaseAccountStore({
   };
 }
 
+const SPONSORSHIP_FALLBACK_PROFILE_ID = '__platform_sponsorship_v1__';
+const SPONSORSHIP_FALLBACK_EMAIL = 'admin@chartreplay.co.za';
+
+function mapSponsorshipRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  const enabledVal =
+    typeof row.enabled === 'boolean'
+      ? row.enabled
+      : typeof row.rules_data?.enabled === 'boolean'
+      ? row.rules_data.enabled
+      : true;
+  const src = row.rules_data && typeof row.rules_data === 'object' ? row.rules_data : row;
+  return {
+    enabled: enabledVal,
+    sponsorName: src.sponsorName || src.sponsor_name || 'XM',
+    badgeText: src.badgeText || src.badge_text || 'Official Session Partner',
+    headlinePrefix:
+      src.headlinePrefix ||
+      src.headline_prefix ||
+      "Today's session is sponsored by",
+    subtext: src.subtext || 'Preparing your chart workspace for',
+    footerLeftText:
+      src.footerLeftText ||
+      src.footer_left_text ||
+      'Loading candles & analysis tools…',
+    footerRightText:
+      src.footerRightText ||
+      src.footer_right_text ||
+      'Click anywhere to skip',
+    accentColor: src.accentColor || src.accent_color || '#e11d24',
+    logoLightUrl: src.logoLightUrl || src.logo_light_url || '/xm-logo-light.png',
+    logoDarkUrl: src.logoDarkUrl || src.logo_dark_url || '/xm-logo-dark.png',
+    updatedBy: src.updatedBy || src.updated_by || 'admin',
+    updatedAt: src.updatedAt || src.updated_at || row.updated_at || new Date().toISOString(),
+  };
+}
+
 export async function readSupabaseSponsorship({
   env = process.env,
   request = fetch,
 } = {}) {
-  const rows = await supabaseRestRequest(
-    'platform_sponsorship?id=eq.active&select=*&limit=1',
-    { method: 'GET', env, request }
-  );
-  if (!Array.isArray(rows) || rows.length === 0 || !rows[0]) return null;
-  const row = rows[0];
-  return {
-    enabled: typeof row.enabled === 'boolean' ? row.enabled : true,
-    sponsorName: row.sponsor_name || 'XM',
-    badgeText: row.badge_text || 'Official Session Partner',
-    headlinePrefix: row.headline_prefix || "Today's session is sponsored by",
-    subtext: row.subtext || 'Preparing your chart workspace for',
-    footerLeftText: row.footer_left_text || 'Loading candles & analysis tools…',
-    footerRightText: row.footer_right_text || 'Click anywhere to skip',
-    accentColor: row.accent_color || '#e11d24',
-    logoLightUrl: row.logo_light_url || '/xm-logo-light.png',
-    logoDarkUrl: row.logo_dark_url || '/xm-logo-dark.png',
-    updatedBy: row.updated_by || 'admin',
-    updatedAt: row.updated_at || new Date().toISOString(),
-  };
+  try {
+    const rows = await supabaseRestRequest(
+      'platform_sponsorship?id=eq.active&select=*&limit=1',
+      { method: 'GET', env, request }
+    );
+    if (Array.isArray(rows) && rows.length > 0 && rows[0]) {
+      return mapSponsorshipRow(rows[0]);
+    }
+  } catch (err) {
+    if (err.code !== 'PGRST205' && err.status !== 404) {
+      throw err;
+    }
+  }
+
+  // Fallback to custom_rule_profiles when platform_sponsorship table is not yet created in Supabase
+  try {
+    const fallbackRows = await supabaseRestRequest(
+      `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+        SPONSORSHIP_FALLBACK_EMAIL
+      )}&id=eq.${SPONSORSHIP_FALLBACK_PROFILE_ID}&select=rules_data,updated_at&limit=1`,
+      { method: 'GET', env, request }
+    );
+    if (Array.isArray(fallbackRows) && fallbackRows.length > 0 && fallbackRows[0]?.rules_data) {
+      return mapSponsorshipRow(fallbackRows[0]);
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 export async function saveSupabaseSponsorship(
@@ -716,28 +783,62 @@ export async function saveSupabaseSponsorship(
   { env = process.env, request = fetch } = {}
 ) {
   const updatedAt = sponsorship.updatedAt || new Date().toISOString();
-  await supabaseRestRequest('platform_sponsorship?on_conflict=id', {
-    method: 'POST',
-    prefer: 'resolution=merge-duplicates,return=minimal',
-    body: {
-      id: 'active',
-      enabled: sponsorship.enabled !== false,
-      sponsor_name: sponsorship.sponsorName,
-      badge_text: sponsorship.badgeText,
-      headline_prefix: sponsorship.headlinePrefix,
-      subtext: sponsorship.subtext,
-      footer_left_text: sponsorship.footerLeftText,
-      footer_right_text: sponsorship.footerRightText,
-      accent_color: sponsorship.accentColor,
-      logo_light_url: sponsorship.logoLightUrl,
-      logo_dark_url: sponsorship.logoDarkUrl,
-      updated_by: sponsorship.updatedBy || 'admin',
-      updated_at: updatedAt,
-    },
-    env,
-    request,
-  });
-  return { ...sponsorship, updatedAt };
+  const normalized = {
+    ...sponsorship,
+    enabled: sponsorship.enabled !== false,
+    updatedAt,
+  };
+  let savedPrimary = false;
+  try {
+    await supabaseRestRequest('platform_sponsorship?on_conflict=id', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=minimal',
+      body: {
+        id: 'active',
+        enabled: normalized.enabled,
+        sponsor_name: normalized.sponsorName,
+        badge_text: normalized.badgeText,
+        headline_prefix: normalized.headlinePrefix,
+        subtext: normalized.subtext,
+        footer_left_text: normalized.footerLeftText,
+        footer_right_text: normalized.footerRightText,
+        accent_color: normalized.accentColor,
+        logo_light_url: normalized.logoLightUrl,
+        logo_dark_url: normalized.logoDarkUrl,
+        updated_by: normalized.updatedBy || 'admin',
+        updated_at: updatedAt,
+      },
+      env,
+      request,
+    });
+    savedPrimary = true;
+  } catch (err) {
+    if (err.code !== 'PGRST205' && err.status !== 404) {
+      throw err;
+    }
+  }
+
+  // Also persist to custom_rule_profiles fallback so Supabase cloud persistence works even if platform_sponsorship migration hasn't run
+  try {
+    await supabaseRestRequest('custom_rule_profiles?on_conflict=user_email,id', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=minimal',
+      body: {
+        id: SPONSORSHIP_FALLBACK_PROFILE_ID,
+        user_email: SPONSORSHIP_FALLBACK_EMAIL,
+        name: SPONSORSHIP_FALLBACK_PROFILE_ID,
+        description: 'Platform chart sponsorship configuration',
+        rules_data: normalized,
+        created_at: updatedAt,
+      },
+      env,
+      request,
+    });
+  } catch (fallbackErr) {
+    if (!savedPrimary) throw fallbackErr;
+  }
+
+  return normalized;
 }
 
 export async function saveSupabaseWaitlist(

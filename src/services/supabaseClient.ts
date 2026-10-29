@@ -125,7 +125,13 @@ export interface UserCloudPreferences {
 const USER_PREFS_PROFILE_ID = '__user_prefs_v1__';
 const DEFAULT_STARTER_REPLAY_TS = Math.floor(Date.parse('2026-10-05T08:00:00Z') / 1000);
 
+export function isStarterOrDemoSessionId(id?: string): boolean {
+  if (!id) return true;
+  return /^(session-(normal|prop|empty)-)/i.test(id);
+}
+
 export function isUntouchedStarterSession(s: TradingSession): boolean {
+  if (isStarterOrDemoSessionId(s.id)) return true;
   if (!/^session-(normal|prop)-/.test(s.id)) return false;
   const hasPositions = Array.isArray(s.positions) && s.positions.length > 0;
   const hasOrders = Array.isArray(s.orders) && s.orders.length > 0;
@@ -483,7 +489,12 @@ export async function fetchCustomRuleProfilesFromSupabase(
     .map((r) => r.rules_data)
     .filter(
       (p): p is CustomRuleProfile =>
-        Boolean(p && typeof p.id === 'string' && p.id !== USER_PREFS_PROFILE_ID)
+        Boolean(
+          p &&
+            typeof p.id === 'string' &&
+            p.id !== USER_PREFS_PROFILE_ID &&
+            p.id !== SPONSORSHIP_FALLBACK_PROFILE_ID
+        )
     );
 }
 
@@ -552,6 +563,9 @@ export async function deleteAllUserSupabaseData(
   ]);
 }
 
+const SPONSORSHIP_FALLBACK_PROFILE_ID = '__platform_sponsorship_v1__';
+const SPONSORSHIP_FALLBACK_EMAIL = 'admin@chartreplay.co.za';
+
 export async function fetchSponsorshipFromSupabase(): Promise<Partial<SponsorshipConfig> | null> {
   const rows = await supabaseFetch<
     Array<{
@@ -570,22 +584,41 @@ export async function fetchSponsorshipFromSupabase(): Promise<Partial<Sponsorshi
       updated_at?: string;
     }>
   >('platform_sponsorship?id=eq.active&select=*&limit=1');
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  const row = rows[0];
-  return {
-    enabled: typeof row.enabled === 'boolean' ? row.enabled : true,
-    sponsorName: row.sponsor_name,
-    badgeText: row.badge_text,
-    headlinePrefix: row.headline_prefix,
-    subtext: row.subtext,
-    footerLeftText: row.footer_left_text,
-    footerRightText: row.footer_right_text,
-    accentColor: row.accent_color,
-    logoLightUrl: row.logo_light_url,
-    logoDarkUrl: row.logo_dark_url,
-    updatedBy: row.updated_by || undefined,
-    updatedAt: row.updated_at || undefined,
-  };
+  if (Array.isArray(rows) && rows.length > 0 && rows[0]) {
+    const row = rows[0];
+    return {
+      enabled: typeof row.enabled === 'boolean' ? row.enabled : true,
+      sponsorName: row.sponsor_name,
+      badgeText: row.badge_text,
+      headlinePrefix: row.headline_prefix,
+      subtext: row.subtext,
+      footerLeftText: row.footer_left_text,
+      footerRightText: row.footer_right_text,
+      accentColor: row.accent_color,
+      logoLightUrl: row.logo_light_url,
+      logoDarkUrl: row.logo_dark_url,
+      updatedBy: row.updated_by || undefined,
+      updatedAt: row.updated_at || undefined,
+    };
+  }
+
+  // Fallback to custom_rule_profiles when platform_sponsorship table is not yet created
+  const fallbackRows = await supabaseFetch<
+    Array<{ rules_data: Partial<SponsorshipConfig>; updated_at?: string }>
+  >(
+    `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+      SPONSORSHIP_FALLBACK_EMAIL
+    )}&id=eq.${SPONSORSHIP_FALLBACK_PROFILE_ID}&select=rules_data,updated_at&limit=1`
+  );
+  if (Array.isArray(fallbackRows) && fallbackRows.length > 0 && fallbackRows[0]?.rules_data) {
+    const d = fallbackRows[0].rules_data;
+    return {
+      ...d,
+      enabled: typeof d.enabled === 'boolean' ? d.enabled : true,
+      updatedAt: d.updatedAt || fallbackRows[0].updated_at || undefined,
+    };
+  }
+  return null;
 }
 
 export async function syncSponsorshipToSupabase(
@@ -594,17 +627,20 @@ export async function syncSponsorshipToSupabase(
   const cfg = getSupabaseClientConfig();
   if (!cfg.enabled) return false;
 
-  const url = `${cfg.restUrl}platform_sponsorship?on_conflict=id`;
+  const updatedAt = config.updatedAt || new Date().toISOString();
+  const headers = {
+    apikey: cfg.anonKey,
+    Authorization: `Bearer ${cfg.anonKey}`,
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    Prefer: 'resolution=merge-duplicates,return=minimal',
+  };
+
+  let primaryOk = false;
   try {
-    const res = await fetch(url, {
+    const res = await fetch(`${cfg.restUrl}platform_sponsorship?on_conflict=id`, {
       method: 'POST',
-      headers: {
-        apikey: cfg.anonKey,
-        Authorization: `Bearer ${cfg.anonKey}`,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        Prefer: 'resolution=merge-duplicates,return=minimal',
-      },
+      headers,
       body: JSON.stringify({
         id: 'active',
         enabled: config.enabled,
@@ -618,12 +654,41 @@ export async function syncSponsorshipToSupabase(
         logo_light_url: config.logoLightUrl,
         logo_dark_url: config.logoDarkUrl,
         updated_by: config.updatedBy || 'admin',
-        updated_at: config.updatedAt || new Date().toISOString(),
+        updated_at: updatedAt,
       }),
       signal: AbortSignal.timeout(15000),
     });
-    return res.ok;
+    primaryOk = res.ok;
   } catch {
-    return false;
+    primaryOk = false;
   }
+
+  let fallbackOk = false;
+  try {
+    const fallbackRes = await fetch(
+      `${cfg.restUrl}custom_rule_profiles?on_conflict=user_email,id`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          id: SPONSORSHIP_FALLBACK_PROFILE_ID,
+          user_email: SPONSORSHIP_FALLBACK_EMAIL,
+          name: SPONSORSHIP_FALLBACK_PROFILE_ID,
+          description: 'Platform chart sponsorship configuration',
+          rules_data: {
+            ...config,
+            enabled: config.enabled,
+            updatedAt,
+          },
+          created_at: updatedAt,
+        }),
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+    fallbackOk = fallbackRes.ok;
+  } catch {
+    fallbackOk = false;
+  }
+
+  return primaryOk || fallbackOk;
 }

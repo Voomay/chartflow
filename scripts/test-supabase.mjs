@@ -284,6 +284,135 @@ test('Administrator can update sponsorship logo and wording in Supabase while un
   assert.equal(getRes.statusCode, 200);
   assert.equal(getRes.body.sponsorship.sponsorName, 'Exness');
   assert.equal(getRes.body.sponsorship.badgeText, 'Official Global Partner');
+  assert.equal(getRes.body.sponsorship.enabled, true);
+
+  // 5. Administrator can disable and re-enable sponsorship loader toggle
+  const disableRes = await call('sponsorship', {
+    cookie: adminCookie,
+    body: {
+      sponsorship: {
+        ...getRes.body.sponsorship,
+        enabled: false,
+      },
+    },
+  });
+  assert.equal(disableRes.statusCode, 200);
+  assert.equal(disableRes.body.sponsorship.enabled, false);
+
+  const getDisabledRes = await call('sponsorship', { method: 'GET' });
+  assert.equal(getDisabledRes.statusCode, 200);
+  assert.equal(getDisabledRes.body.sponsorship.enabled, false);
+});
+
+test('Newly signed-up user has 0 sessions, 0 trades, and no trading plan even if starter/demo sessions exist', async () => {
+  const userRows = [];
+  const sessionRows = [
+    {
+      id: 'session-normal-trader',
+      user_email: 'info@voomay.co.za',
+      name: 'XAUUSD NY Killzone Backtest',
+      mode: 'BACKTESTING',
+      realized_pnl: 0,
+      session_data: {
+        id: 'session-normal-trader',
+        positions: Array.from({ length: 18 }, (_, i) => ({ id: `p-${i}` })),
+        strategyName: 'ICT Silver Bullet (NY Open)',
+      },
+    },
+    {
+      id: 'session-prop-trader',
+      user_email: 'info@voomay.co.za',
+      name: 'FTMO $100K Phase 1 Evaluation',
+      mode: 'PROP_FIRM',
+      realized_pnl: 0,
+      session_data: {
+        id: 'session-prop-trader',
+        positions: Array.from({ length: 5 }, (_, i) => ({ id: `pp-${i}` })),
+        strategyName: 'SMC Orderblock + FVG',
+      },
+    },
+  ];
+  const adminEmail = 'admin@chartreplay.local';
+  const adminHash = await hashPassword('AdminSecretPassword-2026');
+  const envWithAdmin = {
+    ...SUPABASE_ENV,
+    ADMIN_EMAIL: adminEmail,
+    ADMIN_PASSWORD_HASH: adminHash,
+    ADMIN_SESSION_SECRET: 'test-new-user-zero-session-secret',
+  };
+
+  const mockRequest = async (url, options = {}) => {
+    const method = options.method || 'GET';
+    if (url.includes('platform_users')) {
+      if (method === 'GET') {
+        return { ok: true, status: 200, text: async () => JSON.stringify(userRows) };
+      }
+      if (method === 'POST') {
+        const incoming = JSON.parse(options.body);
+        for (const item of Array.isArray(incoming) ? incoming : [incoming]) {
+          userRows.push(item);
+        }
+        return { ok: true, status: 201, text: async () => '' };
+      }
+    }
+    if (url.includes('trading_sessions') && method === 'GET') {
+      return { ok: true, status: 200, text: async () => JSON.stringify(sessionRows) };
+    }
+    return { ok: true, status: 200, text: async () => '[]' };
+  };
+
+  const store = createSupabaseAccountStore({
+    env: envWithAdmin,
+    request: mockRequest,
+  });
+  const handler = createPlatformHandler({ store });
+
+  const call = async (action, { method = 'POST', body = {}, cookie = '' } = {}) => {
+    const res = {
+      headers: {},
+      setHeader(k, v) {
+        this.headers[k] = v;
+      },
+      end(v) {
+        this.body = JSON.parse(v);
+      },
+    };
+    await handler(
+      {
+        url: `/?action=${action}`,
+        method,
+        body,
+        headers: {
+          host: 'app.chartreplay.co.za',
+          origin: 'https://app.chartreplay.co.za',
+          cookie,
+          'content-type': 'application/json',
+        },
+        socket: { remoteAddress: '127.0.0.1' },
+      },
+      res
+    );
+    return res;
+  };
+
+  await call('register', {
+    body: {
+      name: 'Brandon',
+      email: 'info@voomay.co.za',
+      password: 'BrandonPassword#2026',
+    },
+  });
+
+  const cfg = await store.config();
+  const adminCookie = `chart_replay_admin=${createAdminSession(cfg)}`;
+  const usersRes = await call('users', { method: 'GET', cookie: adminCookie });
+  assert.equal(usersRes.statusCode, 200);
+  const brandon = usersRes.body.users.find((u) => u.email === 'info@voomay.co.za');
+  assert.ok(brandon);
+  assert.equal(brandon.sessionCount, 0);
+  assert.equal(brandon.tradeCount, 0);
+  assert.equal(brandon.hasTradingPlan, false);
+  assert.equal(brandon.tradingPlanName, null);
 });
 
 test('User signs up, creates a session, creates their own trading plan, trades 3 trades, and Administrator sees signup & trading plan', async () => {

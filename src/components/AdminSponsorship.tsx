@@ -145,6 +145,36 @@ export function AdminSponsorship({
     reader.readAsDataURL(file);
   };
 
+  const handleToggleEnabled = async (nextEnabled: boolean) => {
+    setForm((prev) => ({ ...prev, enabled: nextEnabled }));
+    setSaving(true);
+    setStatusMsg(null);
+
+    const payload: SponsorshipConfig = normalizeSponsorshipConfig({
+      ...form,
+      enabled: nextEnabled,
+      logoDarkUrl: separateDarkLogo ? form.logoDarkUrl : form.logoLightUrl,
+    });
+
+    const result = await saveAdminSponsorshipConfig(payload, { preview });
+    setForm(result.sponsorship);
+    setSaving(false);
+
+    if (result.ok) {
+      setStatusMsg({
+        type: 'success',
+        text: nextEnabled
+          ? 'Sponsorship loader BEFORE charts open is now ENABLED and saved!'
+          : 'Sponsorship loader BEFORE charts open is now DISABLED and saved — charts will open immediately!',
+      });
+    } else {
+      setStatusMsg({
+        type: 'error',
+        text: result.error || 'Unable to save sponsorship toggle setting.',
+      });
+    }
+  };
+
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -258,12 +288,24 @@ export function AdminSponsorship({
           {/* Enable / Disable Toggle */}
           <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 p-4">
             <div>
-              <h3 className="text-sm font-semibold text-white">
-                Show Sponsorship Loader Before Charts Open
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-white">
+                  Show Sponsorship Loader Before Charts Open
+                </h3>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                    form.enabled
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                      : 'bg-rose-500/20 text-rose-300 border border-rose-400/30'
+                  }`}
+                >
+                  {form.enabled ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
               <p className="mt-1 text-xs text-slate-400">
                 Displays the branded sponsor screen for 1.8 seconds when a
-                trader opens or switches chart sessions.
+                trader opens or switches chart sessions. Toggling saves
+                immediately.
               </p>
             </div>
             <label className="relative inline-flex cursor-pointer items-center">
@@ -271,9 +313,7 @@ export function AdminSponsorship({
                 type="checkbox"
                 aria-label="Enable chart sponsorship loader"
                 checked={form.enabled}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, enabled: e.target.checked }))
-                }
+                onChange={(e) => void handleToggleEnabled(e.target.checked)}
                 className="peer sr-only"
               />
               <div className="h-6 w-11 rounded-full bg-slate-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-emerald-500 peer-checked:after:translate-x-full" />

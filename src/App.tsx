@@ -11,6 +11,7 @@ import {LegalDocumentKey} from './components/LegalLinks';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MotivationWelcome } from './components/MotivationWelcome';
 import { ChartSponsorLoader } from './components/ChartSponsorLoader';
+import { getCachedSponsorshipConfig, loadSponsorshipConfig } from './services/sponsorship';
 import { resetMotivationVisit, setMotivationEnabled } from './services/motivation';
 import { getReplayWeekdayTarget, getHistoricalCandles, hasHistoricalArchive, getHistoricalReplayAvailability, isFixedMarketHolidayDate } from './services/goldDataService';
 import { hydrateHistoricalArchive, hydrateLiveHistoricalArchive } from './services/historicalFeed';
@@ -872,12 +873,19 @@ export function App() {
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
   const [motivationOpen, setMotivationOpen] = useState(false);
   const [chartSponsorLoading, setChartSponsorLoading] = useState<boolean>(
-    () => activeView === 'terminal'
+    () => activeView === 'terminal' && getCachedSponsorshipConfig().enabled
   );
+  useEffect(() => {
+    void loadSponsorshipConfig().then((cfg) => {
+      if (!cfg.enabled) {
+        setChartSponsorLoading(false);
+      }
+    });
+  }, []);
   const prevActiveViewRef = useRef(activeView);
   useEffect(() => {
     if (prevActiveViewRef.current !== 'terminal' && activeView === 'terminal') {
-      setChartSponsorLoading(true);
+      setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
     } else if (activeView !== 'terminal') {
       setChartSponsorLoading(false);
     }
@@ -2774,12 +2782,12 @@ export function App() {
           setSymbol(newSession.activeAsset);
           setTimeframe(newSession.activeTimeframe || '15m');
           setIsCreateSessionModalOpen(false);
-          setChartSponsorLoading(true);
+          setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
         }}
         onSelectSession={(sessId) => {
           setActiveSessionId(sessId);
           setIsCreateSessionModalOpen(false);
-          setChartSponsorLoading(true);
+          setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
         }}
         onDeleteSession={handleDeleteSession}
         savedStrategies={allStrategyNames}

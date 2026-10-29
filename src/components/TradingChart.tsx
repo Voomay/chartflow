@@ -645,27 +645,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       effectiveIndicatorConfigs.orderFlow?.minAbsorptionRvol,
     ]
   );
-  useEffect(() => {
-    try {
-      localStorage.setItem('chart_engulfing_enabled_v1', showEngulfing ? '1' : '0');
-    } catch {
-      // ignore
-    }
-  }, [showEngulfing]);
-  useEffect(() => {
-    try {
-      localStorage.setItem('chart_order_flow_enabled_v1', showOrderFlow ? '1' : '0');
-    } catch {
-      // ignore
-    }
-  }, [showOrderFlow]);
-  useEffect(() => {
-    try {
-      localStorage.setItem('chart_forecaster_enabled_v1', showForecast ? '1' : '0');
-    } catch {
-      // ignore
-    }
-  }, [showForecast]);
   // Forecaster: uses only revealed candles (the replay-sliced candles prop), deterministic per input
   const forecast = useMemo(
     () =>
@@ -702,19 +681,9 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const [textEditor, setTextEditor] = useState<TextNoteEditorState | null>(null);
   const [activeBarPopover, setActiveBarPopover] = useState<'color' | 'rr' | 'style' | null>(null);
   const [customRRInput, setCustomRRInput] = useState<string>('2');
-  const [floatingBarPos, setFloatingBarPos] = useState<{ x: number; y: number }>(() => {
-    try {
-      const saved = localStorage.getItem('chart_flow_floating_bar_pos_v1');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (typeof parsed?.x === 'number' && typeof parsed?.y === 'number') {
-          return parsed;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return { x: 14, y: 88 };
+  const [floatingBarPos, setFloatingBarPos] = useState<{ x: number; y: number }>({
+    x: 14,
+    y: 88,
   });
   const floatingBarDragRef = useRef<{
     startMouseX: number;
@@ -755,14 +724,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     const onUp = () => {
       if (floatingBarDragRef.current) {
         floatingBarDragRef.current = null;
-        setFloatingBarPos((pos) => {
-          try {
-            localStorage.setItem('chart_flow_floating_bar_pos_v1', JSON.stringify(pos));
-          } catch {
-            // ignore
-          }
-          return pos;
-        });
       }
     };
     window.addEventListener('mousemove', onMove);

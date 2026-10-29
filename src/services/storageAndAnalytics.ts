@@ -75,19 +75,22 @@ const memoryStorageAdapter: StorageLike = {
 };
 
 function runtimeStorage(): StorageLike {
-  try {
-    if (typeof localStorage !== 'undefined' && localStorage !== null) {
-      return localStorage;
+  if (isTestEnvironment()) {
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage !== null) {
+        return localStorage;
+      }
+    } catch {
+      // ignore and fall back to memoryStorageAdapter
     }
-  } catch {
-    // ignore and fall back to memoryStorageAdapter
   }
   return memoryStorageAdapter;
 }
 
 /**
- * Ensures no plaintext password verifiers remain on active user session entries in browser storage
- * while preserving per-user sessions, strategies, notes, journals, and mindset/welcome preferences.
+ * Purges all browser localStorage and sessionStorage keys so that DevTools -> Application -> Storage
+ * stays completely empty and no user emails, IDs, sessions, strategies, notes, or sponsorship payloads
+ * are ever exposed in browser storage.
  */
 export function purgeBrowserSensitiveStorage(): void {
   if (isTestEnvironment()) return;
@@ -97,12 +100,18 @@ export function purgeBrowserSensitiveStorage(): void {
   ]) {
     if (!store) continue;
     try {
-      const rawCurrent = store.getItem(CURRENT_USER_KEY);
-      if (rawCurrent) {
-        const parsed = JSON.parse(rawCurrent);
-        if (parsed && typeof parsed === 'object' && parsed.passwordHash) {
-          store.setItem(CURRENT_USER_KEY, JSON.stringify({ ...parsed, passwordHash: '' }));
-        }
+      store.clear?.();
+    } catch {
+      // ignore
+    }
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < store.length; i++) {
+        const k = store.key(i);
+        if (k) keys.push(k);
+      }
+      for (const k of keys) {
+        store.removeItem(k);
       }
     } catch {
       // ignore

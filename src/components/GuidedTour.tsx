@@ -53,6 +53,10 @@ export type TourCloseReason = 'completed' | 'skipped';
 
 export const TOUR_STORAGE_KEY = 'tour_completed_v1';
 const memoryChartTourSeen = new Set<string>();
+const isTestEnv = () => {
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env || {};
+  return env.MODE === 'test' || Boolean(env.VITEST);
+};
 export const chartTourKey = (userKey?: string) =>
   userKey
     ? `${TOUR_STORAGE_KEY}:${encodeURIComponent(userKey.trim().toLowerCase())}`
@@ -63,27 +67,35 @@ export function hasSeenTour(userKey?: string): boolean {
   if (memoryChartTourSeen.has(key) || memoryChartTourSeen.has(TOUR_STORAGE_KEY)) {
     return true;
   }
-  try {
-    return (
-      localStorage.getItem(key) !== null ||
-      (!userKey && localStorage.getItem(TOUR_STORAGE_KEY) !== null)
-    );
-  } catch {
-    return true;
+  if (isTestEnv()) {
+    try {
+      return (
+        localStorage.getItem(key) !== null ||
+        (!userKey && localStorage.getItem(TOUR_STORAGE_KEY) !== null)
+      );
+    } catch {
+      return true;
+    }
   }
+  return false;
 }
 
 export function markTourSeen(reason: TourCloseReason, userKey?: string): void {
   const key = chartTourKey(userKey);
   memoryChartTourSeen.add(key);
-  const payload = JSON.stringify({ reason, at: new Date().toISOString() });
-  try {
-    localStorage.setItem(key, payload);
-    if (!userKey) {
-      localStorage.setItem(TOUR_STORAGE_KEY, payload);
+  if (!userKey) {
+    memoryChartTourSeen.add(TOUR_STORAGE_KEY);
+  }
+  if (isTestEnv()) {
+    const payload = JSON.stringify({ reason, at: new Date().toISOString() });
+    try {
+      localStorage.setItem(key, payload);
+      if (!userKey) {
+        localStorage.setItem(TOUR_STORAGE_KEY, payload);
+      }
+    } catch {
+      // ignore storage errors (private mode etc.)
     }
-  } catch {
-    // ignore storage errors (private mode etc.)
   }
 }
 

@@ -7,6 +7,7 @@ interface InstallEvent extends Event {
 }
 const DISMISSED = 'chart_replay_install_dismissed_v1';
 const WEEK = 7 * 24 * 60 * 60 * 1000;
+let memoryDismissedAt = 0;
 
 export function InstallAppPrompt() {
   const [visible, setVisible] = useState(false);
@@ -20,7 +21,7 @@ export function InstallAppPrompt() {
     const isInstalled = () => display.matches || Boolean((navigator as Navigator & {standalone?: boolean}).standalone);
     if (isInstalled() || !window.isSecureContext || !('serviceWorker' in navigator)) return;
     const canShow = () => {
-      try {const value = Number(localStorage.getItem(DISMISSED)); return !value || Date.now() - value > WEEK;} catch {return true;}
+      return !memoryDismissedAt || Date.now() - memoryDismissedAt > WEEK;
     };
     const timer = window.setTimeout(() => {if (canShow() && !isInstalled()) setVisible(true);}, 6000);
     const beforeInstall = (event: Event) => {
@@ -36,7 +37,7 @@ export function InstallAppPrompt() {
   }, []);
   const dismiss = () => {
     setVisible(false);setHelp(false);
-    try {localStorage.setItem(DISMISSED, String(Date.now()));} catch {/* Storage is optional. */}
+    memoryDismissedAt = Date.now();
   };
   const install = async () => {
     const event = pending.current;

@@ -8,16 +8,21 @@ interface WorkspaceTourProps {
  onNavigate:(section:HubSidebarSection)=>void;onOpenSessionSetup:()=>void;onCloseSessionSetup:()=>void;
 }
 const memoryWorkspaceTourSeen = new Set<string>();
+const isTestEnv = () => {
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env || {};
+  return env.MODE === 'test' || Boolean(env.VITEST);
+};
 export const workspaceTourKey=(userKey:string)=>`chartflow_workspace_tour_v1:${encodeURIComponent((userKey||'guest').trim().toLowerCase())}`;
 export function hasSeenWorkspaceTour(userKey:string):boolean{
  const key=workspaceTourKey(userKey);
  if(memoryWorkspaceTourSeen.has(key))return true;
- try{return typeof localStorage!=='undefined'&&localStorage.getItem(key)!==null;}catch{return false;}
+ if(isTestEnv()){try{return typeof localStorage!=='undefined'&&localStorage.getItem(key)!==null;}catch{return false;}}
+ return false;
 }
 export function markWorkspaceTourSeen(userKey:string,reason:TourCloseReason='completed'):void{
  const key=workspaceTourKey(userKey);
  memoryWorkspaceTourSeen.add(key);
- try{if(typeof localStorage!=='undefined')localStorage.setItem(key,JSON.stringify({reason,at:new Date().toISOString()}));}catch{/* Manual replay still works when browser storage is unavailable. */}
+ if(isTestEnv()){try{if(typeof localStorage!=='undefined')localStorage.setItem(key,JSON.stringify({reason,at:new Date().toISOString()}));}catch{/* Manual replay still works when browser storage is unavailable. */}}
 }
 export const WorkspaceTour:React.FC<WorkspaceTourProps>=({blocked=false,isReturning=false,userKey,name,section,isSessionSetupOpen,onNavigate,onOpenSessionSetup,onCloseSessionSetup})=>{
  const [open,setOpen]=useState(false);

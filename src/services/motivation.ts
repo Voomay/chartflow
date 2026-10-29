@@ -4,20 +4,27 @@ const prefix = 'chart_replay_motivation_v1:';
 const seenInMemory = new Set<string>();
 const memoryMotivationStore = new Map<string, string>();
 
+function isTestEnvironment(): boolean {
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env || {};
+  return env.MODE === 'test' || Boolean(env.VITEST);
+}
+
 function normalizeUserKey(userKey: string): string {
   return encodeURIComponent((userKey || 'guest').trim().toLowerCase());
 }
 
 function readStore(key: string): string | null {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const fromLocal = localStorage.getItem(key);
-      if (fromLocal !== null) {
-        memoryMotivationStore.set(key, fromLocal);
-        return fromLocal;
+  if (isTestEnvironment()) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const fromLocal = localStorage.getItem(key);
+        if (fromLocal !== null) {
+          memoryMotivationStore.set(key, fromLocal);
+          return fromLocal;
+        }
       }
-    }
-  } catch { /* ignore */ }
+    } catch { /* ignore */ }
+  }
   try {
     const fromMem = memoryMotivationStore.get(key);
     if (fromMem !== undefined) return fromMem;
@@ -27,20 +34,24 @@ function readStore(key: string): string | null {
 
 function writeStore(key: string, value: string): void {
   try { memoryMotivationStore.set(key, value); } catch { /* ignore */ }
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(key, value);
-    }
-  } catch { /* ignore */ }
+  if (isTestEnvironment()) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(key, value);
+      }
+    } catch { /* ignore */ }
+  }
 }
 
 function deleteStore(key: string): void {
   try { memoryMotivationStore.delete(key); } catch { /* ignore */ }
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(key);
-    }
-  } catch { /* ignore */ }
+  if (isTestEnvironment()) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(key);
+      }
+    } catch { /* ignore */ }
+  }
 }
 
 function readUserStore(userKey: string, suffix: string): string | null {

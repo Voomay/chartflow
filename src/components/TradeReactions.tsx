@@ -41,10 +41,10 @@ function AnimatedMoney({ amount, currency }: { amount: number; currency: string 
   </span>;
 }
 
+let memoryReactionsEnabled = true;
+
 export function TradeReactions({ positions, currency, isLight, anchorRef, midPrice, symbol, session }: { positions: BacktestPosition[]; currency: string; isLight: boolean; anchorRef: React.RefObject<HTMLDivElement>; midPrice?: number; symbol: InstrumentSymbol; session?: TradingSession }) {
-  const [enabled, setEnabled] = useState(() => {
-    try { return localStorage.getItem('chart_trade_reactions_v1') !== '0'; } catch { return true; }
-  });
+  const [enabled, setEnabled] = useState(() => memoryReactionsEnabled);
   const previous = useRef(new Map(positions.map(p => [p.id, p.status])));
   const [closed, setClosed] = useState<BacktestPosition | null>(null);
   const expiry = useRef<ReturnType<typeof setTimeout>>();
@@ -71,9 +71,9 @@ export function TradeReactions({ positions, currency, isLight, anchorRef, midPri
   const reaction = moods[mood];
   const tone = amount < -0.005 ? 'text-rose-500' : amount > 0.005 ? 'text-emerald-500' : isLight ? 'text-slate-600' : 'text-slate-300';
   const toggle = (next: boolean) => {
+    memoryReactionsEnabled = next;
     setEnabled(next);
     setClosed(null);
-    try { localStorage.setItem('chart_trade_reactions_v1', next ? '1' : '0'); } catch { /* Optional preference. */ }
   };
   const description = `${reaction.text} · ${closed ? 'Closed trade' : open.count ? `${open.count} open ${open.count === 1 ? 'trade' : 'trades'}` : 'No open trades'} · simulated net P&L`;
   return <>

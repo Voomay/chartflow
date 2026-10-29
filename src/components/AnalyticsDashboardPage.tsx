@@ -179,11 +179,6 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   const workspaceRef=useRef<HTMLElement>(null);
   useEffect(()=>{
     workspaceRef.current?.scrollTo({top:0});
-    try{
-      localStorage.setItem('chart_replay_hub_section_v1',sidebarSection);
-    }catch{
-      // ignore
-    }
     onSectionChange?.(sidebarSection);
     const sectionTitles: Record<HubSidebarSection, { title: string; path: string; desc: string }> = {
       dashboard: {

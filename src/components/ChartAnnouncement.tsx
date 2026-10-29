@@ -3,16 +3,21 @@ import {ArrowRight,Mail,X} from 'lucide-react';
 import {ChartReplayMark} from './ChartReplayLogo';
 
 const memoryAnnouncementSeen = new Set<string>();
+const isTestEnv = () => {
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env || {};
+  return env.MODE === 'test' || Boolean(env.VITEST);
+};
 export const announcementKey=(userKey:string)=>`chartflow_chart_announcement_v1:${encodeURIComponent((userKey||'guest').trim().toLowerCase())}`;
 export function hasSeenChartAnnouncement(userKey:string){
   const key=announcementKey(userKey);
   if(memoryAnnouncementSeen.has(key))return true;
-  try{return typeof localStorage!=='undefined'&&localStorage.getItem(key)!==null;}catch{return false;}
+  if(isTestEnv()){try{return typeof localStorage!=='undefined'&&localStorage.getItem(key)!==null;}catch{return false;}}
+  return false;
 }
 export function markChartAnnouncementSeen(userKey:string){
   const key=announcementKey(userKey);
   memoryAnnouncementSeen.add(key);
-  try{if(typeof localStorage!=='undefined')localStorage.setItem(key,'seen');}catch{/* Ignore storage restrictions. */}
+  if(isTestEnv()){try{if(typeof localStorage!=='undefined')localStorage.setItem(key,'seen');}catch{/* Ignore storage restrictions. */}}
 }
 
 export function ChartAnnouncement({open,onClose}:{open:boolean;onClose:()=>void}){

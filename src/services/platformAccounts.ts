@@ -40,7 +40,7 @@ export async function completePasswordResetWithToken(token:string,newPassword:st
  return {ok:true,user,error:undefined};
 }
 
-const ADMIN_IMPERSONATING_KEY = 'chart_replay_admin_impersonating_v1';
+let memoryAdminImpersonation: AdminImpersonationInfo | null = null;
 
 export interface AdminImpersonationInfo {
   userId: string;
@@ -51,23 +51,11 @@ export interface AdminImpersonationInfo {
 }
 
 export function getAdminImpersonationState(): AdminImpersonationInfo | null {
-  try {
-    const raw = sessionStorage.getItem(ADMIN_IMPERSONATING_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed.userEmail === 'string') return parsed;
-  } catch {
-    // ignore
-  }
-  return null;
+  return memoryAdminImpersonation;
 }
 
 export function clearAdminImpersonationState(): void {
-  try {
-    sessionStorage.removeItem(ADMIN_IMPERSONATING_KEY);
-  } catch {
-    // ignore
-  }
+  memoryAdminImpersonation = null;
 }
 
 export async function adminImpersonateUser(
@@ -97,11 +85,7 @@ export async function adminImpersonateUser(
       adminEmail: 'Dashboard preview',
       startedAt: new Date().toISOString(),
     };
-    try {
-      sessionStorage.setItem(ADMIN_IMPERSONATING_KEY, JSON.stringify(impersonation));
-    } catch {
-      // ignore
-    }
+    memoryAdminImpersonation = impersonation;
     setActiveLoggedInUser(user);
     return { ok: true, user, impersonation };
   }
@@ -130,11 +114,7 @@ export async function adminImpersonateUser(
     adminEmail: (result.impersonatedBy as string) || 'admin',
     startedAt: new Date().toISOString(),
   };
-  try {
-    sessionStorage.setItem(ADMIN_IMPERSONATING_KEY, JSON.stringify(impersonation));
-  } catch {
-    // ignore
-  }
+  memoryAdminImpersonation = impersonation;
   purgeBrowserSensitiveStorage();
   setActiveLoggedInUser(user);
   return { ok: true, user, impersonation };

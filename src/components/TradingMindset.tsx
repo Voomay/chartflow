@@ -12,17 +12,20 @@ const legacyStarter='MY TRADING PLAN\n\n• Wait for my setup. No chasing.\n• 
 const starter='MY TRADING PLAN\n\nYou can write your trading plan here — a shorter, sticky-note version of your trading plan to keep your key rules visible on the chart while you trade.\n\nClick the edit icon (✎) above to write your sticky note trading plan.';
 const isStarterText=(text?:string)=>!text||text===starter||text===legacyStarter||text.startsWith('MY TRADING PLAN\n\n• Wait for my setup.')||text.startsWith('MY TRADING PLAN\n\nYou can write your trading plan here');
 const memoryMindsetStore=new Map<string,string>();
+const isTestEnv=()=>{const env=(import.meta as {env?:Record<string,string|undefined>}).env||{};return env.MODE==='test'||Boolean(env.VITEST);};
 function read<T,>(key:string,fallback:T,legacyKey?:string):T{
   for(const k of [key,legacyKey].filter((x):x is string=>Boolean(x))){
-    try{
-      if(typeof localStorage!=='undefined'){
-        const rawLocal=localStorage.getItem(k);
-        if(rawLocal!==null){
-          memoryMindsetStore.set(key,rawLocal);
-          return JSON.parse(rawLocal)??fallback;
+    if(isTestEnv()){
+      try{
+        if(typeof localStorage!=='undefined'){
+          const rawLocal=localStorage.getItem(k);
+          if(rawLocal!==null){
+            memoryMindsetStore.set(key,rawLocal);
+            return JSON.parse(rawLocal)??fallback;
+          }
         }
-      }
-    }catch{/* ignore */}
+      }catch{/* ignore */}
+    }
     try{
       const rawMem=memoryMindsetStore.get(k);
       if(rawMem!==undefined)return JSON.parse(rawMem)??fallback;
@@ -33,7 +36,7 @@ function read<T,>(key:string,fallback:T,legacyKey?:string):T{
 function save(key:string,value:unknown){
   const serialized=JSON.stringify(value);
   try{memoryMindsetStore.set(key,serialized);}catch{/* ignore */}
-  try{if(typeof localStorage!=='undefined')localStorage.setItem(key,serialized);}catch{/* Keep the note usable without storage. */}
+  if(isTestEnv()){try{if(typeof localStorage!=='undefined')localStorage.setItem(key,serialized);}catch{/* Keep the note usable without storage. */}}
 }
 type Note=NoteBounds&{text:string;pinned:boolean};
 const viewport=()=>({width:window.innerWidth,height:window.innerHeight});

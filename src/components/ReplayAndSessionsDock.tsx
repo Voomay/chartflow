@@ -425,20 +425,9 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   const [isCollapsed, setIsCollapsed] = useState(true);
   const dockBodyRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{if(dockBodyRef.current)dockBodyRef.current.inert=isCollapsed;},[isCollapsed]);
-  const [dockHintActive, setDockHintActive] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('chart_replay_dock_hint_dismissed_v1') !== '1';
-    } catch {
-      return true;
-    }
-  });
+  const [dockHintActive, setDockHintActive] = useState<boolean>(true);
   const dismissDockHint = () => {
     setDockHintActive(false);
-    try {
-      localStorage.setItem('chart_replay_dock_hint_dismissed_v1', '1');
-    } catch {
-      // ignore
-    }
   };
   const [activeTab, setActiveTab] = useState<
     'open_positions' | 'pending_orders' | 'closed_trades' | 'journal' | 'challenge_objectives'
@@ -446,31 +435,12 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
 
   const [isSkipModalOpen, setIsSkipModalOpen] = useState(false);
   const [replayFeedback, setReplayFeedback] = useState<string | null>(null);
-  const [customSkipTime, setCustomSkipTime] = useState<string>(
-    () => localStorage.getItem('fx_customSkipTime') || '10:00'
-  );
-  const [customSkipTz, setCustomSkipTz] = useState<string>(
-    () => localStorage.getItem('fx_customSkipTz') || 'Africa/Johannesburg'
-  );
+  const [customSkipTime, setCustomSkipTime] = useState<string>('10:00');
+  const [customSkipTz, setCustomSkipTz] = useState<string>('Africa/Johannesburg');
   const [quickSkipTarget, setQuickSkipTarget] = useState<
     'DAILY_TIME' | 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'SYDNEY'
-  >(() => {
-    const saved = localStorage.getItem('fx_quickSkipTarget');
-    return saved === 'LONDON' ||
-      saved === 'NEW_YORK' ||
-      saved === 'TOKYO' ||
-      saved === 'SYDNEY' ||
-      saved === 'DAILY_TIME'
-      ? saved
-      : 'DAILY_TIME';
-  });
-  const [isFloatingWidgetOpen, setIsFloatingWidgetOpen] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('fx_replayFloatingWidgetOpen') !== '0';
-    } catch {
-      return true;
-    }
-  });
+  >('DAILY_TIME');
+  const [isFloatingWidgetOpen, setIsFloatingWidgetOpen] = useState<boolean>(true);
   const [floatingWidgetOffset, setFloatingWidgetOffset] = useState<{ x: number; y: number }>({
     x: 0,
     y: 0,
@@ -482,26 +452,8 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
     origY: number;
   } | null>(null);
 
-  useEffect(() => {
-    localStorage.setItem('fx_customSkipTime', customSkipTime);
-    localStorage.setItem('fx_customSkipTz', customSkipTz);
-  }, [customSkipTime, customSkipTz]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('fx_quickSkipTarget', quickSkipTarget);
-    } catch {
-      // ignore
-    }
-  }, [quickSkipTarget]);
-
   const toggleFloatingWidget = (nextOpen: boolean) => {
     setIsFloatingWidgetOpen(nextOpen);
-    try {
-      localStorage.setItem('fx_replayFloatingWidgetOpen', nextOpen ? '1' : '0');
-    } catch {
-      // ignore
-    }
   };
 
   const handleWidgetDragStart = (e: React.PointerEvent<HTMLDivElement>) => {

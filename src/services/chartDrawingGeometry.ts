@@ -175,28 +175,42 @@ export function getEffectiveFibSettings(
   };
 }
 
+let memoryFibSettings: FibSettings | null = null;
+const isTestEnv = () => {
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env || {};
+  return env.MODE === 'test' || Boolean(env.VITEST);
+};
+
 export function loadDefaultFibSettings(): Required<FibSettings> {
-  try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(FIB_STORAGE_KEY) : null;
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        return getEffectiveFibSettings(null, parsed);
+  if (isTestEnv()) {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(FIB_STORAGE_KEY) : null;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          return getEffectiveFibSettings(null, parsed);
+        }
       }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
+  }
+  if (memoryFibSettings) {
+    return getEffectiveFibSettings(null, memoryFibSettings);
   }
   return getEffectiveFibSettings(null, null);
 }
 
 export function saveDefaultFibSettings(settings: FibSettings): void {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(FIB_STORAGE_KEY, JSON.stringify(settings));
+  memoryFibSettings = settings;
+  if (isTestEnv()) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(FIB_STORAGE_KEY, JSON.stringify(settings));
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
 }
 
@@ -364,34 +378,41 @@ export const DEFAULT_INDICATOR_CONFIGS: ChartIndicatorConfigs = {
 
 const INDICATOR_CONFIGS_STORAGE_KEY = 'chart_flow_indicator_configs_v1';
 
+let memoryIndicatorConfigs: ChartIndicatorConfigs | null = null;
+
 export function loadSavedIndicatorConfigs(): ChartIndicatorConfigs {
-  try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(INDICATOR_CONFIGS_STORAGE_KEY) : null;
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        return {
-          ...DEFAULT_INDICATOR_CONFIGS,
-          ...parsed,
-          maConfigs: {
-            ...DEFAULT_INDICATOR_CONFIGS.maConfigs,
-            ...(parsed.maConfigs || {}),
-          },
-          customMAs: Array.isArray(parsed.customMAs) ? parsed.customMAs : [],
-          vwap: { ...DEFAULT_INDICATOR_CONFIGS.vwap, ...(parsed.vwap || {}) },
-          boll: { ...DEFAULT_INDICATOR_CONFIGS.boll, ...(parsed.boll || {}) },
-          rsi: { ...DEFAULT_INDICATOR_CONFIGS.rsi, ...(parsed.rsi || {}) },
-          macd: { ...DEFAULT_INDICATOR_CONFIGS.macd, ...(parsed.macd || {}) },
-          vol: { ...DEFAULT_INDICATOR_CONFIGS.vol, ...(parsed.vol || {}) },
-          engulfing: { ...DEFAULT_INDICATOR_CONFIGS.engulfing, ...(parsed.engulfing || {}) },
-          momentum: { ...DEFAULT_INDICATOR_CONFIGS.momentum, ...(parsed.momentum || {}) },
-          forecast: { ...DEFAULT_INDICATOR_CONFIGS.forecast, ...(parsed.forecast || {}) },
-          orderFlow: { ...DEFAULT_INDICATOR_CONFIGS.orderFlow, ...(parsed.orderFlow || {}) },
-        };
+  if (isTestEnv()) {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(INDICATOR_CONFIGS_STORAGE_KEY) : null;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          return {
+            ...DEFAULT_INDICATOR_CONFIGS,
+            ...parsed,
+            maConfigs: {
+              ...DEFAULT_INDICATOR_CONFIGS.maConfigs,
+              ...(parsed.maConfigs || {}),
+            },
+            customMAs: Array.isArray(parsed.customMAs) ? parsed.customMAs : [],
+            vwap: { ...DEFAULT_INDICATOR_CONFIGS.vwap, ...(parsed.vwap || {}) },
+            boll: { ...DEFAULT_INDICATOR_CONFIGS.boll, ...(parsed.boll || {}) },
+            rsi: { ...DEFAULT_INDICATOR_CONFIGS.rsi, ...(parsed.rsi || {}) },
+            macd: { ...DEFAULT_INDICATOR_CONFIGS.macd, ...(parsed.macd || {}) },
+            vol: { ...DEFAULT_INDICATOR_CONFIGS.vol, ...(parsed.vol || {}) },
+            engulfing: { ...DEFAULT_INDICATOR_CONFIGS.engulfing, ...(parsed.engulfing || {}) },
+            momentum: { ...DEFAULT_INDICATOR_CONFIGS.momentum, ...(parsed.momentum || {}) },
+            forecast: { ...DEFAULT_INDICATOR_CONFIGS.forecast, ...(parsed.forecast || {}) },
+            orderFlow: { ...DEFAULT_INDICATOR_CONFIGS.orderFlow, ...(parsed.orderFlow || {}) },
+          };
+        }
       }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
+  }
+  if (memoryIndicatorConfigs) {
+    return memoryIndicatorConfigs;
   }
   return {
     ...DEFAULT_INDICATOR_CONFIGS,
@@ -401,11 +422,14 @@ export function loadSavedIndicatorConfigs(): ChartIndicatorConfigs {
 }
 
 export function saveIndicatorConfigs(configs: ChartIndicatorConfigs): void {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(INDICATOR_CONFIGS_STORAGE_KEY, JSON.stringify(configs));
+  memoryIndicatorConfigs = configs;
+  if (isTestEnv()) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(INDICATOR_CONFIGS_STORAGE_KEY, JSON.stringify(configs));
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
 }

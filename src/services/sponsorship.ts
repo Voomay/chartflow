@@ -140,18 +140,6 @@ export function normalizeSponsorshipConfig(
 
 export function getCachedSponsorshipConfig(): SponsorshipConfig {
   if (memorySponsorship) return memorySponsorship;
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem(SPONSORSHIP_CACHE_KEY);
-      if (raw) {
-        const parsed = normalizeSponsorshipConfig(JSON.parse(raw));
-        memorySponsorship = parsed;
-        return parsed;
-      }
-    }
-  } catch {
-    // ignore storage errors
-  }
   return { ...DEFAULT_SPONSORSHIP_CONFIG };
 }
 
@@ -160,13 +148,6 @@ export function setCachedSponsorshipConfig(
 ): SponsorshipConfig {
   const normalized = normalizeSponsorshipConfig(config);
   memorySponsorship = normalized;
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(SPONSORSHIP_CACHE_KEY, JSON.stringify(normalized));
-    }
-  } catch {
-    // ignore quota or storage errors
-  }
   listeners.forEach((listener) => listener(normalized));
   return normalized;
 }

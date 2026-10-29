@@ -290,22 +290,6 @@ export function App() {
     }
     const savedUser = getActiveLoggedInUser();
     if (savedUser) {
-      try {
-        const savedView = localStorage.getItem('chart_replay_active_view_v2') as
-          | 'terminal'
-          | 'dashboard'
-          | 'analytics_page'
-          | null;
-        if (
-          savedView === 'terminal' ||
-          savedView === 'dashboard' ||
-          savedView === 'analytics_page'
-        ) {
-          return savedView;
-        }
-      } catch {
-        // ignore
-      }
       return 'dashboard';
     }
     return 'landing';
@@ -358,23 +342,6 @@ export function App() {
           p === '/settings'
         ) {
           return p.slice(1) as HubSidebarSection;
-        }
-        const savedSection = localStorage.getItem(
-          'chart_replay_hub_section_v1'
-        ) as HubSidebarSection | null;
-        if (
-          savedSection &&
-          [
-            'dashboard',
-            'sessions',
-            'analytics',
-            'strategies',
-            'notes',
-            'guide',
-            'settings',
-          ].includes(savedSection)
-        ) {
-          return savedSection;
         }
       } catch {
         // ignore
@@ -586,19 +553,6 @@ export function App() {
   }, [currentUser?.email]);
 
   const [activeSessionId, setActiveSessionId] = useState<string>(() => {
-    try {
-      const savedSessionId = localStorage.getItem(
-        `chart_replay_active_session_id_v1:${userEmail}`
-      );
-      if (
-        savedSessionId &&
-        tradingSessions.some((s) => s.id === savedSessionId)
-      ) {
-        return savedSessionId;
-      }
-    } catch {
-      // ignore
-    }
     return tradingSessions[0]?.id || 'session-default';
   });
 
@@ -630,24 +584,6 @@ export function App() {
 
   useEffect(() => {
     purgeBrowserSensitiveStorage();
-    try {
-      if (
-        currentUser &&
-        (activeView === 'terminal' ||
-          activeView === 'dashboard' ||
-          activeView === 'analytics_page')
-      ) {
-        localStorage.setItem('chart_replay_active_view_v2', activeView);
-      }
-      if (currentUser?.email && activeSession?.id) {
-        localStorage.setItem(
-          `chart_replay_active_session_id_v1:${currentUser.email}`,
-          activeSession.id
-        );
-      }
-    } catch {
-      // ignore
-    }
   }, [activeView, currentUser, activeSession?.id]);
 
   const updateActiveSession = useCallback(
@@ -889,23 +825,10 @@ export function App() {
   }, [visibleCandles, symbol]);
 
   // 6. Theme & Visual Preferences
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    try {
-      const saved = localStorage.getItem('chart_flow_theme_v1');
-      if (saved === 'light' || saved === 'dark') return saved;
-    } catch {
-      // ignore
-    }
-    return 'dark';
-  });
+  const [theme, setTheme] = useState<ThemeMode>('dark');
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
-    try {
-      localStorage.setItem('chart_flow_theme_v1', theme);
-    } catch {
-      // ignore
-    }
   }, [theme]);
 
   const [candleStyle, setCandleStyle] =
@@ -1996,7 +1919,7 @@ export function App() {
     }
     setActiveView('landing');
   };
-  const signOut=()=>{clearAdminImpersonationState();setAdminImpersonation(null);try{localStorage.removeItem('chart_replay_active_view_v2');localStorage.removeItem('chart_replay_hub_section_v1');}catch{}setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
+  const signOut=()=>{clearAdminImpersonationState();setAdminImpersonation(null);purgeBrowserSensitiveStorage();setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
   const handleAdminLoginAsUser=useCallback(async(targetUser:AdminUser,previewMode=false)=>{
     const res=await adminImpersonateUser({id:targetUser.id,email:targetUser.email,name:targetUser.name},previewMode);
     if(!res.ok||!res.user){
@@ -2235,22 +2158,11 @@ export function App() {
             });
           }
           setCurrentUser(user);
-          // Fresh sign-in: re-arm the bottom workspace panel expand hint
-          try {
-            localStorage.removeItem(DOCK_HINT_KEY);
-            localStorage.setItem('chart_replay_active_view_v2', 'dashboard');
-          } catch {
-            // ignore
-          }
+          purgeBrowserSensitiveStorage();
           setActiveView('dashboard');
         }}
         onLogout={() => {
-          try {
-            localStorage.removeItem('chart_replay_active_view_v2');
-            localStorage.removeItem('chart_replay_hub_section_v1');
-          } catch {
-            // ignore
-          }
+          purgeBrowserSensitiveStorage();
           setActiveLoggedInUser(null);
           setCurrentUser(null);
           setActiveView('landing');

@@ -2,11 +2,12 @@ import {useEffect} from 'react';
 import {platformRequest} from './platformAccounts';
 import {getActiveLoggedInUser,loadUserSessions} from './storageAndAnalytics';
 
+const sessionVisitorId=typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'?crypto.randomUUID():`00000000-0000-4000-8000-${Math.random().toString(16).slice(2,14).padEnd(12,'0')}`;
+
 export function usePlatformActivity(email:string|undefined,sessionKey:string,disabled:boolean){
  useEffect(()=>{
   if(disabled)return;
-  let visitorId:string;
-  try{visitorId=localStorage.getItem('chart_replay_visitor_id')||crypto.randomUUID();localStorage.setItem('chart_replay_visitor_id',visitorId);}catch{visitorId=crypto.randomUUID();}
+  const visitorId=sessionVisitorId;
   let stopped=false;
   const report=async()=>{
    if(stopped||document.visibilityState==='hidden')return;

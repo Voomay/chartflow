@@ -1,6 +1,7 @@
-import {createDefaultSessionsForUser} from '../storageAndAnalytics';
+import {createDefaultSessionsForUser,deduplicateSessions} from '../storageAndAnalytics';
+import {getDateRangePresets} from '../../components/CreateSessionModal';
 import {beforeEach,describe,expect,it} from 'vitest';
-import {aggregateCandlesToTimeframe,getReplayWeekdayTarget,getHistoricalReplayAvailability,clearRealCandleCache,setHistoricalCandles,getProviderChartCandles,setCachedRealCandles,getMarketFeedLabel,getInstrumentHistoricalCoverage,snapToOpenTradingDate,findExactCandleByTime,findFirstCandleAfterTime} from '../goldDataService';
+import {aggregateCandlesToTimeframe,getReplayWeekdayTarget,getHistoricalReplayAvailability,clearRealCandleCache,setHistoricalCandles,getProviderChartCandles,setCachedRealCandles,getMarketFeedLabel,getInstrumentHistoricalCoverage,snapToOpenTradingDate,findExactCandleByTime,findFirstCandleAfterTime,INSTRUMENTS} from '../goldDataService';
 import {advanceOrRewindSessionToTimestamp,closeOrCancelPosition,modifyPositionOrOrder,validateAndPlaceOrder,evaluateSessionAt1mTimestamp,validateSessionHistoricalData,getLatest1mCandleAtClock,get1mExecutionSlice,getDay1mCandles,getAggregatedCandlesUpToClock} from '../simulationEngine';
 import {Candle} from '../../types/trading';
 const t=Date.parse('2015-01-05T08:00:00Z')/1000;
@@ -228,5 +229,70 @@ describe('Original historical replay archives',()=>{
   deriveLowerBarsFromArchive(partialAll,sep1,sep1+3600,45000,'XAUUSD');
   expect(partialAll['1m'].filter(r=>r[0]<sep1)).toHaveLength(10);
   expect(partialAll['1m'].find(r=>r[0]===sep1)?.[4]).toBe(4437.2);
+ });
+ it('computes 1 Year Ago and 6 Months Ago presets from the current date and snaps weekends to Monday on USDJPY',()=>{
+  const weekdayPresets=getDateRangePresets('USDJPY','2026-10-29');
+  expect(weekdayPresets.find(p=>p.id==='1Y')?.startDate).toBe('2025-10-29');
+  expect(weekdayPresets.find(p=>p.id==='6M')?.startDate).toBe('2026-04-29');
+  expect(weekdayPresets.find(p=>p.id==='3M')?.startDate).toBe('2026-07-29');
+  expect(weekdayPresets.find(p=>p.id==='1M')?.startDate).toBe('2026-09-29');
+
+  // 1 year before 2026-11-01 is Saturday 2025-11-01 -> must snap forward to Monday 2025-11-03
+  const satPresets=getDateRangePresets('USDJPY','2026-11-01');
+  expect(satPresets.find(p=>p.id==='1Y')?.startDate).toBe('2025-11-03');
+  // 1 year before 2026-11-02 is Sunday 2025-11-02 -> must snap forward to Monday 2025-11-03
+  const sunPresets=getDateRangePresets('USDJPY','2026-11-02');
+  expect(sunPresets.find(p=>p.id==='1Y')?.startDate).toBe('2025-11-03');
+ });
+ it('never jumps a 1-Year-Ago (2025) or custom-year USDJPY session forward to a cached 2026 1m window',()=>{
+  const archiveFirst=Date.parse('2015-01-01T22:00:00Z')/1000;
+  const archiveLast=Date.parse('2026-10-16T20:58:00Z')/1000;
+  const sep2026=Date.parse('2026-09-10T08:00:00Z')/1000;
+  const oct2026=Date.parse('2026-10-15T08:00:00Z')/1000;
+  // Simulate USDJPY having a 2026 1m window in memory from a previous session
+  setHistoricalCandles('USDJPY',{'1m':[bar(sep2026,143.2),bar(oct2026,149.8)]},'HistData · USDJPY',archiveFirst,archiveLast);
+
+  // Now user creates a session 1 Year Ago (2025-10-29 08:00 UTC) or custom year (2022-05-10 08:00 UTC)
+  const oneYearAgoClock=Date.parse('2025-10-29T08:00:00Z')/1000;
+  const customYearClock=Date.parse('2022-05-10T08:00:00Z')/1000;
+  expect(getHistoricalReplayAvailability('USDJPY',oneYearAgoClock)).toBeUndefined();
+  expect(getHistoricalReplayAvailability('USDJPY',customYearClock)).toBeUndefined();
+
+  // Once the 2025 window hydrates, availability is READY for 2025-10-29
+  setHistoricalCandles('USDJPY',{'1m':[bar(oneYearAgoClock,152.4)]},'HistData · USDJPY',archiveFirst,archiveLast);
+  expect(getHistoricalReplayAvailability('USDJPY',oneYearAgoClock)).toEqual({kind:'READY'});
+ });
+ it('deduplicates sessions by ID so double session entries cannot persist',()=>{
+  const [s1,s2]=createDefaultSessionsForUser('dedup-test');
+  const list=deduplicateSessions([s1,s1,{...s1,name:'Duplicate Copy'},s2]);
+  expect(list).toHaveLength(2);
+  expect(list[0].id).toBe(s1.id);
+  expect(list[1].id).toBe(s2.id);
+ });
+ it('validates presets (1Y, 6M, 3M, 1M, 7D) and custom years across all 25 instruments',()=>{
+  expect(INSTRUMENTS).toHaveLength(25);
+  for(const inst of INSTRUMENTS){
+   const sym=inst.symbol;
+   const presets=getDateRangePresets(sym,'2026-10-29');
+   expect(presets).toHaveLength(5);
+   for(const preset of presets){
+    const v=validateSessionHistoricalData(preset.startDate,preset.endDate,'08:00',[sym]);
+    expect(v.valid,`${sym} preset ${preset.id} (${preset.startDate} -> ${preset.endDate}): ${v.errors.join(', ')}`).toBe(true);
+    if(inst.category!=='CRYPTO'){
+     const dow=new Date(`${preset.startDate}T00:00:00Z`).getUTCDay();
+     expect(dow===0||dow===6,`${sym} preset ${preset.id} landed on weekend ${preset.startDate}`).toBe(false);
+    }
+   }
+   // Weekend reference date (Sunday 2026-11-01 -> 1Y ago is Saturday 2025-11-01) must snap to Monday 2025-11-03 for non-crypto
+   const wkndPresets=getDateRangePresets(sym,'2026-11-01');
+   for(const preset of wkndPresets){
+    const v=validateSessionHistoricalData(preset.startDate,preset.endDate,'08:00',[sym]);
+    expect(v.valid,`${sym} weekend preset ${preset.id}`).toBe(true);
+    if(inst.category!=='CRYPTO'){
+     const dow=new Date(`${preset.startDate}T00:00:00Z`).getUTCDay();
+     expect(dow===0||dow===6).toBe(false);
+    }
+   }
+  }
  });
 });

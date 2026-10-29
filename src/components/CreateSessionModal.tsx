@@ -3,7 +3,7 @@ import {
   isInstrumentComingSoon,
 } from '../services/instrumentPresentation';
 import { SessionScheduleFields } from './SessionScheduleFields';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   AccountCurrency,
   BacktestSessionMode,
@@ -212,27 +212,45 @@ const POPULAR_MARKETS: InstrumentSymbol[] = [
   'XAGUSD',
 ];
 
-function getDateRangePresets(symbol: InstrumentSymbol = 'XAUUSD') {
+export function getDateRangePresets(
+  symbol: InstrumentSymbol = 'XAUUSD',
+  referenceDateIso?: string
+) {
   const coverage = getInstrumentHistoricalCoverage(symbol);
-  const todayIso = new Date().toLocaleDateString('en-CA');
+  const todayIso = referenceDateIso || new Date().toLocaleDateString('en-CA');
   const endDate = coverage.maxDate < todayIso ? coverage.maxDate : todayIso;
+  const todayAnchor = new Date(`${todayIso}T00:00:00Z`);
   const endAnchor = new Date(`${endDate}T00:00:00Z`);
   const monthsAgo = (count: number) => {
     const first = new Date(
-      Date.UTC(endAnchor.getUTCFullYear(), endAnchor.getUTCMonth() - count, 1)
+      Date.UTC(todayAnchor.getUTCFullYear(), todayAnchor.getUTCMonth() - count, 1)
     );
     const lastDay = new Date(
       Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)
     ).getUTCDate();
-    first.setUTCDate(Math.min(endAnchor.getUTCDate(), lastDay));
-    const rawIso = first.toISOString().slice(0, 10);
-    return snapToOpenTradingDate(rawIso, symbol, 'forward').date;
+    first.setUTCDate(Math.min(todayAnchor.getUTCDate(), lastDay));
+    let rawIso = first.toISOString().slice(0, 10);
+    if (rawIso >= endDate) {
+      const fallback = new Date(
+        Date.UTC(endAnchor.getUTCFullYear(), endAnchor.getUTCMonth() - count, 1)
+      );
+      const fallbackLast = new Date(
+        Date.UTC(fallback.getUTCFullYear(), fallback.getUTCMonth() + 1, 0)
+      ).getUTCDate();
+      fallback.setUTCDate(Math.min(endAnchor.getUTCDate(), fallbackLast));
+      rawIso = fallback.toISOString().slice(0, 10);
+    }
+    const snapped = snapToOpenTradingDate(rawIso, symbol, 'forward').date;
+    return snapped <= endDate
+      ? snapped
+      : snapToOpenTradingDate(rawIso, symbol, 'backward').date;
   };
+  const weekBase = todayIso <= coverage.maxDate ? todayAnchor : endAnchor;
   const week = new Date(
     Date.UTC(
-      endAnchor.getUTCFullYear(),
-      endAnchor.getUTCMonth(),
-      endAnchor.getUTCDate() - 7
+      weekBase.getUTCFullYear(),
+      weekBase.getUTCMonth(),
+      weekBase.getUTCDate() - 7
     )
   );
   const weekIso = snapToOpenTradingDate(
@@ -281,14 +299,8 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   const [mode, setMode] = useState<BacktestSessionMode>(initialMode);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(initialTab === 'more');
   const [showAllMarkets, setShowAllMarkets] = useState<boolean>(false);
-
-  React.useEffect(() => {
-    if (isOpen) {
-      setMode(initialMode);
-      setActiveView(initialTab === 'sessions' ? 'saved_sessions' : 'setup');
-      setShowAdvanced(initialTab === 'more');
-    }
-  }, [isOpen, initialMode, initialTab]);
+  const isSubmittingRef = useRef<boolean>(false);
+  const [selectedRangePresetId, setSelectedRangePresetId] = useState<string | null>('1Y');
 
   // Basic Session State
   const [sessionName, setSessionName] = useState<string>('');
@@ -321,6 +333,17 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
     () => getDateRangePresets('XAUUSD')[0].endDate
   );
   const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      isSubmittingRef.current = false;
+      setMode(initialMode);
+      setActiveView(initialTab === 'sessions' ? 'saved_sessions' : 'setup');
+      setShowAdvanced(initialTab === 'more');
+      setSessionName('');
+      setScheduleNotice(null);
+    }
+  }, [isOpen, initialMode, initialTab]);
   const [replayStartTime, setReplayStartTime] = useState<string>('08:00');
   const [selectedQuickStart, setSelectedQuickStart] = useState<string | null>(null);
   const [customStartTime, setCustomStartTime] = useState('08:00');
@@ -388,6 +411,15 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
     if (isInstrumentComingSoon(sym)) return;
     setSelectedAssets([sym]);
     const cov = getInstrumentHistoricalCoverage(sym);
+    if (selectedRangePresetId) {
+      const nextPresets = getDateRangePresets(sym);
+      const matched =
+        nextPresets.find((p) => p.id === selectedRangePresetId) || nextPresets[0];
+      setStartDate(matched.startDate);
+      setEndDate(matched.endDate);
+      setScheduleNotice(null);
+      return;
+    }
     const snapped = snapToOpenTradingDate(startDate, sym, 'forward');
     const nextStart = snapped.date;
     let nextEnd = endDate > cov.maxDate ? cov.maxDate : endDate;
@@ -447,8 +479,10 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   };
 
   const handleCreateAndOpenChart = () => {
+    if (isSubmittingRef.current) return;
     if (selectedAssets.some(isInstrumentComingSoon)) return;
     if (!dataValidation.valid) return;
+    isSubmittingRef.current = true;
 
     const primaryAsset = selectedAssets[0] || 'XAUUSD';
     const snappedStart = snapToOpenTradingDate(startDate, primaryAsset, 'forward');
@@ -1128,8 +1162,10 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                           key={preset.id}
                           type="button"
                           onClick={() => {
+                            setSelectedRangePresetId(preset.id);
                             setStartDate(preset.startDate);
                             setEndDate(preset.endDate);
+                            setScheduleNotice(null);
                           }}
                           className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition ${
                             active ? pillActive : pillIdle
@@ -1153,6 +1189,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                   onScheduleNotice={setScheduleNotice}
                   theme={theme}
                   onStart={(value) => {
+                    setSelectedRangePresetId(null);
                     const snapped = snapToOpenTradingDate(
                       value,
                       primarySelectedAsset,
@@ -1164,7 +1201,10 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                       snapped.adjusted && snapped.reason ? snapped.reason : null
                     );
                   }}
-                  onEnd={setEndDate}
+                  onEnd={(value) => {
+                    setSelectedRangePresetId(null);
+                    setEndDate(value);
+                  }}
                   onTime={(value) => {
                     setReplayStartTime(value);
                     setCustomStartTime(value);

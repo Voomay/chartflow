@@ -545,6 +545,17 @@ export function createFreshReplacementSessionForUser(userId: string): TradingSes
   };
 }
 
+export function deduplicateSessions(sessions: TradingSession[]): TradingSession[] {
+  const seen = new Set<string>();
+  const unique: TradingSession[] = [];
+  for (const s of sessions) {
+    if (!s || typeof s.id !== 'string' || seen.has(s.id)) continue;
+    seen.add(s.id);
+    unique.push(s);
+  }
+  return unique;
+}
+
 export function loadUserSessions(userId: string): TradingSession[] {
   const key = `${getUserScopePrefix(userId)}_sessions_v2`;
   const store = runtimeStorage();
@@ -554,7 +565,9 @@ export function loadUserSessions(userId: string): TradingSession[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed.filter((s: TradingSession) => !deletedIds.has(s.id));
+        return deduplicateSessions(
+          parsed.filter((s: TradingSession) => !deletedIds.has(s.id))
+        );
       }
     }
   } catch {
@@ -566,10 +579,11 @@ export function loadUserSessions(userId: string): TradingSession[] {
 const sessionSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function saveUserSessions(userId: string, sessions: TradingSession[]): void {
+  const unique = deduplicateSessions(sessions);
   const key = `${getUserScopePrefix(userId)}_sessions_v2`;
   const store = runtimeStorage();
   try {
-    store.setItem(key, JSON.stringify(sessions));
+    store.setItem(key, JSON.stringify(unique));
   } catch {
     // ignore
   }
@@ -577,7 +591,7 @@ export function saveUserSessions(userId: string, sessions: TradingSession[]): vo
   if (prevTimer) clearTimeout(prevTimer);
   const nextTimer = setTimeout(() => {
     sessionSyncTimers.delete(userId);
-    void syncUserSessionsToSupabase(userId, sessions);
+    void syncUserSessionsToSupabase(userId, unique);
   }, 250);
   sessionSyncTimers.set(userId, nextTimer);
 }

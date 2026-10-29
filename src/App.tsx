@@ -516,6 +516,16 @@ export function App() {
           if (prevSession && !isUntouchedStarterSession(prevSession)) {
             return prevId;
           }
+          // Preserve a locally created session ID if the user created a session before remote hydration completed
+          if (
+            prevId &&
+            !prevId.startsWith('session-default') &&
+            !prevId.startsWith('session-normal-') &&
+            !prevId.startsWith('session-prop-') &&
+            !prevId.startsWith('session-empty-')
+          ) {
+            return prevId;
+          }
           return preferredSession.id;
         });
       })
@@ -673,7 +683,18 @@ export function App() {
   const [isMarketDataLoading, setIsMarketDataLoading] = useState<boolean>(false);
   const marketDataRequestKey = `${symbol}:${isPresentTime ? 'present' : Math.floor(authoritativeClockTs / 86400)}`;
   const [loadedMarketDataKey, setLoadedMarketDataKey] = useState<string | null>(null);
-  const historicalAvailability = !isPresentTime && !isMarketDataLoading ? getHistoricalReplayAvailability(symbol,authoritativeClockTs) : undefined;
+  const existing1mForClock = !isPresentTime && hasHistoricalArchive(symbol) ? getHistoricalCandles('1m', symbol) : null;
+  const isCurrentArchiveWindowLoaded = Boolean(
+    loadedMarketDataKey === marketDataRequestKey ||
+      (existing1mForClock &&
+        existing1mForClock.length > 0 &&
+        authoritativeClockTs >= existing1mForClock[0].time &&
+        authoritativeClockTs <= existing1mForClock[existing1mForClock.length - 1].time)
+  );
+  const historicalAvailability =
+    !isPresentTime && !isMarketDataLoading && isCurrentArchiveWindowLoaded
+      ? getHistoricalReplayAvailability(symbol, authoritativeClockTs)
+      : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -681,7 +702,7 @@ export function App() {
       const existing1m = getHistoricalCandles('1m', symbol) || [];
       if (
         existing1m.length > 0 &&
-        authoritativeClockTs >= existing1m[0].time &&
+        authoritativeClockTs >= existing1m[0].time + 5 * 86400 &&
         authoritativeClockTs <= existing1m[existing1m.length - 1].time
       ) {
         setLoadedMarketDataKey(marketDataRequestKey);
@@ -1431,7 +1452,13 @@ export function App() {
 
   // Auto-advance initial replay clock if a session starts on a market holiday / weekend break with no open trades
   useEffect(() => {
-    if (isPresentTime || isMarketDataLoading || !hasHistoricalArchive(symbol)) return;
+    if (
+      isPresentTime ||
+      isMarketDataLoading ||
+      !isCurrentArchiveWindowLoaded ||
+      !hasHistoricalArchive(symbol)
+    )
+      return;
     const hasOpenOrPending = (activeSession.positions || []).some(
       (p) => p.status === 'OPEN' || p.status === 'PENDING'
     );
@@ -1442,6 +1469,7 @@ export function App() {
       availability.kind !== 'READY' &&
       availability.nextTime !== undefined &&
       availability.nextTime > authoritativeClockTs &&
+      availability.nextTime - authoritativeClockTs <= 7 * 86400 &&
       (!activeSession.endTimestamp || availability.nextTime <= activeSession.endTimestamp)
     ) {
       const outcome = handleAdvanceOrRewindToTimestamp(availability.nextTime);
@@ -1460,6 +1488,7 @@ export function App() {
   }, [
     isPresentTime,
     isMarketDataLoading,
+    isCurrentArchiveWindowLoaded,
     marketDataVersion,
     symbol,
     authoritativeClockTs,
@@ -1827,6 +1856,46 @@ export function App() {
       );
     },
     [activeSession.id, showToast]
+  );
+
+  const lastCreatedSessionRef = useRef<{ id: string; signature: string; at: number } | null>(null);
+
+  const handleCreateNewSession = useCallback(
+    (newSession: TradingSession, openTerminalView: boolean) => {
+      const now = Date.now();
+      const signature = `${newSession.mode}:${newSession.activeAsset}:${newSession.startDate}:${newSession.endDate}:${newSession.replayStartTime}:${newSession.startingBalance}`;
+      if (
+        lastCreatedSessionRef.current &&
+        (lastCreatedSessionRef.current.id === newSession.id ||
+          (lastCreatedSessionRef.current.signature === signature &&
+            now - lastCreatedSessionRef.current.at < 1500))
+      ) {
+        setIsCreateSessionModalOpen(false);
+        if (openTerminalView) setActiveView('terminal');
+        return;
+      }
+      lastCreatedSessionRef.current = { id: newSession.id, signature, at: now };
+      setIsPlaying(false);
+      replayStepBusy.current = false;
+      resetChartIndicatorsOff();
+      setTradingSessions((prev) => [
+        newSession,
+        ...prev.filter((s) => s.id !== newSession.id),
+      ]);
+      setActiveSessionId(newSession.id);
+      setSymbol(newSession.activeAsset);
+      const nextTf = newSession.activeTimeframe || '15m';
+      setTimeframe(nextTf);
+      setReplayStepTimeframe(normalizeReplayStepTf(nextTf));
+      setViewportFocusVersion((v) => v + 1);
+      setIsCreateSessionModalOpen(false);
+      if (openTerminalView) {
+        setActiveView('terminal');
+      } else {
+        setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
+      }
+    },
+    [resetChartIndicatorsOff]
   );
 
   const handleBranchSession = useCallback(() => {
@@ -2347,17 +2416,11 @@ export function App() {
           sessions={tradingSessions}
           activeSessionId={activeSession.id}
           theme={theme}
-          onCreateSession={(newSession) => {
-            resetChartIndicatorsOff();
-            setTradingSessions((prev) => [newSession, ...prev]);
-            setActiveSessionId(newSession.id);
-            setSymbol(newSession.activeAsset);
-            setTimeframe(newSession.activeTimeframe || '15m');
-            setIsCreateSessionModalOpen(false);
-            setActiveView('terminal');
-          }}
+          onCreateSession={(newSession) => handleCreateNewSession(newSession, true)}
           onSelectSession={(sessId) => {
+            setIsPlaying(false);
             setActiveSessionId(sessId);
+            setViewportFocusVersion((v) => v + 1);
             setIsCreateSessionModalOpen(false);
             setActiveView('terminal');
           }}
@@ -3080,17 +3143,11 @@ export function App() {
         sessions={tradingSessions}
         activeSessionId={activeSession.id}
         theme={theme}
-        onCreateSession={(newSession) => {
-          resetChartIndicatorsOff();
-          setTradingSessions((prev) => [newSession, ...prev]);
-          setActiveSessionId(newSession.id);
-          setSymbol(newSession.activeAsset);
-          setTimeframe(newSession.activeTimeframe || '15m');
-          setIsCreateSessionModalOpen(false);
-          setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
-        }}
+        onCreateSession={(newSession) => handleCreateNewSession(newSession, false)}
         onSelectSession={(sessId) => {
+          setIsPlaying(false);
           setActiveSessionId(sessId);
+          setViewportFocusVersion((v) => v + 1);
           setIsCreateSessionModalOpen(false);
           setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
         }}

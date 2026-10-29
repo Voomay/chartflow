@@ -87,12 +87,7 @@ export function SessionScheduleFields({
   const cfg = getInstrumentConfig(symbol);
   const today = new Date().toLocaleDateString('en-CA');
   const max = coverage.maxDate < today ? coverage.maxDate : today;
-  const min =
-    open === 'end'
-      ? start > coverage.minDate
-        ? start
-        : coverage.minDate
-      : coverage.minDate;
+  const min = coverage.minDate;
   const selected = open === 'end' ? end : start;
   const activeNotice = scheduleNotice !== undefined ? scheduleNotice : internalNotice;
 
@@ -124,16 +119,66 @@ export function SessionScheduleFields({
     return () => node?.close();
   }, [open]);
 
-  const choose = (value: string) => {
-    if (value < min || value > max || !coverage.isDateSupported(value)) return;
+  const applySelectedDate = (value: string, closeAfter: boolean) => {
+    const clamped = value < min ? min : value > max ? max : value;
+    if (!coverage.isDateSupported(clamped)) {
+      const snappedFallback = snapToOpenTradingDate(clamped, symbol, 'forward');
+      if (!coverage.isDateSupported(snappedFallback.date)) return;
+      value = snappedFallback.date;
+    } else {
+      value = clamped;
+    }
+
     if (open === 'start') {
       const snapped = snapToOpenTradingDate(value, symbol, 'forward');
       onStart(snapped.date);
+      if (end < snapped.date) {
+        onEnd(max >= snapped.date ? max : snapped.date);
+      }
       setNotice(snapped.adjusted && snapped.reason ? snapped.reason : null);
-    } else {
+      setMonth(parse(snapped.date));
+    } else if (open === 'end') {
       onEnd(value);
+      if (value < start) {
+        const endObj = parse(value);
+        const priorMonth = new Date(
+          Date.UTC(endObj.getUTCFullYear(), endObj.getUTCMonth() - 1, 1)
+        );
+        const priorLastDay = new Date(
+          Date.UTC(priorMonth.getUTCFullYear(), priorMonth.getUTCMonth() + 1, 0)
+        ).getUTCDate();
+        priorMonth.setUTCDate(Math.min(endObj.getUTCDate(), priorLastDay));
+        const rawStart = iso(priorMonth) < min ? min : iso(priorMonth);
+        const snappedStart = snapToOpenTradingDate(rawStart, symbol, 'forward');
+        const nextStart =
+          snappedStart.date <= value
+            ? snappedStart.date
+            : snapToOpenTradingDate(value, symbol, 'backward').date;
+        onStart(nextStart);
+      }
+      setMonth(parse(value));
     }
-    setOpen(null);
+    if (closeAfter) {
+      setOpen(null);
+    }
+  };
+
+  const choose = (value: string) => {
+    if (value < min || value > max || !coverage.isDateSupported(value)) return;
+    applySelectedDate(value, true);
+  };
+
+  const applyYearAndMonthPreview = (targetYear: number, targetMonthIndex: number) => {
+    const currentDay = parse(selected).getUTCDate() || 1;
+    const lastDay = new Date(
+      Date.UTC(targetYear, targetMonthIndex + 1, 0)
+    ).getUTCDate();
+    const candidate = iso(
+      new Date(
+        Date.UTC(targetYear, targetMonthIndex, Math.min(currentDay, lastDay))
+      )
+    );
+    applySelectedDate(candidate, false);
   };
 
   const changeMonth = (delta: number) =>
@@ -439,6 +484,7 @@ export function SessionScheduleFields({
                                 targetMonth = firstValidMonth;
                             }
                             setMonth(new Date(Date.UTC(year, targetMonth, 1)));
+                            applyYearAndMonthPreview(year, targetMonth);
                             setView('months');
                           }}
                           className={`rounded-lg py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-20 ${
@@ -480,7 +526,9 @@ export function SessionScheduleFields({
                         key={name}
                         disabled={isDisabled}
                         onClick={() => {
-                          setMonth(new Date(Date.UTC(month.getUTCFullYear(), index, 1)));
+                          const targetYear = month.getUTCFullYear();
+                          setMonth(new Date(Date.UTC(targetYear, index, 1)));
+                          applyYearAndMonthPreview(targetYear, index);
                           setView('days');
                         }}
                         className={`rounded-lg py-2.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-20 ${
@@ -566,20 +614,29 @@ export function SessionScheduleFields({
                   isLight ? 'border-slate-200' : 'border-white/10'
                 }`}
               >
-                <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>
+                <span className={`font-mono font-semibold ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
                   {selected}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => choose(max)}
-                  className={`rounded-lg px-2 py-1 font-semibold transition ${
-                    isLight
-                      ? 'text-teal-700 hover:bg-emerald-400/10'
-                      : 'text-emerald-400 hover:bg-emerald-500/15'
-                  }`}
-                >
-                  Latest ({max})
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => choose(max)}
+                    className={`rounded-lg px-2 py-1 font-semibold transition ${
+                      isLight
+                        ? 'text-teal-700 hover:bg-emerald-400/10'
+                        : 'text-emerald-400 hover:bg-emerald-500/15'
+                    }`}
+                  >
+                    Latest ({max})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(null)}
+                    className="rounded-lg bg-gradient-to-r from-emerald-400 to-teal-400 px-3 py-1 font-bold text-slate-950 transition hover:brightness-105"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             </>
           )}

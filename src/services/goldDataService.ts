@@ -1426,7 +1426,7 @@ export function getInstrumentHistoricalCoverage(symbol: InstrumentSymbol): Instr
     minDate = '2016-06-01';
     maxDate = '2026-10-24';
   } else if (symbol === 'US30') {
-    minDate = '2026-03-26';
+    minDate = '2015-01-02';
     maxDate = '2026-10-23';
   } else if (symbol === 'USOIL') {
     minDate = '2015-01-02';
@@ -1522,8 +1522,12 @@ export function snapToOpenTradingDate(
     reasons.push(`${cfg.displaySymbol} historical archive ends on ${coverage.maxDate}`);
   }
 
-  if (coverage.missingRange && current >= coverage.missingRange.start && current <= coverage.missingRange.end) {
-    current = direction === 'forward' ? '2026-06-15' : '2023-12-29';
+  if (
+    coverage.missingRange &&
+    ((current >= coverage.missingRange.start && current <= coverage.missingRange.end) ||
+      (symbol === 'USOIL' && current >= '2023-12-02' && current <= '2026-06-28'))
+  ) {
+    current = direction === 'forward' ? '2026-06-29' : '2023-12-01';
     reasons.push(`${cfg.displaySymbol} has no archive data for ${coverage.missingRange.label}`);
   }
 
@@ -1873,10 +1877,22 @@ export function getHistoricalReplayAvailability(symbol:InstrumentSymbol,clock:nu
   if(findExactCandleByTime(bars,minute))return {kind:'READY'};
   const first=historicalStarts.get(symbol) ?? bars[0]?.time;
   const last=historicalEnds.get(symbol);
-  const nextTime=findFirstCandleAfterTime(bars,minute)?.time;
   const utc=(time:number)=>new Date(time*1000).toISOString().slice(0,16).replace('T',' ')+' UTC';
-  if(first!==undefined && minute<first)return {kind:'BEFORE',nextTime,message:`This archive starts ${utc(first)}. Trading is paused.`};
+  if(first!==undefined && minute<first){
+    const nextTime=findFirstCandleAfterTime(bars,minute)?.time;
+    return {kind:'BEFORE',nextTime,message:`This archive starts ${utc(first)}. Trading is paused.`};
+  }
   if(last!==undefined && minute>last)return {kind:'AFTER',message:`This archive ends ${utc(last)}. Choose an earlier replay date or Present Time.`};
+  if(bars.length===0)return undefined;
+  const windowFirst=bars[0].time;
+  const windowLast=bars[bars.length-1].time;
+  // When switching sessions across months/years, `bars` holds only the ~35-day 1m window from the previous session
+  // until `hydrateHistoricalArchive` finishes loading the new window. Do not report a false GAP or jump to the stale window.
+  if((first!==undefined && minute>=first && minute<windowFirst-5*86400) || (last!==undefined && minute<=last && minute>windowLast)){
+    return undefined;
+  }
+  const rawNextTime=findFirstCandleAfterTime(bars,minute)?.time;
+  const nextTime=rawNextTime!==undefined && rawNextTime-minute<=7*86400 ? rawNextTime : undefined;
   if(isWeekendClosedTimestamp(minute,symbol))return {kind:'WEEKEND',nextTime,message:`Market closed for the weekend. Trading is paused.${nextTime ? ` Next available bar: ${utc(nextTime)}.` : ''}`};
   return {kind:'GAP',nextTime,message:`No source quote for this minute: a market break, holiday or data gap. Trading is paused.${nextTime ? ` Next available bar: ${utc(nextTime)}.` : ' Choose another replay date.'}`};
 }

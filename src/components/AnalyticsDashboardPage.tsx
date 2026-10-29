@@ -1,5 +1,6 @@
 import {ChartAnnouncement,hasSeenChartAnnouncement,markChartAnnouncementSeen} from './ChartAnnouncement';
 import {LegalLinks,LegalDocumentKey} from './LegalLinks';
+import {applyPageSeo} from '../services/seo';
 import { WorkspaceTour } from './WorkspaceTour';
 import { PerformanceOverview } from './PerformanceOverview';
 import { DashboardOverview } from './DashboardOverview';
@@ -113,6 +114,7 @@ interface AnalyticsDashboardPageProps {
   theme?: ThemeMode;
   onToggleTheme?: () => void;
   initialSection?: HubSidebarSection;
+  onSectionChange?: (section: HubSidebarSection) => void;
   onReturnToChart: () => void;
   onOpenLanding?: () => void;
   onOpenTradersInsight?: () => void;
@@ -138,6 +140,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   theme = 'dark',
   onToggleTheme,
   initialSection = 'dashboard',
+  onSectionChange,
   onReturnToChart,
   onOpenLanding,
   onOpenTradersInsight,
@@ -181,6 +184,51 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
     }catch{
       // ignore
     }
+    onSectionChange?.(sidebarSection);
+    const sectionTitles: Record<HubSidebarSection, { title: string; path: string; desc: string }> = {
+      dashboard: {
+        title: 'Client Dashboard – Backtesting & Prop Firm Hub | Chart Replay',
+        path: '/dashboard',
+        desc: 'Manage your historical Forex & XAUUSD bar replay sessions, FTMO prop firm challenges, strategies, and performance analytics.',
+      },
+      sessions: {
+        title: 'Trading Sessions – Backtesting & Prop Firm Challenges | Chart Replay',
+        path: '/sessions',
+        desc: 'View, resume, or create historical bar replay and prop firm challenge sessions on Chart Replay.',
+      },
+      analytics: {
+        title: 'Performance Analytics & Trading Journal | Chart Replay',
+        path: '/analytics',
+        desc: 'Analyze your equity curve, drawdown curve, R-multiple expectancy, win rate by session, and trade journal.',
+      },
+      strategies: {
+        title: 'Trading Strategies & Playbooks | Chart Replay',
+        path: '/strategies',
+        desc: 'Build and track rule-based Forex and Gold trading strategies and setup checklists.',
+      },
+      notes: {
+        title: 'Strategy Notes & Trading Plan | Chart Replay',
+        path: '/notes',
+        desc: 'Document your trading plan, pre-session checklist, and post-session reflections.',
+      },
+      guide: {
+        title: 'Quick Start Guide – How to Use Bar Replay | Chart Replay',
+        path: '/guide',
+        desc: 'Step-by-step guide to using Chart Replay historical bar replay, position sizing tools, and prop firm challenges.',
+      },
+      settings: {
+        title: 'Account & Workspace Settings | Chart Replay',
+        path: '/settings',
+        desc: 'Configure your Chart Replay account preferences, theme, and workspace settings.',
+      },
+    };
+    const meta = sectionTitles[sidebarSection] || sectionTitles.dashboard;
+    applyPageSeo({
+      title: meta.title,
+      description: meta.desc,
+      path: meta.path,
+      type: 'website',
+    });
   },[sidebarSection]);
 
   useEffect(() => {

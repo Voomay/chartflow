@@ -3,6 +3,16 @@
 
 User-agent: *
 Allow: /
+Allow: /signup
+Allow: /login
+Allow: /dashboard
+Allow: /chart
+Allow: /analytics
+Allow: /sitemap
+Allow: /partners
+Allow: /terms
+Allow: /privacy
+Allow: /popia
 Allow: /traders-insight
 Allow: /traders-insight/
 Allow: /blog/

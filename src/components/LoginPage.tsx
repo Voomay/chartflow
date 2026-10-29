@@ -2,6 +2,7 @@ import {platformRequest,serverAccountRequest,requestPasswordResetEmail,completeP
 import {hasSeenChartAnnouncement} from './ChartAnnouncement';
 import {hasSeenWorkspaceTour} from './WorkspaceTour';
 import {LegalLinks,LegalDocumentKey} from './LegalLinks';
+import {applyPageSeo,buildAuthJsonLd} from '../services/seo';
 import React, { useEffect, useState } from 'react';
 import { ChartReplayLogo } from './ChartReplayLogo';
 import { PlatformPreview } from './LandingExtras';
@@ -36,7 +37,9 @@ export interface ChartFlowUser {
 
 interface LoginPageProps {
   onOpenLegal?:(page:LegalDocumentKey)=>void;
+  onOpenSitemap?:()=>void;
   initialMode?: 'login' | 'signup' | 'reset';
+  onModeChange?: (mode: 'login' | 'signup' | 'reset') => void;
   initialResetToken?: string | null;
   initialEmail?: string | null;
   onClearResetToken?: () => void;
@@ -49,12 +52,14 @@ interface LoginPageProps {
 
 export const LoginPage: React.FC<LoginPageProps> = ({
   initialMode = 'login',
+  onModeChange,
   initialResetToken = null,
   initialEmail = null,
   onClearResetToken,
   onSuccessAuth,
   onBackToLanding,
   onOpenLegal,
+  onOpenSitemap,
 }) => {
   const [submitting,setSubmitting]=useState(false);
   const [serverAccounts,setServerAccounts]=useState(false);
@@ -92,6 +97,52 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setPassword((prev) => prev);
     }
   }, [initialMode, initialResetToken, initialEmail]);
+
+  useEffect(() => {
+    if (mode === 'signup') {
+      applyPageSeo({
+        title:
+          'Sign Up Free – Create Your Forex & Prop Firm Backtesting Account | Chart Replay',
+        description:
+          'Create your 100% free Chart Replay account (chartreplay.co.za/signup). Practice Forex, Gold (XAUUSD), NAS100 & US30 with candle-by-candle bar replay, FTMO prop firm challenge rules, and R-multiple trade analytics. No credit card needed.',
+        path: '/signup',
+        type: 'website',
+        keywords: [
+          'Chart Replay sign up',
+          'create Chart Replay account',
+          'free FX Replay account',
+          'forex backtesting sign up',
+          'prop firm simulator register',
+        ],
+        jsonLd: buildAuthJsonLd('signup'),
+      });
+    } else if (mode === 'reset') {
+      applyPageSeo({
+        title: 'Reset Password – Account Recovery | Chart Replay',
+        description:
+          'Reset your Chart Replay account password to regain access to your client dashboard, backtesting sessions, and trading journal.',
+        path: '/reset-password',
+        type: 'website',
+        jsonLd: buildAuthJsonLd('reset'),
+      });
+    } else {
+      applyPageSeo({
+        title:
+          'Sign In – Client Login to Dashboard & Bar Replay Charts | Chart Replay',
+        description:
+          'Sign in to your Chart Replay account (chartreplay.co.za/login) to access your client dashboard, saved historical backtesting sessions, FTMO prop firm challenges, and trading journal.',
+        path: '/login',
+        type: 'website',
+        keywords: [
+          'Chart Replay login',
+          'Chart Replay sign in',
+          'chartreplay.co.za login',
+          'forex replay client login',
+        ],
+        jsonLd: buildAuthJsonLd('login'),
+      });
+    }
+  }, [mode]);
 
   const handleCompleteUser = (u: RegisteredUser, isReturning = mode === 'login') => {
     const returning =
@@ -360,27 +411,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
           {/* Clean Sign In / Sign Up Mode Switcher */}
           <div className="grid grid-cols-2 p-1 rounded-xl bg-[#0e121b]/90 border border-white/[0.08] mb-6 text-sm sm:text-xs font-bold">
-            <button
-              type="button"
-              onClick={() => {
+            <a
+              href="/login"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
                 setMode('login');
+                onModeChange?.('login');
                 setResetToken(null);
                 onClearResetToken?.();
                 setErrorMsg(null);
                 setSuccessMsg(null);
               }}
-              className={`min-h-[44px] py-2.5 rounded-lg transition ${
+              className={`min-h-[44px] py-2.5 rounded-lg transition flex items-center justify-center ${
                 mode === 'login'
                   ? 'bg-gradient-to-r from-emerald-500 to-[#2962ff] text-white shadow-md'
                   : 'text-[#8b909a] hover:text-white'
               }`}
             >
               Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => {
+            </a>
+            <a
+              href="/signup"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
                 setMode('signup');
+                onModeChange?.('signup');
                 setResetToken(null);
                 onClearResetToken?.();
                 setErrorMsg(null);
@@ -390,14 +447,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   setPassword('');
                 }
               }}
-              className={`min-h-[44px] py-2.5 rounded-lg transition ${
+              className={`min-h-[44px] py-2.5 rounded-lg transition flex items-center justify-center ${
                 mode === 'signup'
                   ? 'bg-gradient-to-r from-emerald-500 to-[#2962ff] text-white shadow-md'
                   : 'text-[#8b909a] hover:text-white'
               }`}
             >
               Sign Up
-            </button>
+            </a>
           </div>
 
           {successMsg && (
@@ -456,6 +513,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     type="button"
                     onClick={() => {
                       setMode('reset');
+                      onModeChange?.('reset');
                       setResetToken(null);
                       setPassword('');
                       setConfirmPassword('');
@@ -571,7 +629,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <span>100% Free · No credit card needed</span>
           </p>
           {serverAccounts&&<p className="text-[11px] text-slate-500 leading-5 mt-3 text-center">Accounts, trading sessions, and journals are securely stored in Supabase. Login details are never saved in localhost storage or readable cookies.</p>}
-          <p className="text-[10px] text-slate-500 mt-5 text-center">Technology for learning · Simulated money only</p><LegalLinks onOpen={onOpenLegal} className="justify-center mt-3 text-slate-400"/>
+          <p className="text-[10px] text-slate-500 mt-5 text-center">Technology for learning · Simulated money only</p><LegalLinks onOpen={onOpenLegal} onOpenSitemap={onOpenSitemap} className="justify-center mt-3 text-slate-400"/>
         </div>
       </div>
     </div>

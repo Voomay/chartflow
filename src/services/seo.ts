@@ -126,6 +126,177 @@ export function buildHomeJsonLd() {
           },
         })),
       },
+      {
+        '@type': 'ItemList',
+        '@id': `${SITE_ORIGIN}/#sitenav`,
+        name: 'Chart Replay Site Navigation',
+        itemListElement: [
+          {
+            '@type': 'SiteNavigationElement',
+            position: 1,
+            name: 'Sign Up Free',
+            description: 'Create a 100% free Chart Replay account for Forex & XAUUSD historical bar replay and prop firm challenge simulation.',
+            url: `${SITE_ORIGIN}/signup`,
+          },
+          {
+            '@type': 'SiteNavigationElement',
+            position: 2,
+            name: 'Sign In',
+            description: 'Log in to your Chart Replay client dashboard, backtesting sessions, and trading journal.',
+            url: `${SITE_ORIGIN}/login`,
+          },
+          {
+            '@type': 'SiteNavigationElement',
+            position: 3,
+            name: 'Client Dashboard',
+            description: 'Manage your backtesting sessions, prop firm challenges, strategies, and performance analytics.',
+            url: `${SITE_ORIGIN}/dashboard`,
+          },
+          {
+            '@type': 'SiteNavigationElement',
+            position: 4,
+            name: 'Trading Chart & Bar Replay',
+            description: 'Interactive multi-timeframe candlestick chart with deterministic 1-minute historical replay.',
+            url: `${SITE_ORIGIN}/chart`,
+          },
+          {
+            '@type': 'SiteNavigationElement',
+            position: 5,
+            name: "Trader's Insight Research Hub",
+            description: '10 in-depth Forex, Gold (XAUUSD), and Prop Firm strategy guides.',
+            url: `${SITE_ORIGIN}/traders-insight`,
+          },
+          {
+            '@type': 'SiteNavigationElement',
+            position: 6,
+            name: 'Partner with Us',
+            description: 'Sponsorship and community partnership opportunities with Chart Replay.',
+            url: `${SITE_ORIGIN}/partners`,
+          },
+          {
+            '@type': 'SiteNavigationElement',
+            position: 7,
+            name: 'HTML Sitemap',
+            description: 'Complete directory of all Chart Replay pages, tools, and research articles.',
+            url: `${SITE_ORIGIN}/sitemap`,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+export function buildAuthJsonLd(mode: 'login' | 'signup' | 'reset') {
+  const path =
+    mode === 'signup'
+      ? '/signup'
+      : mode === 'reset'
+      ? '/reset-password'
+      : '/login';
+  const name =
+    mode === 'signup'
+      ? 'Sign Up Free – Create Your Chart Replay Account'
+      : mode === 'reset'
+      ? 'Reset Your Password – Chart Replay'
+      : 'Sign In – Chart Replay Client Login';
+  const description =
+    mode === 'signup'
+      ? 'Create your 100% free Chart Replay account. Practice Forex, Gold (XAUUSD), NAS100 & US30 with candle-by-candle bar replay, FTMO prop firm challenge rules, and R-multiple analytics.'
+      : mode === 'reset'
+      ? 'Reset your Chart Replay account password to access your backtesting sessions and trading journal.'
+      : 'Sign in to your Chart Replay account to access your client dashboard, historical bar replay charts, prop firm challenges, and trading journal.';
+
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          {
+            '@type': 'ListItem',
+            position: 1,
+            name: 'Home',
+            item: SITE_ORIGIN,
+          },
+          {
+            '@type': 'ListItem',
+            position: 2,
+            name: mode === 'signup' ? 'Sign Up' : mode === 'reset' ? 'Reset Password' : 'Sign In',
+            item: `${SITE_ORIGIN}${path}`,
+          },
+        ],
+      },
+      {
+        '@type': 'WebPage',
+        '@id': `${SITE_ORIGIN}${path}#webpage`,
+        url: `${SITE_ORIGIN}${path}`,
+        name,
+        description,
+        isPartOf: { '@id': `${SITE_ORIGIN}/#website` },
+        inLanguage: 'en-ZA',
+      },
+    ],
+  };
+}
+
+export function buildSitemapJsonLd() {
+  const pages = [
+    { name: 'Chart Replay Home', url: `${SITE_ORIGIN}/` },
+    { name: 'Sign Up Free – Create Account', url: `${SITE_ORIGIN}/signup` },
+    { name: 'Sign In – Client Login', url: `${SITE_ORIGIN}/login` },
+    { name: 'Client Dashboard', url: `${SITE_ORIGIN}/dashboard` },
+    { name: 'Trading Chart & Bar Replay Terminal', url: `${SITE_ORIGIN}/chart` },
+    { name: 'Performance Analytics & Trading Journal', url: `${SITE_ORIGIN}/analytics` },
+    { name: "Trader's Insight – Forex & Prop Firm Research Hub", url: `${SITE_ORIGIN}/traders-insight` },
+    ...TRADERS_INSIGHT_ARTICLES.map((a) => ({
+      name: a.title,
+      url: `${SITE_ORIGIN}/traders-insight/${a.slug}`,
+    })),
+    { name: 'Partner with Us', url: `${SITE_ORIGIN}/partners` },
+    { name: 'Terms & Conditions', url: `${SITE_ORIGIN}/terms` },
+    { name: 'Privacy Policy', url: `${SITE_ORIGIN}/privacy` },
+    { name: 'POPIA Notice (South Africa)', url: `${SITE_ORIGIN}/popia` },
+    { name: 'HTML Sitemap', url: `${SITE_ORIGIN}/sitemap` },
+  ];
+
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          {
+            '@type': 'ListItem',
+            position: 1,
+            name: 'Home',
+            item: SITE_ORIGIN,
+          },
+          {
+            '@type': 'ListItem',
+            position: 2,
+            name: 'Sitemap',
+            item: `${SITE_ORIGIN}/sitemap`,
+          },
+        ],
+      },
+      {
+        '@type': 'CollectionPage',
+        '@id': `${SITE_ORIGIN}/sitemap#webpage`,
+        url: `${SITE_ORIGIN}/sitemap`,
+        name: 'Chart Replay Sitemap – All Pages, Tools & Forex Research Guides',
+        description:
+          'Complete HTML sitemap of Chart Replay (chartreplay.co.za): Sign Up, Sign In, Client Dashboard, Historical Bar Replay Charts, Analytics, Legal pages, and all 10 Trader’s Insight Forex & Prop Firm guides.',
+        isPartOf: { '@id': `${SITE_ORIGIN}/#website` },
+        mainEntity: {
+          '@type': 'ItemList',
+          itemListElement: pages.map((p, idx) => ({
+            '@type': 'ListItem',
+            position: idx + 1,
+            name: p.name,
+            url: p.url,
+          })),
+        },
+      },
     ],
   };
 }

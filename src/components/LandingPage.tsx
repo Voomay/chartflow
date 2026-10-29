@@ -37,6 +37,7 @@ interface LandingPageProps {
   onOpenComingSoon?:()=>void;
   onOpenTradersInsight?:(slug?:string|null)=>void;
   onOpenLegal?:(page:LegalDocumentKey)=>void;
+  onOpenSitemap?:()=>void;
   onLaunchTerminal: (initialAction?: LandingLaunchAction) => void;
   onOpenLogin: (mode?: 'login' | 'signup') => void;
   currentUser: { name: string; email: string } | null;
@@ -217,7 +218,7 @@ const CompareMark: React.FC<{ v: CompareCell; strong?: boolean }> = ({ v, strong
   return <span className={`font-bold ${strong ? 'text-sm sm:text-base font-black text-emerald-300' : 'text-xs sm:text-sm text-[#cbd5e1]'}`}>{v}</span>;
 };
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal,onOpenComingSoon,onOpenTradersInsight }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal,onOpenSitemap,onOpenComingSoon,onOpenTradersInsight }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -315,16 +316,29 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
           </nav>
 
           <div className="hidden md:flex items-center gap-2">
-            <button
-              onClick={() => openAuth('login')}
+            <a
+              href="/login"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                openAuth('login');
+              }}
               className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-300 hover:text-white hover:bg-white/[0.06] transition"
             >
               Sign In
-            </button>
-            <button onClick={() => openAuth('signup')} className="lp-btn-primary px-4 py-2.5 text-sm">
+            </a>
+            <a
+              href="/signup"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                openAuth('signup');
+              }}
+              className="lp-btn-primary px-4 py-2.5 text-sm"
+            >
               <span>Sign Up Free</span>
               <ArrowRight className="w-4 h-4" />
-            </button>
+            </a>
           </div>
 
           <button
@@ -362,15 +376,28 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                 Partner with Us
               </a>
               <div className="grid grid-cols-2 gap-2 pt-2 pb-1">
-                <button
-                  onClick={() => openAuth('login')}
-                  className="min-h-[44px] rounded-xl text-sm font-semibold text-white border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] transition"
+                <a
+                  href="/login"
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                    e.preventDefault();
+                    openAuth('login');
+                  }}
+                  className="min-h-[44px] rounded-xl text-sm font-semibold text-white border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] transition flex items-center justify-center"
                 >
                   Sign In
-                </button>
-                <button onClick={() => openAuth('signup')} className="lp-btn-primary min-h-[44px] text-sm">
+                </a>
+                <a
+                  href="/signup"
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                    e.preventDefault();
+                    openAuth('signup');
+                  }}
+                  className="lp-btn-primary min-h-[44px] text-sm"
+                >
                   Sign Up Free
-                </button>
+                </a>
               </div>
             </div>
           </div>
@@ -755,16 +782,29 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                   Create your free account in seconds and place your first replay trade right away.
                 </p>
                 <div className="mt-8 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3">
-                  <button onClick={() => openAuth('signup')} className="lp-btn-primary group px-8 py-4 text-base">
+                  <a
+                    href="/signup"
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      e.preventDefault();
+                      openAuth('signup');
+                    }}
+                    className="lp-btn-primary group px-8 py-4 text-base"
+                  >
                     <span>Create Free Account</span>
                     <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-                  </button>
-                  <button
-                    onClick={() => openAuth('login')}
+                  </a>
+                  <a
+                    href="/login"
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      e.preventDefault();
+                      openAuth('login');
+                    }}
                     className="inline-flex items-center justify-center px-7 py-4 min-h-[44px] rounded-xl text-base font-bold text-white bg-white/[0.05] hover:bg-white/[0.1] border border-white/15 transition"
                   >
                     Sign In
-                  </button>
+                  </a>
                 </div>
                 <p className="mt-3.5 inline-flex items-center justify-center gap-1.5 text-xs sm:text-sm text-emerald-300/90 font-medium">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -784,15 +824,31 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
           <span className="inline-flex items-center gap-2 font-semibold text-gray-400"><SAFlag className="w-5 h-[14px]" />Proudly made in South Africa</span>
           <div className="flex flex-wrap items-center justify-center gap-2 font-semibold">
             <a href="/partners" className="px-3 min-h-[44px] inline-flex items-center hover:text-white transition">Partner with Us</a>
-            <button onClick={() => openAuth('login')} className="px-3 min-h-[44px] hover:text-white transition">
+            <a
+              href="/login"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                openAuth('login');
+              }}
+              className="px-3 min-h-[44px] inline-flex items-center hover:text-white transition"
+            >
               Sign In
-            </button>
-            <button onClick={() => openAuth('signup')} className="px-3 min-h-[44px] text-emerald-400 hover:text-emerald-300 transition">
+            </a>
+            <a
+              href="/signup"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                openAuth('signup');
+              }}
+              className="px-3 min-h-[44px] inline-flex items-center text-emerald-400 hover:text-emerald-300 transition"
+            >
               Sign Up Free
-            </button>
+            </a>
           </div>
         </div>
-        <div className="max-w-[1400px] mx-auto pt-4 flex flex-col sm:flex-row items-center justify-between gap-3"><p className="text-[11px] opacity-65">Technology for trader development · Simulated money only · Not a financial institution</p><div className="flex flex-wrap items-center justify-center gap-4"><LegalLinks onOpen={onOpenLegal}/></div></div>
+        <div className="max-w-[1400px] mx-auto pt-4 flex flex-col sm:flex-row items-center justify-between gap-3"><p className="text-[11px] opacity-65">Technology for trader development · Simulated money only · Not a financial institution</p><div className="flex flex-wrap items-center justify-center gap-4"><LegalLinks onOpen={onOpenLegal} onOpenSitemap={onOpenSitemap}/></div></div>
       </footer>
     </div>
   );

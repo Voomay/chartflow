@@ -1,6 +1,8 @@
 import {TradingMindset} from './components/TradingMindset';
 import {PartnerPage} from './components/PartnerPage';
+import {SitemapPage} from './components/SitemapPage';
 import {TradersInsightPage} from './components/TradersInsightPage';
+import {applyPageSeo} from './services/seo';
 import {usePlatformActivity} from './services/usePlatformActivity';
 import {AnimatedOrderPanel} from './components/AnimatedOrderPanel';
 import {AdminDashboard} from './components/AdminDashboard';
@@ -160,7 +162,18 @@ export function App() {
   });
 
   const userEmail = currentUser?.email || 'trader@chartflow.io';
-  const readLegalPage=():LegalDocumentKey|null=>{const page=new URLSearchParams(window.location.search).get('legal');return page==='terms'||page==='privacy'||page==='popia'?page:null;};
+  const normalizePath = () =>
+    window.location.pathname.replace(/\/+$/, '').toLowerCase() || '/';
+  const readLegalPage = (): LegalDocumentKey | null => {
+    const p = normalizePath();
+    if (p === '/terms' || p === '/privacy' || p === '/popia') {
+      return p.slice(1) as LegalDocumentKey;
+    }
+    const page = new URLSearchParams(window.location.search).get('legal');
+    return page === 'terms' || page === 'privacy' || page === 'popia'
+      ? page
+      : null;
+  };
   const readInsightRoute=():{active:boolean;slug:string|null}=>{
     const p=window.location.pathname.replace(/\/+$/,'');
     if(p==='/traders-insight')return {active:true,slug:null};
@@ -170,17 +183,17 @@ export function App() {
     }
     return {active:false,slug:null};
   };
-  const [partnerPage,setPartnerPage]=useState(()=>window.location.pathname==='/partners');
-  const [adminPage,setAdminPage]=useState(()=>window.location.pathname==='/admin');
-  const [comingSoon,setComingSoon]=useState(()=>window.location.pathname==='/coming-soon');
+  const [partnerPage,setPartnerPage]=useState(()=>normalizePath()==='/partners'||normalizePath()==='/partner');
+  const [sitemapPage,setSitemapPage]=useState(()=>normalizePath()==='/sitemap');
+  const [adminPage,setAdminPage]=useState(()=>normalizePath()==='/admin');
+  const [comingSoon,setComingSoon]=useState(()=>normalizePath()==='/coming-soon');
   const [insightRoute,setInsightRoute]=useState<{active:boolean;slug:string|null}>(readInsightRoute);
   const [legalPage,setLegalPage]=useState<LegalDocumentKey|null>(readLegalPage);
-  useEffect(()=>{const back=()=>{setPartnerPage(window.location.pathname==='/partners');setLegalPage(readLegalPage());setComingSoon(window.location.pathname==='/coming-soon');setAdminPage(window.location.pathname==='/admin');setInsightRoute(readInsightRoute());};window.addEventListener('popstate',back);return()=>window.removeEventListener('popstate',back);},[]);
   const [balanceHidden,setBalanceHidden]=useState(false);
   const toggleBalance=()=>setBalanceHidden(previous=>!previous);
 
 
-  // 2. View Navigation State (always open on the landing / home page unless a password reset token is in the URL)
+  // 2. View Navigation State
   const [urlResetParams, setUrlResetParams] = useState<{
     token: string | null;
     email: string | null;
@@ -213,8 +226,35 @@ export function App() {
   >(() => {
     purgeBrowserSensitiveStorage();
     try {
-      if (new URLSearchParams(window.location.search).get('reset_token')) {
+      const p = normalizePath();
+      if (
+        new URLSearchParams(window.location.search).get('reset_token') ||
+        p === '/reset-password' ||
+        p === '/signup' ||
+        p === '/sign-up' ||
+        p === '/register' ||
+        p === '/login' ||
+        p === '/signin' ||
+        p === '/sign-in'
+      ) {
         return 'login';
+      }
+      if (p === '/chart' || p === '/charts' || p === '/terminal') {
+        return 'terminal';
+      }
+      if (p === '/analytics') {
+        return 'analytics_page';
+      }
+      if (
+        p === '/dashboard' ||
+        p === '/desktop' ||
+        p === '/sessions' ||
+        p === '/strategies' ||
+        p === '/notes' ||
+        p === '/guide' ||
+        p === '/settings'
+      ) {
+        return 'dashboard';
       }
     } catch {
       // ignore
@@ -278,6 +318,18 @@ export function App() {
   const [hubInitialSection, setHubInitialSection] =
     useState<HubSidebarSection>(() => {
       try {
+        const p = normalizePath();
+        if (p === '/analytics') return 'analytics';
+        if (p === '/dashboard' || p === '/desktop') return 'dashboard';
+        if (
+          p === '/sessions' ||
+          p === '/strategies' ||
+          p === '/notes' ||
+          p === '/guide' ||
+          p === '/settings'
+        ) {
+          return p.slice(1) as HubSidebarSection;
+        }
         const savedSection = localStorage.getItem(
           'chart_replay_hub_section_v1'
         ) as HubSidebarSection | null;
@@ -300,9 +352,69 @@ export function App() {
       }
       return 'dashboard';
     });
-  const [loginInitialMode, setLoginInitialMode] = useState<'login' | 'signup'>(
-    'login'
-  );
+  const [loginInitialMode, setLoginInitialMode] = useState<
+    'login' | 'signup' | 'reset'
+  >(() => {
+    const p = normalizePath();
+    if (
+      p === '/signup' ||
+      p === '/sign-up' ||
+      p === '/register'
+    ) {
+      return 'signup';
+    }
+    if (
+      p === '/reset-password' ||
+      new URLSearchParams(window.location.search).get('reset_token')
+    ) {
+      return 'reset';
+    }
+    return 'login';
+  });
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const p = normalizePath();
+      setPartnerPage(p === '/partners' || p === '/partner');
+      setSitemapPage(p === '/sitemap');
+      setLegalPage(readLegalPage());
+      setComingSoon(p === '/coming-soon');
+      setAdminPage(p === '/admin');
+      setInsightRoute(readInsightRoute());
+
+      if (p === '/signup' || p === '/sign-up' || p === '/register') {
+        setLoginInitialMode('signup');
+        setActiveView('login');
+      } else if (p === '/login' || p === '/signin' || p === '/sign-in') {
+        setLoginInitialMode('login');
+        setActiveView('login');
+      } else if (p === '/reset-password') {
+        setLoginInitialMode('reset');
+        setActiveView('login');
+      } else if (p === '/chart' || p === '/charts' || p === '/terminal') {
+        setActiveView('terminal');
+      } else if (p === '/analytics') {
+        setHubInitialSection('analytics');
+        setActiveView('analytics_page');
+      } else if (p === '/dashboard' || p === '/desktop') {
+        setHubInitialSection('dashboard');
+        setActiveView('dashboard');
+      } else if (
+        p === '/sessions' ||
+        p === '/strategies' ||
+        p === '/notes' ||
+        p === '/guide' ||
+        p === '/settings'
+      ) {
+        setHubInitialSection(p.slice(1) as HubSidebarSection);
+        setActiveView('dashboard');
+      } else if (p === '/') {
+        setActiveView('landing');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // 3. Per-User Persistent Sessions, Strategies & Custom Prop Profiles
   const [tradingSessions, setTradingSessions] = useState<TradingSession[]>(() => {
@@ -1807,22 +1919,135 @@ export function App() {
     }
   }, []);
 
-  const openLegal=(page:LegalDocumentKey)=>{const url=new URL(window.location.href);url.searchParams.set('legal',page);window.history.pushState({},'',url);setLegalPage(page);};
-  const closeLegal=()=>{const url=new URL(window.location.href);url.searchParams.delete('legal');window.history.pushState({},'',url);setLegalPage(null);};
+  const openLegal=(page:LegalDocumentKey)=>{window.history.pushState({},'',`/${page}`);setSitemapPage(false);setLegalPage(page);};
+  const closeLegal=()=>{const target=currentUser?'/dashboard':'/';window.history.pushState({},'',target);setLegalPage(null);};
+  const openSitemap=()=>{window.history.pushState({},'','/sitemap');setLegalPage(null);setSitemapPage(true);};
+  const closeSitemap=()=>{const target=currentUser?'/dashboard':'/';window.history.pushState({},'',target);setSitemapPage(false);setActiveView(currentUser?'dashboard':'landing');};
+  const navigateFromSitemap=(path:string)=>{
+    setSitemapPage(false);
+    setLegalPage(null);
+    setPartnerPage(false);
+    setComingSoon(false);
+    setAdminPage(false);
+    setInsightRoute({active:false,slug:null});
+    if(path==='/partners'){
+      window.history.pushState({},'','/partners');
+      setPartnerPage(true);
+      return;
+    }
+    if(path==='/traders-insight'||path.startsWith('/traders-insight/')){
+      const slug=path.startsWith('/traders-insight/')?path.slice('/traders-insight/'.length):null;
+      openTradersInsight(slug||null);
+      return;
+    }
+    if(path==='/signup'){
+      setLoginInitialMode('signup');
+      setActiveView('login');
+      return;
+    }
+    if(path==='/login'){
+      setLoginInitialMode('login');
+      setActiveView('login');
+      return;
+    }
+    if(path==='/dashboard'){
+      setHubInitialSection('dashboard');
+      setActiveView('dashboard');
+      return;
+    }
+    if(path==='/analytics'){
+      setHubInitialSection('analytics');
+      setActiveView('analytics_page');
+      return;
+    }
+    if(path==='/chart'){
+      setActiveView('terminal');
+      return;
+    }
+    setActiveView('landing');
+  };
   const signOut=()=>{try{localStorage.removeItem('chart_replay_active_view_v2');localStorage.removeItem('chart_replay_hub_section_v1');}catch{}setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
   const openComingSoon=()=>{window.history.pushState({},'','/coming-soon');setComingSoon(true);};
-  const closeComingSoon=()=>{window.history.pushState({},'','/');setComingSoon(false);setActiveView(currentUser?'dashboard':'landing');};
+  const closeComingSoon=()=>{window.history.pushState({},'',currentUser?'/dashboard':'/');setComingSoon(false);setActiveView(currentUser?'dashboard':'landing');};
   const openTradersInsight=(slug:string|null=null)=>{
     const path=slug?`/traders-insight/${slug}`:'/traders-insight';
     window.history.pushState({},'',path);
     setInsightRoute({active:true,slug});
   };
   const closeTradersInsight=()=>{
-    window.history.pushState({},'','/');
+    window.history.pushState({},'',currentUser?'/dashboard':'/');
     setInsightRoute({active:false,slug:null});
     setActiveView(currentUser?'dashboard':'landing');
   };
+
+  useEffect(() => {
+    if (
+      legalPage ||
+      sitemapPage ||
+      insightRoute.active ||
+      partnerPage ||
+      adminPage ||
+      comingSoon
+    ) {
+      return;
+    }
+    let targetPath = '/';
+    if (activeView === 'landing') {
+      targetPath = '/';
+    } else if (activeView === 'login' || !currentUser) {
+      if (urlResetParams.token || loginInitialMode === 'reset') {
+        targetPath = '/reset-password';
+      } else if (loginInitialMode === 'signup') {
+        targetPath = '/signup';
+      } else {
+        targetPath = '/login';
+      }
+    } else if (activeView === 'analytics_page') {
+      targetPath = '/analytics';
+    } else if (activeView === 'dashboard') {
+      targetPath = hubInitialSection === 'analytics' ? '/analytics' : '/dashboard';
+    } else if (activeView === 'terminal') {
+      targetPath = '/chart';
+    }
+
+    try {
+      const currentPath =
+        window.location.pathname.replace(/\/+$/, '') || '/';
+      if (currentPath !== targetPath) {
+        const search =
+          targetPath === '/reset-password' ? window.location.search : '';
+        window.history.pushState({}, '', `${targetPath}${search}`);
+      }
+    } catch {
+      // ignore
+    }
+
+    if (activeView === 'terminal' && currentUser) {
+      applyPageSeo({
+        title: `${symbol} (${timeframe}) – Historical Bar Replay Chart | Chart Replay`,
+        description: `Interactive ${symbol} (${timeframe}) historical candlestick bar replay and prop firm simulator workspace on Chart Replay.`,
+        path: '/chart',
+        type: 'website',
+      });
+    }
+  }, [
+    activeView,
+    currentUser,
+    loginInitialMode,
+    hubInitialSection,
+    urlResetParams.token,
+    legalPage,
+    sitemapPage,
+    insightRoute.active,
+    partnerPage,
+    adminPage,
+    comingSoon,
+    symbol,
+    timeframe,
+  ]);
+
   if(legalPage)return <LegalPage page={legalPage} onNavigate={openLegal} onBack={closeLegal}/>;
+  if(sitemapPage)return <SitemapPage onBack={closeSitemap} onNavigateRoute={navigateFromSitemap} onOpenLegal={openLegal}/>;
 
   if(insightRoute.active)return (
     <TradersInsightPage
@@ -1861,7 +2086,7 @@ export function App() {
   // VIEW 1: LANDING PAGE (HOMEPAGE)
   if (activeView === 'landing') {
     return (
-      <LandingPage onOpenComingSoon={openComingSoon} onOpenTradersInsight={openTradersInsight} onOpenLegal={openLegal}
+      <LandingPage onOpenComingSoon={openComingSoon} onOpenTradersInsight={openTradersInsight} onOpenLegal={openLegal} onOpenSitemap={openSitemap}
         onLaunchTerminal={(action) => {
           if (action === 'prop_firm') {
             setCreateSessionModalMode('PROP_FIRM');
@@ -1899,8 +2124,9 @@ export function App() {
   // VIEW 2: LOGIN / REGISTRATION / PASSWORD RESET
   if (activeView === 'login' || !currentUser) {
     return (
-      <LoginPage onOpenLegal={openLegal}
+      <LoginPage onOpenLegal={openLegal} onOpenSitemap={openSitemap}
         initialMode={urlResetParams.token ? 'reset' : loginInitialMode}
+        onModeChange={(nextMode) => setLoginInitialMode(nextMode)}
         initialResetToken={urlResetParams.token}
         initialEmail={urlResetParams.email}
         onClearResetToken={clearUrlResetParams}
@@ -2024,6 +2250,14 @@ export function App() {
           initialSection={
             activeView === 'analytics_page' ? 'analytics' : hubInitialSection
           }
+          onSectionChange={(nextSection) => {
+            setHubInitialSection(nextSection);
+            if (nextSection === 'analytics') {
+              setActiveView('analytics_page');
+            } else if (activeView === 'analytics_page') {
+              setActiveView('dashboard');
+            }
+          }}
           onReturnToChart={() => {
             if (tradingSessions.length === 0) {
               setCreateSessionModalMode('BACKTESTING');

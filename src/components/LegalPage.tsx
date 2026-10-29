@@ -1,6 +1,7 @@
 import React,{useEffect,useRef} from 'react';
 import {ArrowLeft,ShieldCheck} from 'lucide-react';
 import {LegalDocumentKey,LegalLinks} from './LegalLinks';
+import {applyPageSeo} from '../services/seo';
 const sections:Record<LegalDocumentKey,{title:string;intro:string;sections:[string,string][]}>={
  terms:{title:'Terms & Conditions',intro:'Clear terms for a technology platform built for practice and trader skill development.',sections:[
  ['1. What Chart Replay provides','Chart Replay is a technology platform that helps aspiring traders practise and develop their skills through historical replay, simulated trades, journals and analytics. We are not a financial institution, bank, broker, investment adviser or asset manager. The platform does not provide a trading account holding real funds.'],
@@ -32,7 +33,15 @@ const sections:Record<LegalDocumentKey,{title:string;intro:string;sections:[stri
 };
 export const LegalPage:React.FC<{page:LegalDocumentKey;onNavigate:(page:LegalDocumentKey)=>void;onBack:()=>void}>=({page,onNavigate,onBack})=>{
  const scrollRef=useRef<HTMLElement>(null);
- useEffect(()=>{scrollRef.current?.scrollTo({top:0});const oldTitle=window.document.title;window.document.title=`${sections[page].title} | Chart Replay`;return()=>{window.document.title=oldTitle;};},[page]);
+ useEffect(()=>{
+  scrollRef.current?.scrollTo({top:0});
+  applyPageSeo({
+   title:`${sections[page].title} | Chart Replay`,
+   description:sections[page].intro,
+   path:`/${page}`,
+   type:'website',
+  });
+ },[page]);
  const document=sections[page];
  return <main ref={scrollRef} className="h-[100dvh] overflow-y-auto bg-[#0b121b] text-slate-200 selection:bg-emerald-500/30"><header className="sticky top-0 z-10 border-b border-white/10 bg-[#0b1723]/95 backdrop-blur-xl"><div className="max-w-4xl mx-auto px-5 py-4 flex items-center justify-between gap-3"><button onClick={onBack} className="flex items-center gap-2 text-xs font-semibold"><ArrowLeft className="w-4 h-4"/>Back to Chart Replay</button><LegalLinks onOpen={onNavigate}/></div></header><div className="max-w-4xl mx-auto px-5 py-8 sm:py-12 space-y-6"><div className="rounded-2xl border border-teal-400/20 bg-gradient-to-br from-emerald-500/10 via-cyan-500/5 to-violet-500/10 p-6 sm:p-8"><ShieldCheck className="w-7 h-7 text-emerald-400 mb-4"/><p className="text-[10px] uppercase tracking-widest text-emerald-400 mb-2">Legal & privacy · Draft for operator review</p><h1 className="text-3xl font-semibold tracking-tight">{document.title}</h1><p className="text-sm text-slate-400 mt-3 leading-6">{document.intro}</p><p className="text-[11px] opacity-50 mt-4">Prepared 23 October 2026</p></div><aside className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 text-sm leading-6"><strong className="text-emerald-300">Technology for practice. Simulated money only.</strong><p>Chart Replay is not a financial institution. We help aspiring traders develop their skills. Virtual trades and balances are not real-money investments.</p></aside>{document.sections.map(([title,body])=><section key={title} className="rounded-xl border border-white/[0.07] bg-[#111b27] p-5 sm:p-6"><h2 className="text-base font-semibold mb-2">{title}</h2><p className="text-sm leading-7 text-slate-400">{body}</p></section>)}{page!=='terms'&&<section className="text-xs leading-6 text-slate-400"><h2 className="font-semibold text-slate-200">Official South African sources</h2><p><a className="text-emerald-400 underline" href="https://www.gov.za/documents/protection-personal-information-act" target="_blank" rel="noopener noreferrer">Protection of Personal Information Act</a> · <a className="text-emerald-400 underline" href="https://inforegulator.org.za/popia/" target="_blank" rel="noopener noreferrer">Information Regulator: POPIA and complaints</a></p></section>}<footer className="py-5 border-t border-white/10"><LegalLinks onOpen={onNavigate}/></footer></div></main>;
 };

@@ -194,4 +194,39 @@ describe('Original historical replay archives',()=>{
   expect(outcome.session.replayTimestamp).toBe(mon10);
   expect(elapsedMs).toBeLessThan(250);
  });
+ it('derives realistic 30m, 15m, 5m, and 1m candlesticks from 1H and fills missing 1m lookback before partial month starts',async()=>{
+  // @ts-ignore
+  const {deriveLowerBarsFromArchive}=await import('../../../api/historical-candles.js');
+  const jan6=Date.parse('2025-01-06T08:00:00Z')/1000;
+  const h1Rows:number[][]=[
+   [jan6,21367.65,21427.59,21367.52,21421.07,1200],
+   [jan6+3600,21420.84,21473.40,21419.37,21472.11,1500],
+  ];
+  const all:Record<string,number[][]>={'1m':[],'5m':[],'15m':[],'30m':[],'1H':h1Rows,'4H':[],'1D':[],'1W':[],'1M':[]};
+  deriveLowerBarsFromArchive(all,jan6+3600,jan6+7200,45000,'NAS100');
+  expect(all['30m']).toHaveLength(4);
+  expect(all['15m']).toHaveLength(8);
+  expect(all['5m']).toHaveLength(24);
+  expect(all['1m']).toHaveLength(120);
+  for(const tf of ['30m','15m','5m','1m']){
+   for(const r of all[tf]){
+    expect(r[2]).toBeGreaterThanOrEqual(Math.max(r[1],r[4]));
+    expect(r[3]).toBeLessThanOrEqual(Math.min(r[1],r[4]));
+    expect(r[2]).toBeGreaterThan(r[3]);
+   }
+  }
+  // Also test partial 1m coverage (e.g. 2026-09-01 05:00 UTC where earlier 5m bars exist)
+  const sep1=Date.parse('2026-09-01T05:00:00Z')/1000;
+  const partialAll:Record<string,number[][]>={
+   '5m':[
+    [sep1-600,4430.0,4435.5,4428.2,4433.8,100],
+    [sep1-300,4433.8,4438.0,4431.5,4436.57,120],
+    [sep1,4436.57,4440.2,4435.0,4439.1,110],
+   ],
+   '1m':[[sep1,4436.57,4437.8,4436.1,4437.2,25]],
+  };
+  deriveLowerBarsFromArchive(partialAll,sep1,sep1+3600,45000,'XAUUSD');
+  expect(partialAll['1m'].filter(r=>r[0]<sep1)).toHaveLength(10);
+  expect(partialAll['1m'].find(r=>r[0]===sep1)?.[4]).toBe(4437.2);
+ });
 });

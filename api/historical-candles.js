@@ -30,57 +30,213 @@ async function rowsFor(symbol,tf,part){
   return rows;
  }catch(e){if(e.code==='ENOENT')return [];throw e;}
 }
-function deriveLowerBarsFromArchive(all,refClock,end,limit){
- const winStart=refClock-35*86400;
- if(all['1m']?.some(r=>r[0]>=winStart&&r[0]<=end))return;
- const candidates=[['5m',300],['15m',900],['30m',1800],['1H',3600],['4H',14400],['1D',86400]];
- let sourceRows=null,stepSec=0;
- for(const [tf,sec] of candidates){
-  const slice=(all[tf]||[]).filter(r=>r[0]>=winStart&&r[0]<=end);
-  if(slice.length>0){sourceRows=slice;stepSec=sec;break;}
+function getSymbolDecimals(symbol){
+ if(symbol?.endsWith('JPY'))return 3;
+ if(['EURUSD','GBPUSD','USDCHF','AUDUSD','USDCAD','NZDUSD','EURGBP','EURAUD','GBPAUD'].includes(symbol))return 5;
+ if(symbol==='XAGUSD')return 4;
+ return 3;
+}
+function hasBarInRange(sortedRows,startInclusive,endExclusive){
+ if(!sortedRows||sortedRows.length===0)return false;
+ let lo=0,hi=sortedRows.length-1;
+ while(lo<=hi){
+  const mid=(lo+hi)>>1;
+  const t=sortedRows[mid][0];
+  if(t<startInclusive)lo=mid+1;
+  else if(t>=endExclusive)hi=mid-1;
+  else return true;
  }
- if(!sourceRows)return;
- const numMin=Math.max(1,Math.floor(stepSec/60));
- const generated1m=[];
- for(const bar of sourceRows){
-  const [bTime,bOpen,bHigh,bLow,bClose,bVol]=bar;
-  const highIdx=Math.max(0,Math.min(numMin-1,Math.floor(numMin*0.35)));
-  const lowIdx=Math.max(0,Math.min(numMin-1,highIdx===Math.floor(numMin*0.7)?numMin-1:Math.floor(numMin*0.7)));
-  let prevC=bOpen;
-  const volPerMin=bVol>0?Math.max(0,Math.round(bVol/numMin)):0;
-  for(let m=0;m<numMin;m++){
-   const t=bTime+m*60;
-   if(t>end)break;
-   const frac=(m+1)/numMin;
-   let targetC=bOpen+(bClose-bOpen)*frac;
-   if(m===highIdx)targetC=(bHigh+targetC)*0.5;
-   if(m===lowIdx)targetC=(bLow+targetC)*0.5;
-   if(m===numMin-1)targetC=bClose;
-   const o=prevC;
-   const c=Math.max(bLow,Math.min(bHigh,Number(targetC.toFixed(6))));
-   let h=Math.max(o,c);
-   let l=Math.min(o,c);
-   if(m===highIdx)h=bHigh;
-   if(m===lowIdx)l=bLow;
-   generated1m.push([t,o,Math.min(bHigh,h),Math.max(bLow,l),c,volPerMin]);
-   prevC=c;
+ return false;
+}
+export function subdivideBar(bar,K,stepSec,decimals=5){
+ const [bTime,bOpen,bHigh,bLow,bClose,bVol]=bar;
+ const R=bHigh-bLow;
+ const volPerBar=bVol>0?Math.max(0,Math.round(bVol/K)):0;
+ if(K<=1||R<=1e-9){
+  const out=[];
+  for(let m=0;m<K;m++)out.push([bTime+m*stepSec,bOpen,bHigh,bLow,bClose,m===K-1?Math.max(0,bVol-volPerBar*(K-1)):volPerBar]);
+  return out;
+ }
+ let seed=(Math.imul(bTime,2654435761)^Math.imul(Math.round(bOpen*10000),1597334677)^Math.imul(K,374761393))>>>0;
+ if(seed===0)seed=0x9e3779b9;
+ const rand=()=>{
+  seed^=seed<<13;
+  seed^=seed>>>17;
+  seed^=seed<<5;
+  return (seed>>>0)/4294967296;
+ };
+ const clampP=(v)=>Math.max(bLow,Math.min(bHigh,Number(v.toFixed(decimals))));
+ const bullish=bClose>=bOpen;
+ const pTop=Math.max(bOpen,bClose);
+ const pBot=Math.min(bOpen,bClose);
+ const upperGap=bHigh-pTop;
+ const lowerGap=pBot-bLow;
+ const needHighDetour=upperGap>0.16*R;
+ const needLowDetour=lowerGap>0.16*R;
+ const highTarget=bHigh-(0.06+0.14*rand())*upperGap-0.03*R;
+ const lowTarget=bLow+(0.06+0.14*rand())*lowerGap+0.03*R;
+ const closes=new Array(K);
+ closes[K-1]=bClose;
+ if(K===2){
+  if(needHighDetour&&(!needLowDetour||upperGap>=lowerGap)){
+   closes[0]=clampP(pTop+(0.55+0.30*rand())*upperGap);
+  }else if(needLowDetour){
+   closes[0]=clampP(pBot-(0.55+0.30*rand())*lowerGap);
+  }else{
+   closes[0]=clampP(bOpen+(0.35+0.30*rand())*(bClose-bOpen)+(rand()-0.5)*0.12*R);
+  }
+ }else{
+  const anchors=[{idx:-1,val:bOpen}];
+  if(needHighDetour&&needLowDetour){
+   const lowFirst=bullish?rand()<0.65:rand()<0.35;
+   const idx1=K===3?0:(rand()<0.5?0:1);
+   const idx2=K===3?1:Math.min(K-2,idx1+1+(rand()<0.5?1:0));
+   anchors.push({idx:idx1,val:lowFirst?lowTarget:highTarget});
+   if(idx2>idx1)anchors.push({idx:idx2,val:lowFirst?highTarget:lowTarget});
+  }else if(needHighDetour){
+   const peakIdx=K===3?(rand()<0.5?0:1):(1+Math.floor(rand()*(K-2)));
+   if(peakIdx>0&&rand()<0.5)anchors.push({idx:0,val:clampP(bOpen-(0.08+0.12*rand())*R)});
+   anchors.push({idx:peakIdx,val:highTarget});
+  }else if(needLowDetour){
+   const troughIdx=K===3?(rand()<0.5?0:1):(1+Math.floor(rand()*(K-2)));
+   if(troughIdx>0&&rand()<0.5)anchors.push({idx:0,val:clampP(bOpen+(0.08+0.12*rand())*R)});
+   anchors.push({idx:troughIdx,val:lowTarget});
+  }else{
+   const move=bClose-bOpen;
+   if(K===3){
+    if(rand()<0.65){
+     const c0=bOpen+(0.55+0.20*rand())*move;
+     const c1=c0-(0.20+0.18*rand())*move;
+     anchors.push({idx:0,val:c0},{idx:1,val:c1});
+    }else{
+     const c0=bOpen+(0.25+0.15*rand())*move;
+     const c1=bOpen+(0.85+0.18*rand())*move;
+     anchors.push({idx:0,val:c0},{idx:1,val:c1});
+    }
+   }else{
+    const p1=bOpen+(0.42+0.18*rand())*move;
+    const p2=p1-(0.16+0.16*rand())*move;
+    const p3=bOpen+(0.78+0.22*rand())*move;
+    if(rand()<0.5){
+     anchors.push({idx:1,val:p1},{idx:2,val:p2},{idx:Math.min(K-2,3),val:p3});
+    }else{
+     const p0=bOpen-(0.08+0.10*rand())*move;
+     anchors.push({idx:0,val:p0},{idx:Math.min(K-2,2),val:p1+0.15*move},{idx:Math.min(K-2,3),val:p2+0.20*move});
+    }
+   }
+  }
+  anchors.push({idx:K-1,val:bClose});
+  for(let s=0;s<anchors.length-1;s++){
+   const a0=anchors[s],a1=anchors[s+1];
+   const span=Math.max(1,a1.idx-a0.idx);
+   for(let m=Math.max(0,a0.idx+1);m<=a1.idx;m++){
+    if(m===K-1){closes[m]=bClose;continue;}
+    const frac=(m-a0.idx)/span;
+    const base=a0.val+(a1.val-a0.val)*frac;
+    const jitter=m===a1.idx?0:(rand()-0.5)*(0.14/Math.sqrt(K))*R;
+    closes[m]=clampP(base+jitter);
+   }
   }
  }
- if(generated1m.length>0){
-  const merged1m=new Map((all['1m']||[]).map(r=>[r[0],r]));
-  for(const r of generated1m)merged1m.set(r[0],r);
-  all['1m']=[...merged1m.values()].sort((a,b)=>a[0]-b[0]).slice(-limit);
-  for(const [tf,sec] of [['5m',300],['15m',900],['30m',1800]]){
-   if(!all[tf]?.some(r=>r[0]>=winStart&&r[0]<=end)){
-    const buckets=new Map((all[tf]||[]).map(r=>[r[0],r]));
-    for(const r of generated1m){
-     const b=Math.floor(r[0]/sec)*sec;
-     const ex=buckets.get(b);
-     if(ex)buckets.set(b,[b,ex[1],Math.max(ex[2],r[2]),Math.min(ex[3],r[3]),r[4],ex[5]+r[5]]);
-     else buckets.set(b,[b,r[1],r[2],r[3],r[4],r[5]]);
-    }
-    all[tf]=[...buckets.values()].sort((a,b)=>a[0]-b[0]).slice(-5000);
+ const rawBars=[];
+ let prevC=bOpen;
+ let bestHighIdx=0,bestHighTop=-Infinity;
+ let bestLowIdx=0,bestLowBot=Infinity;
+ const minBody=R/(K*3.5);
+ for(let m=0;m<K;m++){
+  const o=m===0?bOpen:prevC;
+  let c=m===K-1?bClose:closes[m];
+  if(m<K-1&&Math.abs(c-o)<minBody){
+   const dir=(bHigh-o)>(o-bLow)?1:-1;
+   c=clampP(o+dir*minBody*(1.0+0.5*rand()));
+  }
+  const top=Math.max(o,c);
+  const bot=Math.min(o,c);
+  if(top>bestHighTop){bestHighTop=top;bestHighIdx=m;}
+  if(bot<bestLowBot){bestLowBot=bot;bestLowIdx=m;}
+  rawBars.push({t:bTime+m*stepSec,o,c,top,bot});
+  prevC=c;
+ }
+ const out=[];
+ const avgScale=R/Math.sqrt(K);
+ for(let m=0;m<K;m++){
+  const {t,o,c,top,bot}=rawBars[m];
+  const body=Math.max(top-bot,avgScale*0.20);
+  let h;
+  if(m===bestHighIdx){
+   h=bHigh;
+  }else{
+   const desiredWick=K===2&&!needHighDetour?Math.max(body*(0.20+0.45*rand()),R*(0.10+0.16*rand())):body*(0.15+0.50*rand());
+   const maxAllowed=top+(bHigh-top)*(0.25+0.48*rand());
+   h=clampP(Math.min(top+desiredWick,maxAllowed));
+  }
+  let l;
+  if(m===bestLowIdx){
+   l=bLow;
+  }else{
+   const desiredWick=K===2&&!needLowDetour?Math.max(body*(0.20+0.45*rand()),R*(0.10+0.16*rand())):body*(0.15+0.50*rand());
+   const minAllowed=bot-(bot-bLow)*(0.25+0.48*rand());
+   l=clampP(Math.max(bot-desiredWick,minAllowed));
+  }
+  h=Math.min(bHigh,Math.max(h,top));
+  l=Math.max(bLow,Math.min(l,bot));
+  out.push([t,o,h,l,c,m===K-1?Math.max(0,bVol-volPerBar*(K-1)):volPerBar]);
+ }
+ return out;
+}
+export function deriveLowerBarsFromArchive(all,refClock,end,limit=45000,symbol=''){
+ const winStart=refClock-35*86400;
+ const decimals=getSymbolDecimals(symbol);
+ if(all['1D']?.length){
+  if(!all['1W']?.length){
+   const weeks=new Map();
+   for(const b of all['1D']){
+    const utcWeekDay=(new Date(b[0]*1000).getUTCDay()+6)%7;
+    const wk=(Math.floor(b[0]/86400)-utcWeekDay)*86400;
+    const old=weeks.get(wk);
+    if(old){old[2]=Math.max(old[2],b[2]);old[3]=Math.min(old[3],b[3]);old[4]=b[4];old[5]+=b[5];}
+    else weeks.set(wk,[wk,b[1],b[2],b[3],b[4],b[5]]);
    }
+   all['1W']=[...weeks.values()].sort((a,b)=>a[0]-b[0]);
+  }
+  if(!all['1M']?.length){
+   const months=new Map();
+   for(const b of all['1D']){
+    const d=new Date(b[0]*1000);
+    const mk=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1)/1000;
+    const old=months.get(mk);
+    if(old){old[2]=Math.max(old[2],b[2]);old[3]=Math.min(old[3],b[3]);old[4]=b[4];old[5]+=b[5];}
+    else months.set(mk,[mk,b[1],b[2],b[3],b[4],b[5]]);
+   }
+   all['1M']=[...months.values()].sort((a,b)=>a[0]-b[0]);
+  }
+ }
+ const hierarchy=[
+  ['1D',86400,'4H',14400,6,5000],
+  ['4H',14400,'1H',3600,4,5000],
+  ['1H',3600,'30m',1800,2,6000],
+  ['30m',1800,'15m',900,2,8000],
+  ['15m',900,'5m',300,3,15000],
+  ['5m',300,'1m',60,5,limit],
+ ];
+ for(const [parentTf,parentSec,childTf,childSec,K,maxRows] of hierarchy){
+  const parentRows=(all[parentTf]||[]).filter(r=>r[0]>=winStart&&r[0]<=end);
+  if(!parentRows.length)continue;
+  const existingChild=all[childTf]||[];
+  const generated=[];
+  for(const bar of parentRows){
+   if(hasBarInRange(existingChild,bar[0],bar[0]+parentSec))continue;
+   const subBars=subdivideBar(bar,K,childSec,decimals);
+   for(const sub of subBars){
+    if(sub[0]<=end)generated.push(sub);
+   }
+  }
+  if(generated.length>0){
+   const merged=new Map(existingChild.map(r=>[r[0],r]));
+   for(const r of generated){
+    if(!merged.has(r[0]))merged.set(r[0],r);
+   }
+   all[childTf]=[...merged.values()].sort((a,b)=>a[0]-b[0]).slice(-maxRows);
   }
  }
 }
@@ -110,7 +266,7 @@ async function getMergedManifest(dir){
 const windowCache=new Map();const inflightWindows=new Map();
 export async function loadHistoricalWindow(symbol,clock,limit=45000){
  if(INDEX_SYMBOLS.has(symbol) && capitalEnabled())return capitalClient.history(symbol,clock);
- if(symbol==='BTCUSD'||symbol==='ETHUSD')return loadBitfinexWindow(root(),symbol,clock);
+ if(symbol==='BTCUSD'||symbol==='ETHUSD')return loadBitfinexWindow(root(),symbol,clock,deriveLowerBarsFromArchive);
  const dir=root();
  const windowKey=`${dir}:${symbol}:${Math.floor(clock/60)}:${limit}`;
  const hit=windowCache.get(windowKey);
@@ -136,9 +292,10 @@ export async function loadHistoricalWindow(symbol,clock,limit=45000){
     if(existing)merged.set(row[0],[row[0],existing[1],Math.max(existing[2],row[2]),Math.min(existing[3],row[3]),row[4],existing[5]+row[5]]);
     else merged.set(row[0],row);
    }
-   all[tf]=[...merged.values()].sort((a,b)=>a[0]-b[0]).slice(-(tf==='1m'?limit:5000));
+   const maxForTf=tf==='1m'?limit:tf==='5m'?15000:tf==='15m'?8000:tf==='30m'?6000:5000;
+   all[tf]=[...merged.values()].sort((a,b)=>a[0]-b[0]).slice(-maxForTf);
   }
-  deriveLowerBarsFromArchive(all,refClock,end,limit);
+  deriveLowerBarsFromArchive(all,refClock,end,limit,symbol);
   const data={symbol,provider:info.provider||manifest.provider,priceBasis:info.priceBasis,timezone:'UTC',coverage:{first:info.first,last:info.last,rows:info.rows,years:Object.keys(info.years).sort()},bars:all};
   while(windowCache.size>=24)windowCache.delete(windowCache.keys().next().value);
   windowCache.set(windowKey,{at:Date.now(),data});

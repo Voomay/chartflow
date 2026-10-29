@@ -1,6 +1,6 @@
 import {readAdminWaitlist} from './waitlistStore.mjs';
 import {createSupabaseAccountStore} from './supabaseStore.mjs';
-import {sendWelcomeEmail,sendPasswordResetEmail,isResendConfigured} from './resendMail.mjs';
+import {sendWelcomeEmail,sendPasswordResetEmail,sendFirstTradeFeedbackEmail,resolvePublicAppUrl,isResendConfigured} from './resendMail.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
@@ -85,7 +85,11 @@ export function createFileAccountStore(directory){
  const change=operation=>{const work=pending.then(async()=>{const users=await read();const result=await operation(users);await mkdir(directory,{recursive:true,mode:0o700});const temporary=path.join(directory,`users-${randomUUID()}.tmp`);await writeFile(temporary,JSON.stringify(users,null,2),{mode:0o600});await rename(temporary,path.join(directory,'users.json'));return result;});pending=work.catch(()=>{});return work;};
  const readSponsorship=async()=>{try{const data=JSON.parse(await readFile(path.join(directory,'sponsorship.json'),'utf8'));return sanitizeSponsorship(data,data?.updatedBy||'admin');}catch(error){if(error.code==='ENOENT')return {...DEFAULT_SPONSORSHIP};throw error;}};
  const saveSponsorship=async(sponsorship)=>{const sanitized=sanitizeSponsorship(sponsorship,sponsorship?.updatedBy||'admin');await mkdir(directory,{recursive:true,mode:0o700});const temporary=path.join(directory,`sponsorship-${randomUUID()}.tmp`);await writeFile(temporary,JSON.stringify(sanitized,null,2),{mode:0o600});await rename(temporary,path.join(directory,'sponsorship.json'));return sanitized;};
- return {read,change,readSponsorship,saveSponsorship,config:async()=>JSON.parse(await readFile(path.join(directory,'admin.json'),'utf8'))};
+ const readFeedback=async()=>{try{const data=JSON.parse(await readFile(path.join(directory,'feedback.json'),'utf8'));return Array.isArray(data)?data:[];}catch(error){if(error.code==='ENOENT')return [];throw error;}};
+ const saveFeedback=async(entry)=>{const list=await readFeedback();const next=[entry,...list.filter(item=>item&&item.id!==entry.id)].slice(0,500);await mkdir(directory,{recursive:true,mode:0o700});const temporary=path.join(directory,`feedback-${randomUUID()}.tmp`);await writeFile(temporary,JSON.stringify(next,null,2),{mode:0o600});await rename(temporary,path.join(directory,'feedback.json'));return entry;};
+ const readFeedbackEmails=async()=>{try{const data=JSON.parse(await readFile(path.join(directory,'feedback-emails.json'),'utf8'));return Array.isArray(data)?data:[];}catch(error){if(error.code==='ENOENT')return [];throw error;}};
+ const recordFeedbackEmail=async(entry)=>{const list=await readFeedbackEmails();const next=[entry,...list.filter(item=>item&&item.id!==entry.id)].slice(0,500);await mkdir(directory,{recursive:true,mode:0o700});const temporary=path.join(directory,`feedback-emails-${randomUUID()}.tmp`);await writeFile(temporary,JSON.stringify(next,null,2),{mode:0o600});await rename(temporary,path.join(directory,'feedback-emails.json'));return entry;};
+ return {read,change,readSponsorship,saveSponsorship,readFeedback,saveFeedback,readFeedbackEmails,recordFeedbackEmail,config:async()=>JSON.parse(await readFile(path.join(directory,'admin.json'),'utf8'))};
 }
 export function createAdminSession(config,now=Date.now()){
  return sealToken({role:'admin',email:config.email,expires:now+8*3600*1000,nonce:randomBytes(12).toString('hex')},config.sessionSecret);
@@ -127,17 +131,18 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    if(userId){try{const found=await findUserById(userId);if(found)activeUser=publicAccount(found);}catch{}}
    return send(200,activeUser?{enabled,scope,user:activeUser}:{enabled,scope});
   }
-  if(!enabled)return send(503,{error:'The local administrator service is not configured.'});
+  if(!enabled&&action!=='submit-feedback')return send(503,{error:'The local administrator service is not configured.'});
   const cookie=String(req.headers.cookie||'').split(';').map(part=>part.trim()).find(part=>part.startsWith('chart_replay_admin='))?.slice('chart_replay_admin='.length);
   const admin=hasAdmin&&validAdminSession(cookie,config,now());
   if(req.method==='GET'&&action==='session')return admin?send(200,{admin:{email:config.email}}):send(401,{error:'Administrator sign-in required.'});
   if(req.method==='GET'&&action==='waitlist'){if(!admin)return send(401,{error:'Administrator sign-in required.'});try{return send(200,await waitlistReader());}catch{return send(503,{error:'The waiting list is temporarily unavailable.'});}}
   if(req.method==='GET'&&action==='users'){if(!admin)return send(401,{error:'Administrator sign-in required.'});try{return send(200,{users:(await store.read()).map(publicAccount),activity:online(),scope});}catch{return send(503,{error:'User records are temporarily unavailable.'});}}
+  if(req.method==='GET'&&action==='feedback'){if(!admin)return send(401,{error:'Administrator sign-in required.'});try{const [feedback,emailLogs]=await Promise.all([typeof store.readFeedback==='function'?store.readFeedback():[],typeof store.readFeedbackEmails==='function'?store.readFeedbackEmails():[]]);return send(200,{ok:true,feedback:feedback||[],emailLogs:emailLogs||[],resendConfigured:isResendConfigured(env),scope});}catch{return send(503,{error:'Feedback records are temporarily unavailable.'});}}
   if(req.method!=='POST'){res.setHeader('Allow','GET, POST');return send(405,{error:'Method not allowed.'});}
   try{
    if(!req.headers.origin||new URL(req.headers.origin).host!==req.headers.host)return send(403,{error:'Please use this website to continue.'});
    if(!String(req.headers['content-type']||'').startsWith('application/json'))return send(415,{error:'Use the sign-in form.'});
-   const bodyLimit=action==='sponsorship'?1572864:action==='activity'?131072:4096;
+   const bodyLimit=action==='sponsorship'?1572864:action==='activity'?131072:16384;
    let body=req.body;
    if(body===undefined){let raw='';for await(const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>bodyLimit)return send(413,{error:'Request too large.'});}body=raw;}
    if(typeof body==='string'){if(Buffer.byteLength(body)>bodyLimit)return send(413,{error:'Request too large.'});try{body=JSON.parse(body);}catch{return send(400,{error:'Invalid form data.'});}}
@@ -146,6 +151,103 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    const cookieOptions=`Path=/api/platform; HttpOnly; SameSite=Strict${secure?'; Secure':''}`;
    const userCookieOptions=`Path=/api/platform; HttpOnly; SameSite=Strict${secure?'; Secure':''}`;
    const setUserCookie=user=>res.setHeader('Set-Cookie',`chart_replay_user=${createUserSession(user.id,config,now())}; ${userCookieOptions}; Max-Age=2592000`);
+   if(action==='admin-impersonate'){
+    if(!admin)return send(401,{error:'Only the signed-in administrator can log into a user account.'});
+    const targetId=typeof body.userId==='string'?body.userId.trim():'';
+    const targetEmail=typeof body.email==='string'?body.email.trim().toLowerCase():'';
+    const targetName=typeof body.name==='string'?body.name.trim():'Trader';
+    if(!targetId&&!targetEmail)return send(400,{error:'Target user ID or email is required.'});
+    let targetUser=targetId?await findUserById(targetId):null;
+    if(!targetUser&&targetEmail)targetUser=await findUserByEmail(targetEmail);
+    if(!targetUser){
+     targetUser={
+      id:targetId||randomUUID(),
+      name:targetName||(targetEmail.split('@')[0]||'Trader'),
+      email:targetEmail||'trader@chartreplay.co.za',
+      joinedAt:new Date(now()).toISOString(),
+      loginCount:1,
+      lastLoginAt:new Date(now()).toISOString(),
+     };
+    }
+    const pub=publicAccount(targetUser);
+    setUserCookie(pub);
+    return send(200,{ok:true,user:pub,impersonatedBy:config.email,scope});
+   }
+   if(action==='send-feedback-email'){
+    if(!admin)return send(401,{error:'Only the signed-in administrator can send feedback emails.'});
+    const rawRecipients=Array.isArray(body.recipients)?body.recipients:body.email?[{email:body.email,name:body.name}]:[];
+    const recipients=rawRecipients
+     .map(r=>({
+      email:typeof r?.email==='string'?r.email.trim().toLowerCase():'',
+      name:cleanText(r?.name,'Trader',80),
+     }))
+     .filter(r=>r.email&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email))
+     .slice(0,50);
+    if(recipients.length===0)return send(400,{error:'Please select at least one valid user email address.'});
+    const appUrl=resolvePublicAppUrl(req.headers.origin,env);
+    const results=[];
+    for(const recipient of recipients){
+     const feedbackUrl=`${appUrl}/?feedback=1&email=${encodeURIComponent(recipient.email)}&name=${encodeURIComponent(recipient.name)}`;
+     let sentResult={sent:false,reason:'RESEND_NOT_CONFIGURED',feedbackUrl};
+     if(isResendConfigured(env)){
+      sentResult=await sendFirstTradeFeedbackEmail({name:recipient.name,email:recipient.email,origin:req.headers.origin},{env,request});
+     }
+     const logEntry={
+      id:randomUUID(),
+      userEmail:recipient.email,
+      userName:recipient.name,
+      sentBy:config?.email||'admin',
+      deliveryStatus:sentResult.sent?'sent':isResendConfigured(env)?'failed':'link_ready',
+      sentAt:new Date(now()).toISOString(),
+     };
+     if(typeof store.recordFeedbackEmail==='function'){
+      await store.recordFeedbackEmail(logEntry).catch(()=>{});
+     }
+     results.push({
+      email:recipient.email,
+      name:recipient.name,
+      sent:Boolean(sentResult.sent),
+      error:sentResult.error||null,
+      feedbackUrl:sentResult.feedbackUrl||feedbackUrl,
+      logEntry,
+     });
+    }
+    return send(200,{ok:true,results,resendConfigured:isResendConfigured(env),scope});
+   }
+   if(action==='submit-feedback'){
+    const fbEmail=typeof body.email==='string'?body.email.trim().toLowerCase():'';
+    const fbName=cleanText(body.name,'Trader',80);
+    const rUserFriendliness=Number(body.ratingUserFriendliness);
+    const rCharts=Number(body.ratingCharts);
+    const rSmoothness=Number(body.ratingSmoothness);
+    if(
+     !Number.isInteger(rUserFriendliness)||rUserFriendliness<1||rUserFriendliness>5||
+     !Number.isInteger(rCharts)||rCharts<1||rCharts>5||
+     !Number.isInteger(rSmoothness)||rSmoothness<1||rSmoothness>5
+    ){
+     return send(400,{error:'Please select a star rating from 1 to 5 for User Friendliness, Charts, and Smoothness.'});
+    }
+    const improvementsText=cleanText(body.improvementsText,'',2000);
+    const favoriteText=cleanText(body.favoriteText,'',1000);
+    const matchedUser=fbEmail?await findUserByEmail(fbEmail).catch(()=>null):null;
+    const overallRating=Number(((rUserFriendliness+rCharts+rSmoothness)/3).toFixed(2));
+    const entry={
+     id:typeof body.id==='string'&&/^[0-9a-f-]{36}$/i.test(body.id)?body.id:randomUUID(),
+     userId:matchedUser?.id||null,
+     userEmail:fbEmail||'anonymous@chartreplay.co.za',
+     userName:matchedUser?.name||fbName,
+     ratingUserFriendliness:rUserFriendliness,
+     ratingCharts:rCharts,
+     ratingSmoothness:rSmoothness,
+     overallRating,
+     improvementsText,
+     favoriteText,
+     source:cleanText(body.source,'email_link',40),
+     createdAt:new Date(now()).toISOString(),
+    };
+    const saved=typeof store.saveFeedback==='function'?await store.saveFeedback(entry):entry;
+    return send(201,{ok:true,feedback:saved,scope});
+   }
    if(action==='sponsorship'){
     if(!admin)return send(401,{error:'Administrator sign-in required.'});
     const candidate=body.sponsorship&&typeof body.sponsorship==='object'?body.sponsorship:body;

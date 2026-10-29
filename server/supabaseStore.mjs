@@ -201,7 +201,10 @@ export function createSupabaseAccountStore({
         (r) => String(r?.user_email || '').toLowerCase() === email
       );
       const userSessions = rawUserSessions.filter(
-        (s) => !isStarterSessionId(s?.id, email)
+        (s) =>
+          !isStarterSessionId(s?.id, email) ||
+          (Array.isArray(s?.session_data?.positions) &&
+            s.session_data.positions.length > 0)
       );
       const userStrategies = strategyRows.filter(
         (r) => String(r?.user_email || '').toLowerCase() === email
@@ -703,6 +706,103 @@ export function createSupabaseAccountStore({
       cachedSponsorshipAt = Date.now();
       return finalSaved;
     },
+    async readFeedback() {
+      const results = [];
+      if (isSupabaseConfigured(env)) {
+        try {
+          const remote = await readSupabaseFeedback({ env, request });
+          if (Array.isArray(remote)) results.push(...remote);
+        } catch {
+          // fall back
+        }
+      }
+      if (fallbackStore && typeof fallbackStore.readFeedback === 'function') {
+        try {
+          const local = await fallbackStore.readFeedback();
+          if (Array.isArray(local)) results.push(...local);
+        } catch {
+          // ignore
+        }
+      }
+      const byId = new Map();
+      for (const item of results) {
+        if (item && item.id && !byId.has(item.id)) {
+          byId.set(item.id, item);
+        }
+      }
+      return Array.from(byId.values()).sort(
+        (a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)
+      );
+    },
+    async saveFeedback(entry) {
+      let savedRemote = null;
+      if (isSupabaseConfigured(env)) {
+        try {
+          savedRemote = await saveSupabaseFeedback(entry, { env, request });
+        } catch (err) {
+          if (!fallbackStore || typeof fallbackStore.saveFeedback !== 'function') {
+            throw err;
+          }
+        }
+      }
+      if (fallbackStore && typeof fallbackStore.saveFeedback === 'function') {
+        try {
+          await fallbackStore.saveFeedback(savedRemote || entry);
+        } catch {
+          // ignore local fallback write error when remote succeeded
+        }
+      }
+      return savedRemote || entry;
+    },
+    async readFeedbackEmails() {
+      const results = [];
+      if (isSupabaseConfigured(env)) {
+        try {
+          const remote = await readSupabaseFeedbackEmails({ env, request });
+          if (Array.isArray(remote)) results.push(...remote);
+        } catch {
+          // fall back
+        }
+      }
+      if (fallbackStore && typeof fallbackStore.readFeedbackEmails === 'function') {
+        try {
+          const local = await fallbackStore.readFeedbackEmails();
+          if (Array.isArray(local)) results.push(...local);
+        } catch {
+          // ignore
+        }
+      }
+      const byId = new Map();
+      for (const item of results) {
+        if (item && item.id && !byId.has(item.id)) {
+          byId.set(item.id, item);
+        }
+      }
+      return Array.from(byId.values()).sort(
+        (a, b) => (Date.parse(b.sentAt || '') || 0) - (Date.parse(a.sentAt || '') || 0)
+      );
+    },
+    async recordFeedbackEmail(logEntry) {
+      let savedRemote = null;
+      if (isSupabaseConfigured(env)) {
+        try {
+          savedRemote = await saveSupabaseFeedbackEmailLog(logEntry, {
+            env,
+            request,
+          });
+        } catch {
+          // ignore and fall back
+        }
+      }
+      if (fallbackStore && typeof fallbackStore.recordFeedbackEmail === 'function') {
+        try {
+          await fallbackStore.recordFeedbackEmail(savedRemote || logEntry);
+        } catch {
+          // ignore
+        }
+      }
+      return savedRemote || logEntry;
+    },
   };
 }
 
@@ -884,4 +984,311 @@ export async function readSupabaseWaitlist({
       consent: row.consent === true,
       consentVersion: row.consent_version || null,
     }));
+}
+
+const FEEDBACK_FALLBACK_PROFILE_ID = '__platform_feedback_v1__';
+const FEEDBACK_EMAIL_LOGS_FALLBACK_ID = '__feedback_email_logs_v1__';
+
+function mapFeedbackRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  const rUserFriendliness = Math.min(
+    5,
+    Math.max(
+      1,
+      Number(row.rating_user_friendliness ?? row.ratingUserFriendliness ?? 5) || 5
+    )
+  );
+  const rCharts = Math.min(
+    5,
+    Math.max(1, Number(row.rating_charts ?? row.ratingCharts ?? 5) || 5)
+  );
+  const rSmoothness = Math.min(
+    5,
+    Math.max(1, Number(row.rating_smoothness ?? row.ratingSmoothness ?? 5) || 5)
+  );
+  const overall = Number(
+    ((rUserFriendliness + rCharts + rSmoothness) / 3).toFixed(2)
+  );
+  return {
+    id: String(row.id || ''),
+    userId: row.user_id || row.userId || null,
+    userEmail: String(row.user_email || row.userEmail || '').toLowerCase(),
+    userName: String(row.user_name || row.userName || 'Trader'),
+    ratingUserFriendliness: rUserFriendliness,
+    ratingCharts: rCharts,
+    ratingSmoothness: rSmoothness,
+    overallRating: overall,
+    improvementsText: String(
+      row.improvements_text ?? row.improvementsText ?? ''
+    ),
+    favoriteText: String(row.favorite_text ?? row.favoriteText ?? ''),
+    source: String(row.source || 'email_link'),
+    createdAt:
+      row.created_at || row.createdAt || new Date().toISOString(),
+  };
+}
+
+export async function readSupabaseFeedback({
+  env = process.env,
+  request = fetch,
+} = {}) {
+  const combined = [];
+  try {
+    const rows = await supabaseRestRequest(
+      'platform_feedback?select=*&order=created_at.desc&limit=500',
+      { method: 'GET', env, request }
+    );
+    if (Array.isArray(rows)) {
+      for (const r of rows) {
+        const mapped = mapFeedbackRow(r);
+        if (mapped && mapped.id) combined.push(mapped);
+      }
+    }
+  } catch (err) {
+    if (err.code !== 'PGRST205' && err.status !== 404) {
+      // continue to fallback
+    }
+  }
+
+  try {
+    const fallbackRows = await supabaseRestRequest(
+      `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+        SPONSORSHIP_FALLBACK_EMAIL
+      )}&id=eq.${FEEDBACK_FALLBACK_PROFILE_ID}&select=rules_data&limit=1`,
+      { method: 'GET', env, request }
+    );
+    const items = fallbackRows?.[0]?.rules_data?.items;
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        const mapped = mapFeedbackRow(item);
+        if (mapped && mapped.id) combined.push(mapped);
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  const byId = new Map();
+  for (const item of combined) {
+    if (!byId.has(item.id)) byId.set(item.id, item);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) =>
+      (Date.parse(b.createdAt || '') || 0) -
+      (Date.parse(a.createdAt || '') || 0)
+  );
+}
+
+export async function saveSupabaseFeedback(
+  entry,
+  { env = process.env, request = fetch } = {}
+) {
+  const normalized = mapFeedbackRow({
+    ...entry,
+    created_at: entry.createdAt || new Date().toISOString(),
+  });
+  let savedPrimary = false;
+  try {
+    await supabaseRestRequest('platform_feedback?on_conflict=id', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=minimal',
+      body: {
+        id: normalized.id,
+        user_id: normalized.userId || null,
+        user_email: normalized.userEmail,
+        user_name: normalized.userName,
+        rating_user_friendliness: normalized.ratingUserFriendliness,
+        rating_charts: normalized.ratingCharts,
+        rating_smoothness: normalized.ratingSmoothness,
+        overall_rating: normalized.overallRating,
+        improvements_text: normalized.improvementsText,
+        favorite_text: normalized.favoriteText,
+        source: normalized.source,
+        created_at: normalized.createdAt,
+      },
+      env,
+      request,
+    });
+    savedPrimary = true;
+  } catch (err) {
+    if (err.code !== 'PGRST205' && err.status !== 404) {
+      // fall through to custom_rule_profiles backup
+    }
+  }
+
+  try {
+    let existingItems = [];
+    try {
+      const fallbackRows = await supabaseRestRequest(
+        `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+          SPONSORSHIP_FALLBACK_EMAIL
+        )}&id=eq.${FEEDBACK_FALLBACK_PROFILE_ID}&select=rules_data&limit=1`,
+        { method: 'GET', env, request }
+      );
+      if (Array.isArray(fallbackRows?.[0]?.rules_data?.items)) {
+        existingItems = fallbackRows[0].rules_data.items;
+      }
+    } catch {
+      existingItems = [];
+    }
+    const mergedItems = [
+      normalized,
+      ...existingItems.filter((it) => it && it.id !== normalized.id),
+    ].slice(0, 500);
+    await supabaseRestRequest('custom_rule_profiles?on_conflict=user_email,id', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=minimal',
+      body: {
+        id: FEEDBACK_FALLBACK_PROFILE_ID,
+        user_email: SPONSORSHIP_FALLBACK_EMAIL,
+        name: FEEDBACK_FALLBACK_PROFILE_ID,
+        description: 'Platform trader feedback and star ratings',
+        rules_data: {
+          id: FEEDBACK_FALLBACK_PROFILE_ID,
+          items: mergedItems,
+          updatedAt: normalized.createdAt,
+        },
+        created_at: normalized.createdAt,
+      },
+      env,
+      request,
+    });
+  } catch (fallbackErr) {
+    if (!savedPrimary) throw fallbackErr;
+  }
+
+  return normalized;
+}
+
+export async function readSupabaseFeedbackEmails({
+  env = process.env,
+  request = fetch,
+} = {}) {
+  const combined = [];
+  try {
+    const rows = await supabaseRestRequest(
+      'feedback_email_logs?select=*&order=sent_at.desc&limit=500',
+      { method: 'GET', env, request }
+    );
+    if (Array.isArray(rows)) {
+      for (const r of rows) {
+        if (r && r.id) {
+          combined.push({
+            id: String(r.id),
+            userEmail: String(r.user_email || '').toLowerCase(),
+            userName: String(r.user_name || 'Trader'),
+            sentBy: String(r.sent_by || 'admin'),
+            deliveryStatus: String(r.delivery_status || 'sent'),
+            sentAt: r.sent_at || new Date().toISOString(),
+          });
+        }
+      }
+    }
+  } catch {
+    // ignore if table not yet migrated
+  }
+
+  try {
+    const fallbackRows = await supabaseRestRequest(
+      `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+        SPONSORSHIP_FALLBACK_EMAIL
+      )}&id=eq.${FEEDBACK_EMAIL_LOGS_FALLBACK_ID}&select=rules_data&limit=1`,
+      { method: 'GET', env, request }
+    );
+    const items = fallbackRows?.[0]?.rules_data?.items;
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        if (item && item.id) combined.push(item);
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  const byId = new Map();
+  for (const item of combined) {
+    if (!byId.has(item.id)) byId.set(item.id, item);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) =>
+      (Date.parse(b.sentAt || '') || 0) - (Date.parse(a.sentAt || '') || 0)
+  );
+}
+
+export async function saveSupabaseFeedbackEmailLog(
+  logEntry,
+  { env = process.env, request = fetch } = {}
+) {
+  const normalized = {
+    id: String(logEntry.id || ''),
+    userEmail: String(logEntry.userEmail || '').toLowerCase(),
+    userName: String(logEntry.userName || 'Trader'),
+    sentBy: String(logEntry.sentBy || 'admin'),
+    deliveryStatus: String(logEntry.deliveryStatus || 'sent'),
+    sentAt: logEntry.sentAt || new Date().toISOString(),
+  };
+
+  let savedPrimary = false;
+  try {
+    await supabaseRestRequest('feedback_email_logs?on_conflict=id', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=minimal',
+      body: {
+        id: normalized.id,
+        user_email: normalized.userEmail,
+        user_name: normalized.userName,
+        sent_by: normalized.sentBy,
+        delivery_status: normalized.deliveryStatus,
+        sent_at: normalized.sentAt,
+      },
+      env,
+      request,
+    });
+    savedPrimary = true;
+  } catch {
+    // fall through
+  }
+
+  try {
+    let existingItems = [];
+    try {
+      const fallbackRows = await supabaseRestRequest(
+        `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+          SPONSORSHIP_FALLBACK_EMAIL
+        )}&id=eq.${FEEDBACK_EMAIL_LOGS_FALLBACK_ID}&select=rules_data&limit=1`,
+        { method: 'GET', env, request }
+      );
+      if (Array.isArray(fallbackRows?.[0]?.rules_data?.items)) {
+        existingItems = fallbackRows[0].rules_data.items;
+      }
+    } catch {
+      existingItems = [];
+    }
+    const mergedItems = [
+      normalized,
+      ...existingItems.filter((it) => it && it.id !== normalized.id),
+    ].slice(0, 500);
+    await supabaseRestRequest('custom_rule_profiles?on_conflict=user_email,id', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=minimal',
+      body: {
+        id: FEEDBACK_EMAIL_LOGS_FALLBACK_ID,
+        user_email: SPONSORSHIP_FALLBACK_EMAIL,
+        name: FEEDBACK_EMAIL_LOGS_FALLBACK_ID,
+        description: 'Platform feedback email delivery logs',
+        rules_data: {
+          id: FEEDBACK_EMAIL_LOGS_FALLBACK_ID,
+          items: mergedItems,
+          updatedAt: normalized.sentAt,
+        },
+        created_at: normalized.sentAt,
+      },
+      env,
+      request,
+    });
+  } catch (fallbackErr) {
+    if (!savedPrimary) throw fallbackErr;
+  }
+
+  return normalized;
 }

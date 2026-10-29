@@ -202,6 +202,42 @@ CREATE TRIGGER trg_platform_sponsorship_updated_at
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 -- -----------------------------------------------------------------------------
+-- 9. Trader Platform Feedback & Star Ratings (Saved from Feedback Link)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.platform_feedback (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.platform_users(id) ON DELETE SET NULL,
+  user_email TEXT NOT NULL,
+  user_name TEXT NOT NULL DEFAULT 'Trader',
+  rating_user_friendliness INTEGER NOT NULL CHECK (rating_user_friendliness BETWEEN 1 AND 5),
+  rating_charts INTEGER NOT NULL CHECK (rating_charts BETWEEN 1 AND 5),
+  rating_smoothness INTEGER NOT NULL CHECK (rating_smoothness BETWEEN 1 AND 5),
+  overall_rating NUMERIC(3, 2) NOT NULL DEFAULT 5.00,
+  improvements_text TEXT NOT NULL DEFAULT '',
+  favorite_text TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'email_link',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_platform_feedback_user_email ON public.platform_feedback (lower(user_email));
+CREATE INDEX IF NOT EXISTS idx_platform_feedback_created_at ON public.platform_feedback (created_at DESC);
+
+-- -----------------------------------------------------------------------------
+-- 10. Administrator First-Trade Feedback Email Logs
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.feedback_email_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_email TEXT NOT NULL,
+  user_name TEXT NOT NULL DEFAULT 'Trader',
+  sent_by TEXT NOT NULL DEFAULT 'admin',
+  delivery_status TEXT NOT NULL DEFAULT 'sent',
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_email_logs_user_email ON public.feedback_email_logs (lower(user_email));
+CREATE INDEX IF NOT EXISTS idx_feedback_email_logs_sent_at ON public.feedback_email_logs (sent_at DESC);
+
+-- -----------------------------------------------------------------------------
 -- Row Level Security (RLS) & Table Grants (Configured for Custom Auth / Anon Key)
 -- -----------------------------------------------------------------------------
 ALTER TABLE public.platform_users ENABLE ROW LEVEL SECURITY;
@@ -212,6 +248,8 @@ ALTER TABLE public.user_strategies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_strategy_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.custom_rule_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.platform_sponsorship ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.platform_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.feedback_email_logs ENABLE ROW LEVEL SECURITY;
 
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
@@ -278,6 +316,22 @@ CREATE POLICY "custom_rule_profiles_api_access"
 DROP POLICY IF EXISTS "platform_sponsorship_api_access" ON public.platform_sponsorship;
 CREATE POLICY "platform_sponsorship_api_access"
   ON public.platform_sponsorship
+  FOR ALL
+  TO anon, authenticated, service_role
+  USING (true)
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "platform_feedback_api_access" ON public.platform_feedback;
+CREATE POLICY "platform_feedback_api_access"
+  ON public.platform_feedback
+  FOR ALL
+  TO anon, authenticated, service_role
+  USING (true)
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "feedback_email_logs_api_access" ON public.feedback_email_logs;
+CREATE POLICY "feedback_email_logs_api_access"
+  ON public.feedback_email_logs
   FOR ALL
   TO anon, authenticated, service_role
   USING (true)

@@ -493,7 +493,9 @@ export async function fetchCustomRuleProfilesFromSupabase(
           p &&
             typeof p.id === 'string' &&
             p.id !== USER_PREFS_PROFILE_ID &&
-            p.id !== SPONSORSHIP_FALLBACK_PROFILE_ID
+            p.id !== SPONSORSHIP_FALLBACK_PROFILE_ID &&
+            p.id !== FEEDBACK_FALLBACK_PROFILE_ID &&
+            p.id !== FEEDBACK_EMAIL_LOGS_FALLBACK_ID
         )
     );
 }
@@ -565,6 +567,8 @@ export async function deleteAllUserSupabaseData(
 
 const SPONSORSHIP_FALLBACK_PROFILE_ID = '__platform_sponsorship_v1__';
 const SPONSORSHIP_FALLBACK_EMAIL = 'admin@chartreplay.co.za';
+const FEEDBACK_FALLBACK_PROFILE_ID = '__platform_feedback_v1__';
+const FEEDBACK_EMAIL_LOGS_FALLBACK_ID = '__feedback_email_logs_v1__';
 
 export async function fetchSponsorshipFromSupabase(): Promise<Partial<SponsorshipConfig> | null> {
   const rows = await supabaseFetch<
@@ -692,3 +696,266 @@ export async function syncSponsorshipToSupabase(
 
   return primaryOk || fallbackOk;
 }
+
+export interface PlatformFeedbackItem {
+  id: string;
+  userId?: string | null;
+  userEmail: string;
+  userName: string;
+  ratingUserFriendliness: number;
+  ratingCharts: number;
+  ratingSmoothness: number;
+  overallRating: number;
+  improvementsText: string;
+  favoriteText?: string;
+  source?: string;
+  createdAt: string;
+}
+
+export interface FeedbackEmailLogItem {
+  id: string;
+  userEmail: string;
+  userName: string;
+  sentBy: string;
+  deliveryStatus: string;
+  sentAt: string;
+}
+
+export async function fetchPlatformFeedbackFromSupabase(): Promise<PlatformFeedbackItem[]> {
+  const combined: PlatformFeedbackItem[] = [];
+  const rows = await supabaseFetch<
+    Array<{
+      id: string;
+      user_id?: string | null;
+      user_email: string;
+      user_name: string;
+      rating_user_friendliness: number;
+      rating_charts: number;
+      rating_smoothness: number;
+      overall_rating?: number;
+      improvements_text?: string;
+      favorite_text?: string;
+      source?: string;
+      created_at?: string;
+    }>
+  >('platform_feedback?select=*&order=created_at.desc&limit=500');
+
+  if (Array.isArray(rows)) {
+    for (const r of rows) {
+      if (!r || !r.id) continue;
+      const ruf = Math.min(5, Math.max(1, Number(r.rating_user_friendliness) || 5));
+      const rc = Math.min(5, Math.max(1, Number(r.rating_charts) || 5));
+      const rs = Math.min(5, Math.max(1, Number(r.rating_smoothness) || 5));
+      combined.push({
+        id: r.id,
+        userId: r.user_id || null,
+        userEmail: String(r.user_email || '').toLowerCase(),
+        userName: r.user_name || 'Trader',
+        ratingUserFriendliness: ruf,
+        ratingCharts: rc,
+        ratingSmoothness: rs,
+        overallRating: Number(((ruf + rc + rs) / 3).toFixed(2)),
+        improvementsText: r.improvements_text || '',
+        favoriteText: r.favorite_text || '',
+        source: r.source || 'email_link',
+        createdAt: r.created_at || new Date().toISOString(),
+      });
+    }
+  }
+
+  const fallbackRows = await supabaseFetch<
+    Array<{ rules_data?: { items?: PlatformFeedbackItem[] } }>
+  >(
+    `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+      SPONSORSHIP_FALLBACK_EMAIL
+    )}&id=eq.${FEEDBACK_FALLBACK_PROFILE_ID}&select=rules_data&limit=1`
+  );
+  const fallbackItems = fallbackRows?.[0]?.rules_data?.items;
+  if (Array.isArray(fallbackItems)) {
+    for (const item of fallbackItems) {
+      if (item && item.id) {
+        const ruf = Math.min(5, Math.max(1, Number(item.ratingUserFriendliness) || 5));
+        const rc = Math.min(5, Math.max(1, Number(item.ratingCharts) || 5));
+        const rs = Math.min(5, Math.max(1, Number(item.ratingSmoothness) || 5));
+        combined.push({
+          ...item,
+          userEmail: String(item.userEmail || '').toLowerCase(),
+          userName: item.userName || 'Trader',
+          ratingUserFriendliness: ruf,
+          ratingCharts: rc,
+          ratingSmoothness: rs,
+          overallRating: Number(((ruf + rc + rs) / 3).toFixed(2)),
+          improvementsText: item.improvementsText || '',
+          createdAt: item.createdAt || new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  const byId = new Map<string, PlatformFeedbackItem>();
+  for (const item of combined) {
+    if (!byId.has(item.id)) byId.set(item.id, item);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)
+  );
+}
+
+export async function submitPlatformFeedbackToSupabase(
+  entry: Omit<PlatformFeedbackItem, 'overallRating'> & { overallRating?: number }
+): Promise<boolean> {
+  const cfg = getSupabaseClientConfig();
+  if (!cfg.enabled) return false;
+
+  const ruf = Math.min(5, Math.max(1, Number(entry.ratingUserFriendliness) || 5));
+  const rc = Math.min(5, Math.max(1, Number(entry.ratingCharts) || 5));
+  const rs = Math.min(5, Math.max(1, Number(entry.ratingSmoothness) || 5));
+  const overall = Number(((ruf + rc + rs) / 3).toFixed(2));
+  const createdAt = entry.createdAt || new Date().toISOString();
+  const normalized: PlatformFeedbackItem = {
+    id: entry.id,
+    userId: isValidUuid(entry.userId || undefined) ? entry.userId : null,
+    userEmail: String(entry.userEmail || '').trim().toLowerCase(),
+    userName: String(entry.userName || 'Trader').trim() || 'Trader',
+    ratingUserFriendliness: ruf,
+    ratingCharts: rc,
+    ratingSmoothness: rs,
+    overallRating: overall,
+    improvementsText: String(entry.improvementsText || '').trim(),
+    favoriteText: String(entry.favoriteText || '').trim(),
+    source: entry.source || 'email_link',
+    createdAt,
+  };
+
+  let primaryOk = false;
+  try {
+    const res = await fetch(`${cfg.restUrl}platform_feedback?on_conflict=id`, {
+      method: 'POST',
+      headers: {
+        apikey: cfg.anonKey,
+        Authorization: `Bearer ${cfg.anonKey}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify({
+        id: normalized.id,
+        user_id: normalized.userId,
+        user_email: normalized.userEmail,
+        user_name: normalized.userName,
+        rating_user_friendliness: normalized.ratingUserFriendliness,
+        rating_charts: normalized.ratingCharts,
+        rating_smoothness: normalized.ratingSmoothness,
+        overall_rating: normalized.overallRating,
+        improvements_text: normalized.improvementsText,
+        favorite_text: normalized.favoriteText,
+        source: normalized.source,
+        created_at: normalized.createdAt,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    primaryOk = res.ok;
+  } catch {
+    primaryOk = false;
+  }
+
+  let fallbackOk = false;
+  try {
+    const existingRows = await supabaseFetch<
+      Array<{ rules_data?: { items?: PlatformFeedbackItem[] } }>
+    >(
+      `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+        SPONSORSHIP_FALLBACK_EMAIL
+      )}&id=eq.${FEEDBACK_FALLBACK_PROFILE_ID}&select=rules_data&limit=1`
+    );
+    const existingItems = Array.isArray(existingRows?.[0]?.rules_data?.items)
+      ? existingRows[0].rules_data!.items!
+      : [];
+    const mergedItems = [
+      normalized,
+      ...existingItems.filter((it) => it && it.id !== normalized.id),
+    ].slice(0, 500);
+    const fallbackRes = await fetch(
+      `${cfg.restUrl}custom_rule_profiles?on_conflict=user_email,id`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: cfg.anonKey,
+          Authorization: `Bearer ${cfg.anonKey}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        },
+        body: JSON.stringify({
+          id: FEEDBACK_FALLBACK_PROFILE_ID,
+          user_email: SPONSORSHIP_FALLBACK_EMAIL,
+          name: FEEDBACK_FALLBACK_PROFILE_ID,
+          description: 'Platform trader feedback and star ratings',
+          rules_data: {
+            id: FEEDBACK_FALLBACK_PROFILE_ID,
+            items: mergedItems,
+            updatedAt: createdAt,
+          },
+          created_at: createdAt,
+        }),
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+    fallbackOk = fallbackRes.ok;
+  } catch {
+    fallbackOk = false;
+  }
+
+  return primaryOk || fallbackOk;
+}
+
+export async function fetchFeedbackEmailLogsFromSupabase(): Promise<FeedbackEmailLogItem[]> {
+  const combined: FeedbackEmailLogItem[] = [];
+  const rows = await supabaseFetch<
+    Array<{
+      id: string;
+      user_email: string;
+      user_name: string;
+      sent_by?: string;
+      delivery_status?: string;
+      sent_at?: string;
+    }>
+  >('feedback_email_logs?select=*&order=sent_at.desc&limit=500');
+  if (Array.isArray(rows)) {
+    for (const r of rows) {
+      if (r && r.id) {
+        combined.push({
+          id: r.id,
+          userEmail: String(r.user_email || '').toLowerCase(),
+          userName: r.user_name || 'Trader',
+          sentBy: r.sent_by || 'admin',
+          deliveryStatus: r.delivery_status || 'sent',
+          sentAt: r.sent_at || new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  const fallbackRows = await supabaseFetch<
+    Array<{ rules_data?: { items?: FeedbackEmailLogItem[] } }>
+  >(
+    `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+      SPONSORSHIP_FALLBACK_EMAIL
+    )}&id=eq.${FEEDBACK_EMAIL_LOGS_FALLBACK_ID}&select=rules_data&limit=1`
+  );
+  const fallbackItems = fallbackRows?.[0]?.rules_data?.items;
+  if (Array.isArray(fallbackItems)) {
+    for (const item of fallbackItems) {
+      if (item && item.id) combined.push(item);
+    }
+  }
+
+  const byId = new Map<string, FeedbackEmailLogItem>();
+  for (const item of combined) {
+    if (!byId.has(item.id)) byId.set(item.id, item);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => (Date.parse(b.sentAt || '') || 0) - (Date.parse(a.sentAt || '') || 0)
+  );
+}
+

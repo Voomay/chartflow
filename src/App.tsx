@@ -94,7 +94,15 @@ import {
   loadSavedIndicatorConfigs,
   saveIndicatorConfigs,
 } from './services/chartDrawingGeometry';
-import { platformRequest } from './services/platformAccounts';
+import {
+  adminImpersonateUser,
+  AdminImpersonationInfo,
+  AdminUser,
+  clearAdminImpersonationState,
+  getAdminImpersonationState,
+  platformRequest,
+} from './services/platformAccounts';
+import { PlatformFeedbackPage } from './components/PlatformFeedbackPage';
 import {
   fetchCustomRuleProfilesFromSupabase,
   fetchUserPreferencesFromSupabase,
@@ -133,6 +141,7 @@ import {
 import {
   BarChart3,
   RotateCcw,
+  ShieldCheck,
   Trophy,
   X,
   XCircle,
@@ -183,10 +192,30 @@ export function App() {
     }
     return {active:false,slug:null};
   };
+  const readFeedbackRoute = (): {
+    active: boolean;
+    name: string | null;
+    email: string | null;
+  } => {
+    try {
+      const p = normalizePath();
+      const sp = new URLSearchParams(window.location.search);
+      const isFeedback = p === '/feedback' || sp.get('feedback') === '1';
+      return {
+        active: isFeedback,
+        name: sp.get('name'),
+        email: sp.get('email'),
+      };
+    } catch {
+      return { active: false, name: null, email: null };
+    }
+  };
   const [partnerPage,setPartnerPage]=useState(()=>normalizePath()==='/partners'||normalizePath()==='/partner');
   const [sitemapPage,setSitemapPage]=useState(()=>normalizePath()==='/sitemap');
   const [adminPage,setAdminPage]=useState(()=>normalizePath()==='/admin');
   const [comingSoon,setComingSoon]=useState(()=>normalizePath()==='/coming-soon');
+  const [feedbackRoute,setFeedbackRoute]=useState<{active:boolean;name:string|null;email:string|null}>(readFeedbackRoute);
+  const [adminImpersonation,setAdminImpersonation]=useState<AdminImpersonationInfo|null>(getAdminImpersonationState);
   const [insightRoute,setInsightRoute]=useState<{active:boolean;slug:string|null}>(readInsightRoute);
   const [legalPage,setLegalPage]=useState<LegalDocumentKey|null>(readLegalPage);
   const [balanceHidden,setBalanceHidden]=useState(false);
@@ -380,6 +409,7 @@ export function App() {
       setLegalPage(readLegalPage());
       setComingSoon(p === '/coming-soon');
       setAdminPage(p === '/admin');
+      setFeedbackRoute(readFeedbackRoute());
       setInsightRoute(readInsightRoute());
 
       if (p === '/signup' || p === '/sign-up' || p === '/register') {
@@ -1966,7 +1996,48 @@ export function App() {
     }
     setActiveView('landing');
   };
-  const signOut=()=>{try{localStorage.removeItem('chart_replay_active_view_v2');localStorage.removeItem('chart_replay_hub_section_v1');}catch{}setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
+  const signOut=()=>{clearAdminImpersonationState();setAdminImpersonation(null);try{localStorage.removeItem('chart_replay_active_view_v2');localStorage.removeItem('chart_replay_hub_section_v1');}catch{}setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
+  const handleAdminLoginAsUser=useCallback(async(targetUser:AdminUser,previewMode=false)=>{
+    const res=await adminImpersonateUser({id:targetUser.id,email:targetUser.email,name:targetUser.name},previewMode);
+    if(!res.ok||!res.user){
+      throw new Error(res.error||'Only the signed-in administrator can log into a user account.');
+    }
+    markChartAnnouncementSeen(res.user.email);
+    markWorkspaceTourSeen(res.user.email);
+    markTourSeen('completed',res.user.email);
+    setMotivationEnabled(res.user.email,false,false);
+    setAdminImpersonation(res.impersonation||null);
+    setCurrentUser({
+      id:res.user.id,
+      name:res.user.name,
+      email:res.user.email,
+      plan:res.user.plan||'FREE_FOREVER',
+      joinedAt:res.user.joinedAt,
+      loginCount:res.user.loginCount??1,
+      isReturningLogin:true,
+    });
+    setAdminPage(false);
+    setHubInitialSection('dashboard');
+    setActiveView('dashboard');
+    window.history.pushState({},'','/dashboard');
+  },[]);
+  const handleExitAdminImpersonation=useCallback(()=>{
+    const wasPreview=adminImpersonation?.adminEmail==='Dashboard preview';
+    clearAdminImpersonationState();
+    setAdminImpersonation(null);
+    setActiveLoggedInUser(null);
+    setCurrentUser(null);
+    setIsPlaying(false);
+    const adminPath=wasPreview?'/admin?preview=1':'/admin';
+    window.history.pushState({},'',adminPath);
+    setAdminPage(true);
+  },[adminImpersonation?.adminEmail]);
+  const closeFeedbackPage=()=>{
+    setFeedbackRoute({active:false,name:null,email:null});
+    const target=currentUser?'/dashboard':'/';
+    window.history.pushState({},'',target);
+    setActiveView(currentUser?'dashboard':'landing');
+  };
   const openComingSoon=()=>{window.history.pushState({},'','/coming-soon');setComingSoon(true);};
   const closeComingSoon=()=>{window.history.pushState({},'',currentUser?'/dashboard':'/');setComingSoon(false);setActiveView(currentUser?'dashboard':'landing');};
   const openTradersInsight=(slug:string|null=null)=>{
@@ -1987,7 +2058,8 @@ export function App() {
       insightRoute.active ||
       partnerPage ||
       adminPage ||
-      comingSoon
+      comingSoon ||
+      feedbackRoute.active
     ) {
       return;
     }
@@ -2042,12 +2114,21 @@ export function App() {
     partnerPage,
     adminPage,
     comingSoon,
+    feedbackRoute.active,
     symbol,
     timeframe,
   ]);
 
   if(legalPage)return <LegalPage page={legalPage} onNavigate={openLegal} onBack={closeLegal}/>;
   if(sitemapPage)return <SitemapPage onBack={closeSitemap} onNavigateRoute={navigateFromSitemap} onOpenLegal={openLegal}/>;
+  if(feedbackRoute.active)return (
+    <PlatformFeedbackPage
+      initialName={feedbackRoute.name||currentUser?.name||null}
+      initialEmail={feedbackRoute.email||currentUser?.email||null}
+      userId={currentUser?.id||null}
+      onBack={closeFeedbackPage}
+    />
+  );
 
   if(insightRoute.active)return (
     <TradersInsightPage
@@ -2080,7 +2161,7 @@ export function App() {
     />
   );
   if(partnerPage)return <PartnerPage onBack={()=>{window.history.pushState({},'','/');setPartnerPage(false);setActiveView('landing');}} onOpenLegal={openLegal}/>;
-  if(adminPage)return <AdminDashboard onBack={()=>{window.history.pushState({},'','/');setAdminPage(false);setActiveView('landing');}}/>;
+  if(adminPage)return <AdminDashboard onBack={()=>{window.history.pushState({},'','/');setAdminPage(false);setActiveView('landing');}} onLoginAsUser={handleAdminLoginAsUser}/>;
   if(comingSoon)return <ComingSoonPage onBack={closeComingSoon} onOpenLegal={openLegal}/>;
 
   // VIEW 1: LANDING PAGE (HOMEPAGE)
@@ -2181,10 +2262,87 @@ export function App() {
     );
   }
 
+  const adminImpersonationBanner =
+    adminImpersonation &&
+    currentUser &&
+    adminImpersonation.userEmail.toLowerCase() ===
+      currentUser.email.toLowerCase() ? (
+      <div
+        role="region"
+        aria-label="Administrator account inspection mode"
+        className="z-50 flex flex-wrap items-center justify-between gap-2 border-b border-cyan-400/35 bg-gradient-to-r from-[#071a26] via-[#0c2636] to-[#071a26] px-4 py-2 text-xs text-cyan-100 shadow-lg"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-cyan-400/20 border border-cyan-400/40 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-cyan-200">
+            <ShieldCheck size={12} />
+            Admin Inspection Mode
+          </span>
+          <span>
+            Logged into user account:{' '}
+            <strong className="text-white">{currentUser.name}</strong> (
+            <span className="text-cyan-300">{currentUser.email}</span>) ·{' '}
+            <span className="text-emerald-300">
+              {tradingSessions.length}{' '}
+              {tradingSessions.length === 1 ? 'session' : 'sessions'}
+            </span>
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setHubInitialSection('dashboard');
+              setActiveView('dashboard');
+            }}
+            className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${
+              activeView === 'dashboard' && hubInitialSection === 'dashboard'
+                ? 'bg-cyan-400/25 text-white'
+                : 'bg-white/5 text-slate-300 hover:bg-white/10'
+            }`}
+          >
+            User Dashboard
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setHubInitialSection('analytics');
+              setActiveView('analytics_page');
+            }}
+            className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${
+              activeView === 'analytics_page'
+                ? 'bg-cyan-400/25 text-white'
+                : 'bg-white/5 text-slate-300 hover:bg-white/10'
+            }`}
+          >
+            Analytics
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('terminal')}
+            className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${
+              activeView === 'terminal'
+                ? 'bg-cyan-400/25 text-white'
+                : 'bg-white/5 text-slate-300 hover:bg-white/10'
+            }`}
+          >
+            Chart Workspace
+          </button>
+          <button
+            type="button"
+            onClick={handleExitAdminImpersonation}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 hover:brightness-110 transition"
+          >
+            ← Return to Admin Backend
+          </button>
+        </div>
+      </div>
+    ) : null;
+
   // VIEW 3: ACCOUNT DASHBOARD, SESSIONS, ANALYTICS, STRATEGIES & SETTINGS HUB
   if (activeView === 'dashboard' || activeView === 'analytics_page') {
     return (
       <>
+        {adminImpersonationBanner}
         <AnalyticsDashboardPage
           activeSession={activeSession}
           sessions={tradingSessions}
@@ -2345,6 +2503,7 @@ export function App() {
           : 'bg-[#0d0f13] text-[#d1d4dc]'
       }`}
     >
+      {adminImpersonationBanner}
       {/* Top Toolbar */}
       <TopNavigation
         symbol={symbol}

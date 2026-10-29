@@ -475,3 +475,180 @@ export async function sendPasswordResetEmail(
     { env, request }
   );
 }
+
+export function buildFirstTradeFeedbackEmail({
+  name,
+  email,
+  feedbackUrl,
+  appUrl = DEFAULT_APP_URL,
+}) {
+  const rawName = String(name || 'Trader').trim() || 'Trader';
+  const cleanName = escapeHtml(rawName);
+  const officialUrl = sanitizeOfficialAppUrl(appUrl);
+  const safeAppUrl = escapeHtml(officialUrl);
+  const safeEmail = escapeHtml(String(email || '').trim().toLowerCase());
+  const targetFeedbackUrl =
+    String(feedbackUrl || '').trim() ||
+    `${officialUrl}/?feedback=1&email=${encodeURIComponent(
+      String(email || '').trim().toLowerCase()
+    )}&name=${encodeURIComponent(rawName)}`;
+  const safeFeedbackUrl = escapeHtml(targetFeedbackUrl);
+  const subject = `Hi ${rawName} — We saw you placed your first trade! How did you find our platform?`;
+
+  const text = [
+    `Hi ${rawName},`,
+    '',
+    'We saw you placed your first trade on Chart Replay! How did you find our platform? Is it user-friendly?',
+    '',
+    'Let us know if we can improve it and where we can improve it. Your feedback is valuable.',
+    '',
+    'Click here to give us feedback and rate our platform (1 to 5 stars for User Friendliness, Charts, and Smoothness):',
+    targetFeedbackUrl,
+    '',
+    'Thank you for practicing with us!',
+    'Chart Replay · https://chartreplay.co.za · info@chartreplay.co.za',
+  ].join('\n');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#050811;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e2e8f0;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#050811;padding:36px 14px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#0b111e;border:1px solid #1e293b;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,0.65);">
+          <!-- Top Brand Banner -->
+          <tr>
+            <td style="padding:0;background-color:#080d18;border-bottom:1px solid #1e293b;">
+              <a href="${safeFeedbackUrl}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;">
+                <img src="${WELCOME_BANNER_URL}" alt="Chart Replay — Trader Feedback" width="600" style="width:100%;max-width:600px;height:auto;display:block;border:0;" />
+              </a>
+            </td>
+          </tr>
+
+          <!-- Greeting & Main Message -->
+          <tr>
+            <td style="padding:32px 34px 20px 34px;background:linear-gradient(180deg,#0f1829 0%,#0b111e 100%);">
+              <div style="display:inline-block;padding:5px 14px;border-radius:999px;background-color:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.35);color:#34d399;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">
+                First Trade Milestone · Trader Feedback
+              </div>
+              <h1 style="margin:16px 0 12px 0;font-size:25px;line-height:1.3;font-weight:800;color:#ffffff;letter-spacing:-0.02em;">
+                Hi ${cleanName}, we saw you placed your first trade!
+              </h1>
+              <p style="margin:0 0 14px 0;font-size:15px;line-height:1.7;color:#cbd5e1;">
+                How did you find our platform? Is it user-friendly?
+              </p>
+              <p style="margin:0;font-size:15px;line-height:1.7;color:#cbd5e1;">
+                Let us know if we can improve it and where we can improve it. <strong style="color:#ffffff;">Your feedback is valuable.</strong>
+              </p>
+            </td>
+          </tr>
+
+          <!-- 3 Star Rating Categories Preview -->
+          <tr>
+            <td style="padding:4px 34px 22px 34px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#080d17;border:1px solid #1e293b;border-radius:16px;overflow:hidden;">
+                <tr>
+                  <td style="padding:14px 18px;border-bottom:1px solid #162032;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;font-weight:700;color:#ffffff;">1. User Friendliness</td>
+                        <td align="right" style="font-size:15px;color:#fbbf24;letter-spacing:2px;">★★★★★</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 18px;border-bottom:1px solid #162032;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;font-weight:700;color:#ffffff;">2. Charts &amp; Tools</td>
+                        <td align="right" style="font-size:15px;color:#fbbf24;letter-spacing:2px;">★★★★★</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 18px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size:13px;font-weight:700;color:#ffffff;">3. Smoothness &amp; Speed</td>
+                        <td align="right" style="font-size:15px;color:#fbbf24;letter-spacing:2px;">★★★★★</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <div style="margin-top:8px;font-size:11px;color:#64748b;text-align:center;">
+                Rate each from 1 to 5 stars (5 is the best!) and share your thoughts in 30 seconds.
+              </div>
+            </td>
+          </tr>
+
+          <!-- Primary CTA Button -->
+          <tr>
+            <td style="padding:0 34px 28px 34px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="border-radius:14px;background:linear-gradient(90deg,#10b981 0%,#0ea5e9 55%,#2563eb 100%);box-shadow:0 10px 25px rgba(16,185,129,0.28);">
+                    <a href="${safeFeedbackUrl}" target="_blank" rel="noopener noreferrer" style="display:block;padding:16px 28px;font-size:15px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:0.01em;border-radius:14px;">
+                      Click Here to Give Us Feedback →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:16px 0 0 0;font-size:12px;line-height:1.6;color:#64748b;word-break:break-all;">
+                Or open this direct link in your browser:<br/>
+                <a href="${safeFeedbackUrl}" style="color:#38bdf8;text-decoration:underline;">${safeFeedbackUrl}</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:22px 34px;background-color:#070b14;border-top:1px solid #1e293b;font-size:11px;line-height:1.7;color:#64748b;text-align:center;">
+              <strong style="color:#94a3b8;">Chart Replay</strong> · Sent to <span style="color:#94a3b8;">${safeEmail}</span><br/>
+              Need assistance? Reply to this email or contact <a href="mailto:info@chartreplay.co.za" style="color:#34d399;text-decoration:underline;">info@chartreplay.co.za</a> · <a href="${safeAppUrl}" style="color:#38bdf8;text-decoration:underline;">chartreplay.co.za</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return { subject, html, text, feedbackUrl: targetFeedbackUrl };
+}
+
+export async function sendFirstTradeFeedbackEmail(
+  { name, email, origin },
+  { env = process.env, request = fetch } = {}
+) {
+  const appUrl = resolvePublicAppUrl(origin, env);
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanName = String(name || 'Trader').trim() || 'Trader';
+  const feedbackUrl = `${appUrl}/?feedback=1&email=${encodeURIComponent(
+    cleanEmail
+  )}&name=${encodeURIComponent(cleanName)}`;
+  const content = buildFirstTradeFeedbackEmail({
+    name: cleanName,
+    email: cleanEmail,
+    feedbackUrl,
+    appUrl,
+  });
+  const result = await sendResendEmail(
+    {
+      to: cleanEmail,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+    },
+    { env, request }
+  );
+  return { ...result, feedbackUrl };
+}

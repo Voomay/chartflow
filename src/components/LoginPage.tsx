@@ -1,7 +1,6 @@
 import {platformRequest,serverAccountRequest,requestPasswordResetEmail,completePasswordResetWithToken} from '../services/platformAccounts';
 import {hasSeenChartAnnouncement} from './ChartAnnouncement';
 import {hasSeenWorkspaceTour} from './WorkspaceTour';
-import {LegalLinks,LegalDocumentKey} from './LegalLinks';
 import {applyPageSeo,buildAuthJsonLd} from '../services/seo';
 import React, { useEffect, useState } from 'react';
 import { ChartReplayLogo } from './ChartReplayLogo';
@@ -36,8 +35,6 @@ export interface ChartFlowUser {
 }
 
 interface LoginPageProps {
-  onOpenLegal?:(page:LegalDocumentKey)=>void;
-  onOpenSitemap?:()=>void;
   initialMode?: 'login' | 'signup' | 'reset';
   onModeChange?: (mode: 'login' | 'signup' | 'reset') => void;
   initialResetToken?: string | null;
@@ -58,8 +55,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onClearResetToken,
   onSuccessAuth,
   onBackToLanding,
-  onOpenLegal,
-  onOpenSitemap,
 }) => {
   const [submitting,setSubmitting]=useState(false);
   const [serverAccounts,setServerAccounts]=useState(false);
@@ -629,7 +624,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <span>100% Free · No credit card needed</span>
           </p>
           {serverAccounts&&<p className="text-[11px] text-slate-500 leading-5 mt-3 text-center">Accounts, trading sessions, and journals are securely stored in Supabase. Login details are never saved in localhost storage or readable cookies.</p>}
-          <p className="text-[10px] text-slate-500 mt-5 text-center">Technology for learning · Simulated money only</p><LegalLinks onOpen={onOpenLegal} onOpenSitemap={onOpenSitemap} className="justify-center mt-3 text-slate-400"/>
+          <p className="text-[10px] text-slate-500 mt-5 text-center">Technology for learning · Simulated money only</p>
         </div>
       </div>
     </div>

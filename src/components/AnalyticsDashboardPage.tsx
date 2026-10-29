@@ -1,5 +1,4 @@
 import {ChartAnnouncement,hasSeenChartAnnouncement,markChartAnnouncementSeen} from './ChartAnnouncement';
-import {LegalLinks,LegalDocumentKey} from './LegalLinks';
 import {applyPageSeo} from '../services/seo';
 import { WorkspaceTour } from './WorkspaceTour';
 import { PerformanceOverview } from './PerformanceOverview';
@@ -78,7 +77,6 @@ export type HubSidebarSection =
   | 'settings';
 
 interface AnalyticsDashboardPageProps {
-  onOpenLegal?:(page:LegalDocumentKey)=>void;
   activeSession: TradingSession;
   sessions: TradingSession[];
   onSelectSessionAndResume: (sessionId: string) => void;
@@ -122,7 +120,6 @@ interface AnalyticsDashboardPageProps {
 
 export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   activeSession,
-  onOpenLegal,
   sessions,
   onSelectSessionAndResume,
   onSelectSessionForAnalytics,
@@ -617,7 +614,6 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             )}
           </div>
         )}
-        <LegalLinks onOpen={onOpenLegal} className="pt-2"/>
       </div>
     </div>
   );

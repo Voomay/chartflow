@@ -2042,7 +2042,7 @@ export function App() {
     timeframe,
   ]);
 
-  if(legalPage)return <LegalPage page={legalPage} onNavigate={openLegal} onBack={closeLegal}/>;
+  if(legalPage)return <LegalPage page={legalPage} onNavigate={openLegal} onOpenSitemap={openSitemap} onBack={closeLegal}/>;
   if(sitemapPage)return <SitemapPage onBack={closeSitemap} onNavigateRoute={navigateFromSitemap} onOpenLegal={openLegal}/>;
   if(feedbackRoute.active)return (
     <PlatformFeedbackPage
@@ -2059,6 +2059,7 @@ export function App() {
       onSelectArticle={(slug)=>openTradersInsight(slug)}
       onBackToHome={closeTradersInsight}
       onOpenLegal={openLegal}
+      onOpenSitemap={openSitemap}
       onLaunchSimulator={(action)=>{
         window.history.pushState({},'','/');
         setInsightRoute({active:false,slug:null});
@@ -2083,9 +2084,9 @@ export function App() {
       }}
     />
   );
-  if(partnerPage)return <PartnerPage onBack={()=>{window.history.pushState({},'','/');setPartnerPage(false);setActiveView('landing');}} onOpenLegal={openLegal}/>;
+  if(partnerPage)return <PartnerPage onBack={()=>{window.history.pushState({},'','/');setPartnerPage(false);setActiveView('landing');}} onOpenLegal={openLegal} onOpenSitemap={openSitemap}/>;
   if(adminPage)return <AdminDashboard onBack={()=>{window.history.pushState({},'','/');setAdminPage(false);setActiveView('landing');}} onLoginAsUser={handleAdminLoginAsUser}/>;
-  if(comingSoon)return <ComingSoonPage onBack={closeComingSoon} onOpenLegal={openLegal}/>;
+  if(comingSoon)return <ComingSoonPage onBack={closeComingSoon} onOpenLegal={openLegal} onOpenSitemap={openSitemap}/>;
 
   // VIEW 1: LANDING PAGE (HOMEPAGE)
   if (activeView === 'landing') {
@@ -2128,7 +2129,7 @@ export function App() {
   // VIEW 2: LOGIN / REGISTRATION / PASSWORD RESET
   if (activeView === 'login' || !currentUser) {
     return (
-      <LoginPage onOpenLegal={openLegal} onOpenSitemap={openSitemap}
+      <LoginPage
         initialMode={urlResetParams.token ? 'reset' : loginInitialMode}
         onModeChange={(nextMode) => setLoginInitialMode(nextMode)}
         initialResetToken={urlResetParams.token}
@@ -2297,7 +2298,6 @@ export function App() {
           onSaveJournalEntry={(sessId, tradeId, entry) =>
             handleSaveJournalEntry(tradeId, entry, sessId)
           }
-          onOpenLegal={openLegal}
           strategies={strategies}
           onSaveStrategies={(nextStrategies) => {
             setStrategies(nextStrategies);

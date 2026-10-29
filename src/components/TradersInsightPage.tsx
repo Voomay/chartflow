@@ -37,6 +37,7 @@ interface TradersInsightPageProps {
     action?: 'prop_firm' | 'replay' | 'new_backtest' | 'analytics'
   ) => void;
   onOpenLegal?: (page: LegalDocumentKey) => void;
+  onOpenSitemap?: () => void;
 }
 
 export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
@@ -45,6 +46,7 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
   onBackToHome,
   onLaunchSimulator,
   onOpenLegal,
+  onOpenSitemap,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All Topics');
@@ -693,7 +695,7 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
               <ChartReplayLogo size={26} />
               <span>© Chart Replay · Trader&apos;s Insight Research</span>
             </div>
-            <LegalLinks onOpen={onOpenLegal} />
+            <LegalLinks onOpen={onOpenLegal} onOpenSitemap={onOpenSitemap} />
           </div>
         </footer>
       </div>
@@ -939,7 +941,7 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
               © Chart Replay · Trader&apos;s Insight · Proudly South African
             </span>
           </div>
-          <LegalLinks onOpen={onOpenLegal} />
+          <LegalLinks onOpen={onOpenLegal} onOpenSitemap={onOpenSitemap} />
         </div>
       </footer>
     </div>

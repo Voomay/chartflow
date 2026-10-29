@@ -4,7 +4,7 @@ import {ChartReplayLogo} from './ChartReplayLogo';
 import {LegalDocumentKey, LegalLinks} from './LegalLinks';
 import {FaqAssistant} from './FaqAssistant';
 
-export function ComingSoonPage({onBack,onOpenLegal}:{onBack:()=>void;onOpenLegal:(page:LegalDocumentKey)=>void}){
+export function ComingSoonPage({onBack,onOpenLegal,onOpenSitemap}:{onBack:()=>void;onOpenLegal:(page:LegalDocumentKey)=>void;onOpenSitemap?:()=>void}){
   const [name,setName]=useState('');const [email,setEmail]=useState('');const [consent,setConsent]=useState(false);const [website,setWebsite]=useState('');
   const [status,setStatus]=useState<'idle'|'saving'|'saved'>('idle');const [error,setError]=useState('');
   useEffect(()=>{const previous=document.title;document.title='Coming soon · Chart Replay';return()=>{document.title=previous;};},[]);
@@ -39,7 +39,7 @@ export function ComingSoonPage({onBack,onOpenLegal}:{onBack:()=>void;onOpenLegal
         </form>}
         <div className="mt-5 flex items-center gap-2 text-[11px] text-slate-500"><Check size={13} className="text-emerald-400"/>Launch updates only. No launch date promised.</div><p className="mt-4 text-[11px] leading-5 text-slate-500">{enabled?'We save your name, email and consent to manage launch updates. To request removal, email info@chartreplay.co.za. Read our':'Preview only: this form does not submit or save your details yet. Read our'} <button onClick={()=>onOpenLegal('privacy')} className="text-slate-300 underline">Privacy Policy</button> for details.</p>
       </section></div>
-      <footer className="flex flex-col justify-between gap-4 border-t border-white/10 py-6 pb-28 text-[11px] text-slate-500 sm:flex-row"><p>Technology for trader development. Simulated money only.</p><LegalLinks onOpen={onOpenLegal}/></footer>
+      <footer className="flex flex-col justify-between gap-4 border-t border-white/10 py-6 pb-28 text-[11px] text-slate-500 sm:flex-row"><p>Technology for trader development. Simulated money only.</p><LegalLinks onOpen={onOpenLegal} onOpenSitemap={onOpenSitemap}/></footer>
     </div><FaqAssistant/>
   </main>;
 }

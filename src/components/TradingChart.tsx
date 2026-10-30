@@ -5198,8 +5198,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       (focusVersionChanged ||
         addedBarsCount > 1 ||
         candles.length < prevMeta.length ||
-        !isIncrementalAppendOrUpdate ||
-        (prevMeta.lastTime > 0 && Math.abs(lastTime - prevMeta.lastTime) > stepSec * 2));
+        !isIncrementalAppendOrUpdate);
 
     const centerViewportOnActivePrice = (scrollHorizontal: boolean) => {
       const chartStore = (chart as any)._chartStore;
@@ -5208,11 +5207,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         yAxis.setAutoCalcTickFlag(true);
       }
       if (scrollHorizontal) {
-        const currentBarSpace =
-          typeof chart.getBarSpace === 'function' ? (chart.getBarSpace() as any)?.bar ?? chart.getBarSpace() : 7.5;
-        if (typeof currentBarSpace === 'number' && currentBarSpace < 5) {
-          chart.setBarSpace(7.5);
-        }
         chart.scrollToRealTime();
         if (typeof chartStore?.setLastBarRightSideDiffBarCount === 'function') {
           chartStore.setLastBarRightSideDiffBarCount(14);
@@ -5232,39 +5226,27 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       if (chartPlotHeight <= 80) return;
 
       const closeY = priceToY(lastCandle.close, chart);
-      const focusBars = candles.slice(-40);
-      let focusHigh = lastCandle.high;
-      let focusLow = lastCandle.low;
-      for (let i = 0; i < focusBars.length; i++) {
-        if (focusBars[i].high > focusHigh) focusHigh = focusBars[i].high;
-        if (focusBars[i].low < focusLow) focusLow = focusBars[i].low;
-      }
-      const highY = priceToY(focusHigh, chart);
-      const lowY = priceToY(focusLow, chart);
-      const focusPixelSpan =
-        highY !== null && lowY !== null ? Math.abs(lowY - highY) : chartPlotHeight * 0.5;
-
       const needsCustomCenterRange =
         closeY === null ||
-        closeY < chartPlotHeight * 0.22 ||
-        closeY > chartPlotHeight * 0.78 ||
-        focusPixelSpan < chartPlotHeight * 0.25;
+        closeY < 8 ||
+        closeY > chartPlotHeight - 8;
 
       if (needsCustomCenterRange && yAxis && typeof yAxis.setRange === 'function') {
+        const focusBars = candles.slice(-80);
+        let focusHigh = lastCandle.high;
+        let focusLow = lastCandle.low;
+        for (let i = 0; i < focusBars.length; i++) {
+          if (focusBars[i].high > focusHigh) focusHigh = focusBars[i].high;
+          if (focusBars[i].low < focusLow) focusLow = focusBars[i].low;
+        }
         const minSpan = Math.max(
           (instConfig.minMove || 0.0001) * 30,
           instConfig.volatility1m * 10
         );
         const rawSpan = Math.max(focusHigh - focusLow, minSpan);
         const pad = rawSpan * 0.35;
-        let from = focusLow - pad;
-        let to = focusHigh + pad;
-        const closeRatio = (lastCandle.close - from) / Math.max(1e-9, to - from);
-        if (closeRatio < 0.32) {
-          from = lastCandle.close - (to - lastCandle.close) * (0.35 / 0.65);
-        } else if (closeRatio > 0.68) {
-          to = lastCandle.close + (lastCandle.close - from) * (0.35 / 0.65);
-        }
+        const from = focusLow - pad;
+        const to = focusHigh + pad;
         const range = to - from;
         if (Number.isFinite(range) && range > 0) {
           yAxis.setRange({
@@ -5289,7 +5271,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     };
 
     const historyUnchanged = revealedHistorySamplesMatch(prevMeta,candles);
-    if (isIncrementalAppendOrUpdate && historyUnchanged && subscribeBarCallbackRef.current) {
+    if (isIncrementalAppendOrUpdate && historyUnchanged && subscribeBarCallbackRef.current && !focusVersionChanged) {
       const chartStore = (chart as any)._chartStore;
       const beforeDiff =
         typeof chartStore?.getLastBarRightSideDiffBarCount === 'function'
@@ -5311,50 +5293,25 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         replayAnimationFrame.current=requestAnimationFrame(frame);
       }else update(toKLineData(target));
 
-      if (isReplaySkipOrJump) {
-        centerViewportOnActivePrice(true);
-      } else {
-        // If the user dragged the chart left (leaving open space on the right),
-        // keep existing candles anchored at the exact screen position where the user set them
-        // while new bars print forward into the open space on the right.
-        const minRightBars = 10;
-        if (
-          addedBarsCount > 0 &&
-          beforeDiff !== null &&
-          beforeDiff > minRightBars &&
-          typeof chartStore?.setLastBarRightSideDiffBarCount === 'function'
-        ) {
-          const nextDiff = Math.max(minRightBars, beforeDiff - addedBarsCount);
-          chartStore.setLastBarRightSideDiffBarCount(nextDiff);
-          chartStore._adjustVisibleRange?.();
-          (chart as any).layout?.({
-            measureWidth: true,
-            update: true,
-            buildYAxisTick: true,
-          });
-        }
-
-        // During normal stepping, if the active candle drifts near/outside the vertical or horizontal viewport, re-center it
-        if (isReplayMode && addedBarsCount > 0) {
-          const cw = containerRef.current?.clientWidth || 900;
-          const ch = containerRef.current?.clientHeight || 600;
-          const { chartPlotWidth, chartPlotHeight } = getCandlePaneMetrics(chart, cw, ch);
-          const closeY = priceToY(target.close, chart);
-          const highY = priceToY(target.high, chart);
-          const lowY = priceToY(target.low, chart);
-          const lastX = resolveTimeToX(target.time, candles, chart);
-          const outVertical =
-            closeY === null ||
-            closeY < chartPlotHeight * 0.14 ||
-            closeY > chartPlotHeight * 0.86 ||
-            (highY !== null && highY < chartPlotHeight * 0.06) ||
-            (lowY !== null && lowY > chartPlotHeight * 0.94);
-          const outHorizontal =
-            lastX === null || lastX < 36 || lastX > chartPlotWidth - 20;
-          if (outVertical || outHorizontal) {
-            centerViewportOnActivePrice(outHorizontal);
-          }
-        }
+      // Preserve the user's horizontal zoom (barSpace) and vertical scale across all steps and day transitions.
+      // If the user dragged the chart left (leaving open space on the right),
+      // keep existing candles anchored at the exact screen position where the user set them
+      // while new bars print forward into the open space on the right.
+      const minRightBars = 10;
+      if (
+        addedBarsCount > 0 &&
+        beforeDiff !== null &&
+        beforeDiff > minRightBars &&
+        typeof chartStore?.setLastBarRightSideDiffBarCount === 'function'
+      ) {
+        const nextDiff = Math.max(minRightBars, beforeDiff - addedBarsCount);
+        chartStore.setLastBarRightSideDiffBarCount(nextDiff);
+        chartStore._adjustVisibleRange?.();
+        (chart as any).layout?.({
+          measureWidth: true,
+          update: true,
+          buildYAxisTick: true,
+        });
       }
     } else if (isDatasetSwitch) {
       const yAxis = chart.getYAxes({ paneId: 'candle_pane' })[0] as any;
@@ -5368,14 +5325,58 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       });
       chart.setPeriod(mapTimeframeToPeriod(timeframe));
       chart.resetData();
-      chart.setBarSpace(7.5);
+      if (prevMeta.symbol !== symbol || prevMeta.length === 0) {
+        chart.setBarSpace(7.5);
+      }
       chart.scrollToRealTime();
       centerViewportOnActivePrice(true);
-    } else {
-      // Rewind, replay cut, or historical jump on the same symbol & timeframe:
-      // Reset data and center viewport on the target price & timestamp so it is never hidden off-screen
+    } else if (focusVersionChanged) {
       chart.resetData();
       centerViewportOnActivePrice(true);
+    } else {
+      // Same symbol & timeframe (e.g. older archive bars prepended or single-bar rewind):
+      // Preserve the user's current horizontal zoom (barSpace), right-side offset, and Y-axis scale.
+      const chartStore = (chart as any)._chartStore;
+      const yAxis = chart.getYAxes({ paneId: 'candle_pane' })[0] as any;
+      const savedBarSpace =
+        typeof chart.getBarSpace === 'function'
+          ? (chart.getBarSpace() as any)?.bar ?? chart.getBarSpace()
+          : null;
+      const savedRightDiff =
+        typeof chartStore?.getLastBarRightSideDiffBarCount === 'function'
+          ? chartStore.getLastBarRightSideDiffBarCount()
+          : null;
+      const savedAutoTick =
+        typeof yAxis?.getAutoCalcTickFlag === 'function'
+          ? yAxis.getAutoCalcTickFlag()
+          : yAxis?._autoCalcTickFlag ?? true;
+      const savedRange =
+        !savedAutoTick && yAxis?._range ? { ...yAxis._range } : null;
+
+      chart.resetData();
+
+      if (typeof savedBarSpace === 'number' && Number.isFinite(savedBarSpace) && savedBarSpace > 0) {
+        chart.setBarSpace(savedBarSpace);
+      }
+      if (typeof savedRightDiff === 'number' && Number.isFinite(savedRightDiff) && typeof chartStore?.setLastBarRightSideDiffBarCount === 'function') {
+        const clampedDiff = savedRightDiff < -5 ? 14 : savedRightDiff;
+        chartStore.setLastBarRightSideDiffBarCount(clampedDiff);
+        chartStore._adjustVisibleRange?.();
+      } else {
+        chart.scrollToRealTime();
+      }
+      if (savedRange && typeof yAxis?.setRange === 'function' && lastCandle.close >= savedRange.from && lastCandle.close <= savedRange.to) {
+        if (typeof yAxis.setAutoCalcTickFlag === 'function') {
+          yAxis.setAutoCalcTickFlag(false);
+        }
+        yAxis.setRange(savedRange);
+      }
+      (chart as any).layout?.({
+        measureWidth: true,
+        update: true,
+        buildYAxisTick: true,
+        forceBuildYAxisTick: true,
+      });
     }
 
     prevSeriesMetaRef.current = {

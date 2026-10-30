@@ -3,10 +3,13 @@ import {ArrowRight, Check, Loader2, X} from 'lucide-react';
 import {
   claimMotivation,
   encouragements,
+  ensureWelcomePrefsLoaded,
   isReturningLogin,
   markCoachIntroSeen,
+  markWelcomePopupSeen,
   motivationEnabled,
   setMotivationEnabled,
+  welcomePopupSeen,
 } from '../services/motivation';
 import {CoachFace} from './CoachFace';
 
@@ -36,16 +39,26 @@ export function MotivationWelcome({userKey, name, eligible, chartStatus, loading
 
   useEffect(() => {
     if (!eligible) return;
-    if (!motivationEnabled(userKey)) return;
-    const timer = setTimeout(() => {
-      const next = claimMotivation(userKey);
-      if (next) {
-        setIsClosing(false);
-        setMessage(next);
-        callbacks.current.onOpen();
-      }
-    }, 450);
-    return () => clearTimeout(timer);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Wait for the account's cloud preferences so the popup only ever appears once per account.
+    void ensureWelcomePrefsLoaded(userKey).then(() => {
+      if (cancelled) return;
+      setSkip(!motivationEnabled(userKey));
+      if (!motivationEnabled(userKey) || welcomePopupSeen(userKey)) return;
+      timer = setTimeout(() => {
+        const next = claimMotivation(userKey);
+        if (next) {
+          setIsClosing(false);
+          setMessage(next);
+          callbacks.current.onOpen();
+        }
+      }, 450);
+    });
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [eligible, userKey]);
 
   useEffect(() => {
@@ -64,6 +77,7 @@ export function MotivationWelcome({userKey, name, eligible, chartStatus, loading
     if (skip) {
       setMotivationEnabled(userKey, false);
     }
+    markWelcomePopupSeen(userKey);
     markCoachIntroSeen(userKey);
     setIsClosing(true);
     setTimeout(() => {
@@ -255,7 +269,7 @@ export function MotivationPreference({userKey}: {userKey: string}) {
     setEnabled(motivationEnabled(userKey));
   }, [userKey]);
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-4 border-t border-white/10 pt-4">
+    <label className="flex cursor-pointer items-center justify-between gap-4 border-t border-gray-500/15 pt-4">
       <span>
         <span className="block text-xs font-bold">Chart welcome motivation</span>
         <span className="mt-1 block text-[11px] opacity-70">

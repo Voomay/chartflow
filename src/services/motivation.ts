@@ -1,4 +1,4 @@
-import { syncUserPreferencesToSupabase } from './supabaseClient';
+import { fetchUserPreferencesFromSupabase, syncUserPreferencesToSupabase } from './supabaseClient';
 
 const prefix = 'chart_replay_motivation_v1:';
 const seenInMemory = new Set<string>();
@@ -127,7 +127,7 @@ export function resetMotivationVisit(userKey: string, isReturning?: boolean): vo
 // Claim only when actually presented, so setup dialogs do not consume the welcome.
 export function claimMotivation(userKey: string): typeof encouragements[number] | null {
   const norm = normalizeUserKey(userKey);
-  if (!motivationEnabled(userKey) || seenInMemory.has(norm) || seenInMemory.has(userKey)) return null;
+  if (!motivationEnabled(userKey) || welcomePopupSeen(userKey) || seenInMemory.has(norm) || seenInMemory.has(userKey)) return null;
   if (readUserStore(userKey, 'seen') === '1') return null;
   let index = 0;
   try {
@@ -138,5 +138,43 @@ export function claimMotivation(userKey: string): typeof encouragements[number] 
   seenInMemory.add(norm);
   seenInMemory.add(userKey);
   writeUserStore(userKey, 'seen', '1');
+  markWelcomePopupSeen(userKey);
   return encouragements[index];
+}
+
+/** The welcome popup is shown only once per account, ever (persisted in the cloud). */
+export function welcomePopupSeen(userKey: string): boolean {
+  if (!userKey) return false;
+  return readUserStore(userKey, 'welcome_popup_seen') === '1';
+}
+
+export function markWelcomePopupSeen(userKey: string, syncRemote = true): void {
+  if (!userKey) return;
+  const already = welcomePopupSeen(userKey);
+  writeUserStore(userKey, 'welcome_popup_seen', '1');
+  if (!already && syncRemote && userKey !== 'guest') {
+    void syncUserPreferencesToSupabase(userKey, { welcomeSeen: true }).catch(() => {});
+  }
+}
+
+const welcomePrefsLoads = new Map<string, Promise<void>>();
+
+/**
+ * Loads the account's cloud preferences once per page load, so the welcome popup
+ * never re-appears on a new device/login after it was seen or skipped.
+ */
+export function ensureWelcomePrefsLoaded(userKey: string): Promise<void> {
+  const norm = normalizeUserKey(userKey);
+  if (!userKey || userKey === 'guest' || isTestEnvironment()) return Promise.resolve();
+  const existing = welcomePrefsLoads.get(norm);
+  if (existing) return existing;
+  const load = fetchUserPreferencesFromSupabase(userKey)
+    .then((prefs) => {
+      if (!prefs) return;
+      if (prefs.welcomeSeen) writeUserStore(userKey, 'welcome_popup_seen', '1');
+      if (prefs.skipWelcome) writeUserStore(userKey, 'enabled', '0');
+    })
+    .catch(() => {});
+  welcomePrefsLoads.set(norm, load);
+  return load;
 }

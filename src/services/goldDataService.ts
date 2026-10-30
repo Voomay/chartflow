@@ -1416,21 +1416,21 @@ export interface InstrumentHistoricalCoverage {
  */
 export function getInstrumentHistoricalCoverage(symbol: InstrumentSymbol): InstrumentHistoricalCoverage {
   let minDate = '2015-01-02';
-  let maxDate = '2026-10-16';
+  let maxDate = '2026-10-23';
   let missingRange: { start: string; end: string; label: string } | undefined;
 
   if (symbol === 'BTCUSD') {
     minDate = '2015-01-01';
-    maxDate = '2026-10-24';
+    maxDate = '2026-10-25';
   } else if (symbol === 'ETHUSD') {
     minDate = '2016-06-01';
-    maxDate = '2026-10-24';
+    maxDate = '2026-10-25';
   } else if (symbol === 'US30') {
     minDate = '2015-01-02';
     maxDate = '2026-10-23';
   } else if (symbol === 'USOIL') {
     minDate = '2015-01-02';
-    maxDate = '2026-10-16';
+    maxDate = '2026-10-23';
     missingRange = {
       start: '2024-01-01',
       end: '2026-06-14',

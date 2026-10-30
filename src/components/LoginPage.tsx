@@ -4,6 +4,7 @@ import {hasSeenWorkspaceTour} from './WorkspaceTour';
 import {applyPageSeo,buildAuthJsonLd} from '../services/seo';
 import React, { useEffect, useState } from 'react';
 import { ChartReplayLogo } from './ChartReplayLogo';
+import { LegalDocumentKey } from './LegalLinks';
 import { PlatformPreview } from './LandingExtras';
 import {
   ArrowLeft,
@@ -45,6 +46,7 @@ interface LoginPageProps {
   onLogout: () => void;
   onBackToLanding: () => void;
   onSkipToTerminal: () => void;
+  onOpenLegal?: (page: LegalDocumentKey) => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({
@@ -55,6 +57,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onClearResetToken,
   onSuccessAuth,
   onBackToLanding,
+  onOpenLegal,
 }) => {
   const [submitting,setSubmitting]=useState(false);
   const [serverAccounts,setServerAccounts]=useState(false);
@@ -623,8 +626,40 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <span>100% Free · No credit card needed</span>
           </p>
-          {serverAccounts&&<p className="text-[11px] text-slate-500 leading-5 mt-3 text-center">Accounts, trading sessions, and journals are securely stored in Supabase. Login details are never saved in localhost storage or readable cookies.</p>}
-          <p className="text-[10px] text-slate-500 mt-5 text-center">Technology for learning · Simulated money only</p>
+          <p className="text-[11px] text-slate-400 leading-5 mt-3 text-center">
+            Accounts, trading sessions, and journals are securely stored.
+          </p>
+          <p className="text-[11px] text-slate-500 leading-5 mt-2.5 text-center">
+            By signing in or creating an account, you confirm that you are{' '}
+            <span className="text-slate-400 font-medium">18 years or older</span> and agree to our{' '}
+            <a
+              href="/terms"
+              onClick={(e) => {
+                if (!onOpenLegal || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                onOpenLegal('terms');
+              }}
+              className="text-slate-400 underline hover:text-emerald-400 transition-colors"
+            >
+              Terms &amp; Conditions
+            </a>{' '}
+            and{' '}
+            <a
+              href="/privacy"
+              onClick={(e) => {
+                if (!onOpenLegal || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                onOpenLegal('privacy');
+              }}
+              className="text-slate-400 underline hover:text-emerald-400 transition-colors"
+            >
+              Privacy Policy
+            </a>
+            . Terms &amp; Conditions apply.
+          </p>
+          <p className="text-[10px] text-slate-500 leading-4 mt-3 text-center">
+            Simulated trading platform for educational &amp; practice purposes only · No real money, deposits, or live brokerage execution · Not financial advice
+          </p>
         </div>
       </div>
     </div>

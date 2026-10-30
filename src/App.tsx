@@ -702,12 +702,15 @@ export function App() {
       const existing1m = getHistoricalCandles('1m', symbol) || [];
       if (
         existing1m.length > 0 &&
-        authoritativeClockTs >= existing1m[0].time + 5 * 86400 &&
-        authoritativeClockTs <= existing1m[existing1m.length - 1].time
+        authoritativeClockTs >= existing1m[0].time - 7 * 86400 &&
+        authoritativeClockTs <= existing1m[existing1m.length - 1].time + 14 * 86400
       ) {
         setLoadedMarketDataKey(marketDataRequestKey);
         setIsMarketDataLoading(false);
-        if (authoritativeClockTs + 3 * 86400 > existing1m[existing1m.length - 1].time) {
+        if (
+          authoritativeClockTs < existing1m[0].time + 5 * 86400 ||
+          authoritativeClockTs + 3 * 86400 > existing1m[existing1m.length - 1].time
+        ) {
           void hydrateHistoricalArchive(symbol, authoritativeClockTs, 'extend').then((loaded) => {
             if (loaded && !cancelled) setMarketDataVersion((v) => v + 1);
           });
@@ -1258,7 +1261,6 @@ export function App() {
     (targetTs: number): { ok: boolean; error?: string } => {
       const currTs = activeSession.replayTimestamp || activeSession.startTimestamp || authoritativeClockTs;
       const stepSec = TIMEFRAME_CONFIG[replayStepTimeframe]?.seconds || 900;
-      const isSkipJump = Math.abs(targetTs - currTs) > stepSec;
 
       const outcome = advanceOrRewindSessionToTimestamp(activeSession, targetTs);
       if (outcome.rewindBlockedReason) {
@@ -1329,10 +1331,6 @@ export function App() {
       setTradingSessions((prevList) =>
         prevList.map((s) => (s.id === activeSession.id ? nextSessionState : s))
       );
-
-      if (isSkipJump) {
-        setViewportFocusVersion((v) => v + 1);
-      }
 
       if (outcome.closedTrades.length > 0) {
         const lastClosed =
@@ -1571,7 +1569,6 @@ export function App() {
         setTradingSessions((prevList) =>
           prevList.map((s) => (s.id === activeSession.id ? simSession : s))
         );
-        setViewportFocusVersion((v) => v + 1);
         return;
       }
 
@@ -2240,6 +2237,7 @@ export function App() {
         currentUser={currentUser}
         onBackToLanding={() => setActiveView('landing')}
         onSkipToTerminal={() => setActiveView('dashboard')}
+        onOpenLegal={openLegal}
       />
     );
   }

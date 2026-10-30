@@ -447,7 +447,7 @@
 
 /* Dashboard and analytics surfaces, scoped away from the trading chart. */
 .hub-modern[data-hub-theme="dark"] { --hub-panel: #101b26; --hub-line: rgba(125,180,215,.19); --hub-text: #eaf2ff; background-color: #0b121b; }
-.hub-modern[data-hub-theme="light"] { --hub-panel: #fff; --hub-line: rgba(59,99,130,.17); --hub-text: #152b3f; background-color: #f3f7fb; }
+.hub-modern[data-hub-theme="light"] { --hub-panel: #fff; --hub-line: rgba(59,99,130,.22); --hub-text: #0f172a; background-color: #f3f7fb; }
 .hub-modern { color:var(--hub-text); }
 .hub-modern[data-hub-theme="dark"] .hub-workspace-shell,
 .hub-modern[data-hub-theme="dark"] > main {
@@ -483,11 +483,24 @@
 .hub-modern[data-hub-theme="light"] .hub-resume { border:1px solid rgba(0,189,168,.35);background:linear-gradient(115deg,#e0faf5 0%,#eaf4ff 70%,#f1ebff 100%); }
 .hub-modern[data-hub-theme="light"] .hub-session-card { background:linear-gradient(130deg,#f2fbf9 0%,#ffffff 68%); }
 .hub-modern[data-hub-theme="light"] .hub-session-card:nth-child(even) { background:linear-gradient(135deg,#f2f6fe 0%,#ffffff 75%); }
-.hub-modern[data-hub-theme="light"] .hub-tone-teal { --hub-accent:#008b70;--hub-bg-card:linear-gradient(125deg,#ebfaf6 0%,#ffffff 85%); }
-.hub-modern[data-hub-theme="light"] .hub-tone-blue { --hub-bg-card:linear-gradient(125deg,#edf4ff 0%,#ffffff 85%); }
-.hub-modern[data-hub-theme="light"] .hub-tone-cyan { --hub-accent:#007b99;--hub-bg-card:linear-gradient(125deg,#ebf8fc 0%,#ffffff 85%); }
-.hub-modern[data-hub-theme="light"] .hub-tone-rose { --hub-accent:#c12b55;--hub-bg-card:linear-gradient(125deg,#fef0f3 0%,#ffffff 85%); }
-.hub-modern[data-hub-theme="light"] .hub-tone-violet { --hub-accent:#7542c4;--hub-bg-card:linear-gradient(125deg,#f4f0fe 0%,#ffffff 85%); }
+.hub-modern[data-hub-theme="light"] .hub-tone-teal { --hub-accent:#047857;--hub-tint:rgba(5,150,105,.14);--hub-tint-line:rgba(5,150,105,.28);--hub-bg-card:linear-gradient(125deg,#ebfaf6 0%,#ffffff 85%); }
+.hub-modern[data-hub-theme="light"] .hub-tone-blue { --hub-accent:#1d4ed8;--hub-tint:rgba(37,99,235,.14);--hub-tint-line:rgba(37,99,235,.28);--hub-bg-card:linear-gradient(125deg,#edf4ff 0%,#ffffff 85%); }
+.hub-modern[data-hub-theme="light"] .hub-tone-cyan { --hub-accent:#0369a1;--hub-tint:rgba(2,132,199,.14);--hub-tint-line:rgba(2,132,199,.28);--hub-bg-card:linear-gradient(125deg,#ebf8fc 0%,#ffffff 85%); }
+.hub-modern[data-hub-theme="light"] .hub-tone-rose { --hub-accent:#be123c;--hub-tint:rgba(225,29,72,.13);--hub-tint-line:rgba(225,29,72,.28);--hub-bg-card:linear-gradient(125deg,#fef0f3 0%,#ffffff 85%); }
+.hub-modern[data-hub-theme="light"] .hub-tone-violet { --hub-accent:#6d28d9;--hub-tint:rgba(109,40,217,.13);--hub-tint-line:rgba(109,40,217,.28);--hub-bg-card:linear-gradient(125deg,#f4f0fe 0%,#ffffff 85%); }
+.hub-modern[data-hub-theme="light"] :is(.opacity-40,.opacity-45,.opacity-50,.opacity-55,.opacity-60,.opacity-65,.opacity-70,.opacity-75,.opacity-80) { color:#334155;opacity:.94; }
+.hub-modern[data-hub-theme="light"] .hub-metric p,
+.hub-modern[data-hub-theme="light"] .hub-metric span:not(.hub-metric-icon),
+.hub-modern[data-hub-theme="light"] .hub-streak p,
+.hub-modern[data-hub-theme="light"] .hub-streak span { color:#334155;opacity:.95;font-weight:500; }
+.hub-modern[data-hub-theme="light"] :is(.text-gray-400,.text-slate-400,.text-\[\#9ca3af\]) { color:#475569; }
+.hub-modern[data-hub-theme="light"] .text-emerald-400:not(.bg-\[\#1a1e26\] *,.bg-\[\#1e222a\],.bg-\[\#222731\]) { color:#047857; }
+.hub-modern[data-hub-theme="light"] .text-rose-400:not(.bg-\[\#1a1e26\] *) { color:#be123c; }
+.hub-modern[data-hub-theme="light"] .text-blue-400:not(.bg-\[\#1a1e26\] *) { color:#1d4ed8; }
+.hub-modern[data-hub-theme="light"] :is(.text-cyan-400,.text-cyan-500):not(.bg-\[\#1a1e26\] *) { color:#0369a1; }
+.hub-modern[data-hub-theme="light"] .text-amber-400:not(.bg-\[\#1a1e26\] *) { color:#b45309; }
+.hub-modern[data-hub-theme="light"] .text-indigo-400:not(.bg-\[\#1a1e26\] *) { color:#4338ca; }
+.hub-modern[data-hub-theme="light"] .text-orange-300:not(.bg-\[\#1a1e26\] *) { color:#c2410c; }
 @media(max-width:1199px) {
  .hub-metric { display:flex;padding:12px 14px;gap:10px; }
  .hub-metric-icon { width:36px;height:36px;margin-bottom:0; }

@@ -300,16 +300,16 @@ export const EquityCurveChart: React.FC<EquityCurveChartProps> = ({
   const { hover, onMove, onLeave } = useHoverIndex(n, padL, innerW);
   const hp = hover !== null ? pts[hover] : null;
   const xTicks = xTickIndices(n, Math.max(2, Math.floor(innerW / 80)));
-  const gridColor = isLight ? 'rgba(15,23,42,0.07)' : 'rgba(148,163,184,0.08)';
-  const axisText = isLight ? '#64748b' : '#7c8799';
+  const gridColor = isLight ? 'rgba(15,23,42,0.10)' : 'rgba(148,163,184,0.08)';
+  const axisText = isLight ? '#334155' : '#7c8799';
 
   const refLines: { v: number; color: string; label: string; dash: string }[] = [
-    { v: base, color: '#64748b', label: 'Start', dash: '3 4' },
+    { v: base, color: isLight ? '#475569' : '#64748b', label: 'Start', dash: '3 4' },
   ];
   if (targetLine !== null && isFiniteNum(targetLine))
-    refLines.push({ v: targetLine, color: '#10b981', label: 'Target', dash: '6 4' });
+    refLines.push({ v: targetLine, color: isLight ? '#059669' : '#10b981', label: 'Target', dash: '6 4' });
   if (floorLine !== null && isFiniteNum(floorLine))
-    refLines.push({ v: floorLine, color: '#f43f5e', label: 'Floor', dash: '6 4' });
+    refLines.push({ v: floorLine, color: isLight ? '#e11d48' : '#f43f5e', label: 'Floor', dash: '6 4' });
 
   return (
     <div ref={wrapRef} className="relative w-full select-none" style={{ height: h }}>
@@ -358,6 +358,7 @@ export const EquityCurveChart: React.FC<EquityCurveChartProps> = ({
               textAnchor="end"
               dominantBaseline="middle"
               fontSize={10}
+              fontWeight={isLight ? 600 : 400}
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
               fill={axisText}
             >
@@ -393,9 +394,10 @@ export const EquityCurveChart: React.FC<EquityCurveChartProps> = ({
               y={bottomY + 28}
               textAnchor="middle"
               fontSize={9}
+              fontWeight={isLight ? 600 : 400}
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
               fill={axisText}
-              opacity={0.7}
+              opacity={isLight ? 0.92 : 0.7}
             >
               {shortDate(pts[i].timestamp)}
             </text>
@@ -676,8 +678,8 @@ export const DrawdownChart: React.FC<DrawdownChartProps> = ({
   const { hover, onMove, onLeave } = useHoverIndex(n, padL, innerW);
   const hp = hover !== null ? pts[hover] : null;
   const xTicks = xTickIndices(n, Math.max(2, Math.floor(innerW / 64)));
-  const gridColor = isLight ? 'rgba(15,23,42,0.07)' : 'rgba(148,163,184,0.08)';
-  const axisText = isLight ? '#64748b' : '#7c8799';
+  const gridColor = isLight ? 'rgba(15,23,42,0.10)' : 'rgba(148,163,184,0.08)';
+  const axisText = isLight ? '#334155' : '#7c8799';
   const fmtPct = (v: number) => (v <= 0 ? '0%' : `-${v.toFixed(decimals)}%`);
 
   // Max DD label placement (keep inside the plot)
@@ -747,8 +749,9 @@ export const DrawdownChart: React.FC<DrawdownChartProps> = ({
                   textAnchor="end"
                   dominantBaseline="middle"
                   fontSize={10}
+                  fontWeight={isLight ? 600 : 400}
                   fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-                  fill={mag === 0 ? (isLight ? '#334155' : '#cbd5e1') : axisText}
+                  fill={mag === 0 ? (isLight ? '#0f172a' : '#cbd5e1') : axisText}
                 >
                   {fmtPct(mag)}
                 </text>

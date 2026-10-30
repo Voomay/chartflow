@@ -754,7 +754,9 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                     onClick={() => setDashboardModeTab(tab.id)}
                     className={`px-2.5 sm:px-3.5 py-1.5 rounded-full whitespace-nowrap text-[11px] sm:text-xs font-semibold border transition ${
                       dashboardModeTab === tab.id
-                        ? 'bg-[#252a34] text-white border-[#3a404f]'
+                        ? isLight
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          : 'bg-[#252a34] text-white border-[#3a404f]'
                         : `${subCardBg} opacity-75 hover:opacity-100`
                     }`}
                   >
@@ -849,6 +851,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                               className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded uppercase ${
                                 isProp
                                   ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                                  : isLight
+                                  ? 'bg-slate-100 text-slate-800 border border-slate-300'
                                   : 'bg-[#222731] text-[#cbd5e1] keep-white border border-[#343a47]'
                               }`}
                             >
@@ -903,7 +907,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                           {sess.assets.map((sym) => (
                             <span
                               key={sym}
-                              className="px-1.5 py-0.5 rounded bg-[#222731] text-emerald-400 font-bold text-[10px]"
+                              className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
+                                isLight
+                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                  : 'bg-[#222731] text-emerald-400'
+                              }`}
                             >
                               {sym}
                             </span>
@@ -1837,9 +1845,13 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                           !hasTrades
                             ? subCardBg
                             : cell.pnl > 0
-                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                            ? isLight
+                              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-800'
+                              : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                             : cell.pnl < 0
-                            ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                            ? isLight
+                              ? 'bg-rose-500/15 border-rose-500/40 text-rose-800'
+                              : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
                             : 'bg-blue-500/15 border-blue-500/30'
                         }`}
                       >
@@ -2152,7 +2164,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <span className="px-3 py-1.5 rounded-xl border text-xs font-mono font-bold">
+                <span className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold ${subCardBg}`}>
                   {strategies.length} Strategies Available
                 </span>
               </div>
@@ -2249,11 +2261,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 return (
                   <div
                     key={st.id}
-                    className={`p-4 rounded-2xl border flex flex-col justify-between space-y-3.5 ${cardBg} hover:border-[#2962ff]/40 transition`}
+                    className={`hub-session-card p-4 rounded-2xl border flex flex-col justify-between space-y-3.5 ${cardBg} hover:border-[#2962ff]/40 transition`}
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between gap-2">
-                        <div className="font-extrabold text-sm text-white leading-snug">
+                        <div className={`font-extrabold text-sm leading-snug ${isLight ? 'text-slate-900' : 'text-white'}`}>
                           {st.name}
                         </div>
                         {onSaveStrategies && (
@@ -2340,6 +2352,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
           <div className="px-3 sm:px-6 py-6 max-w-7xl w-full mx-auto">
             <QuickStartGuide
               isInsideApp={true}
+              isLight={isLight}
               onActionClick={(action) => {
                 if (action === 'create_session') {
                   onOpenCreateSessionModal();
@@ -2379,7 +2392,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-base sm:text-lg font-black text-white">
+                      <h3 className={`text-base sm:text-lg font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>
                         {currentUser?.name || 'Alex Mercer'}
                       </h3>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
@@ -2396,7 +2409,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   {onLogout && (
                     <button
                       onClick={onLogout}
-                      className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold flex items-center gap-2 transition"
+                      className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition ${isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-800' : 'bg-white/5 hover:bg-white/10 border-white/10'}`}
                     >
                       <LogOut className="w-3.5 h-3.5 text-rose-400" />
                       <span>Log Out</span>
@@ -2409,11 +2422,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                 <div className={`p-3.5 rounded-xl border ${subCardBg} space-y-1`}>
                   <div className="text-[10px] font-mono uppercase opacity-60">Full Name / Alias</div>
-                  <div className="font-bold text-white truncate">{currentUser?.name || 'Alex Mercer'}</div>
+                  <div className={`font-bold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>{currentUser?.name || 'Alex Mercer'}</div>
                 </div>
                 <div className={`p-3.5 rounded-xl border ${subCardBg} space-y-1`}>
                   <div className="text-[10px] font-mono uppercase opacity-60">Email Address</div>
-                  <div className="font-bold text-white truncate">{currentUser?.email || 'trader@chartflow.io'}</div>
+                  <div className={`font-bold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>{currentUser?.email || 'trader@chartflow.io'}</div>
                 </div>
                 <div className={`p-3.5 rounded-xl border ${subCardBg} space-y-1`}>
                   <div className="text-[10px] font-mono uppercase opacity-60">Account Plan</div>
@@ -2421,7 +2434,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 </div>
                 <div className={`p-3.5 rounded-xl border ${subCardBg} space-y-1`}>
                   <div className="text-[10px] font-mono uppercase opacity-60">Sessions Created</div>
-                  <div className="font-bold text-white font-mono">{sessions.length} Active Sessions</div>
+                  <div className={`font-bold font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{sessions.length} Active Sessions</div>
                 </div>
               </div>
             </div>
@@ -2434,7 +2447,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               </h3>
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1">
                 <div>
-                  <div className="text-xs font-bold text-white">Color Theme</div>
+                  <div className={`text-xs font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>Color Theme</div>
                   <p className="text-[11px] opacity-70">
                     Switch between pro dark trading terminal and clean high-contrast light mode.
                   </p>
@@ -2467,7 +2480,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 <Trash2 className="w-4 h-4" />
                 <span>Danger Zone · Account Deletion</span>
               </div>
-              <p className="text-xs text-[#9ca3af] leading-relaxed">
+              <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-700' : 'text-[#9ca3af]'}`}>
                 Permanently delete your account profile, all backtest sessions, orders, trades, equity curves, strategies, and saved notes. This action is irreversible.
               </p>
 
@@ -2501,14 +2514,14 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               </div>
               <button
                 onClick={() => setShowDeleteAccountModal(false)}
-                className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white"
+                className={`p-1 rounded ${isLight ? 'hover:bg-slate-100 text-slate-500 hover:text-slate-900' : 'hover:bg-white/10 text-gray-400 hover:text-white'}`}
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-[#9ca3af] leading-relaxed">
-              Are you sure you want to permanently delete your account (<strong className="text-white">{currentUser?.email || 'this account'}</strong>)? All sessions, trades, and playbooks will be wiped immediately. This removes this browser’s records. Server registration records, if any, require a separate request to info@chartreplay.co.za.
+            <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-700' : 'text-[#9ca3af]'}`}>
+              Are you sure you want to permanently delete your account (<strong className={isLight ? 'text-slate-900' : 'text-white'}>{currentUser?.email || 'this account'}</strong>)? All sessions, trades, and playbooks will be wiped immediately. This removes this browser’s records. Server registration records, if any, require a separate request to info@chartreplay.co.za.
             </p>
 
             <div className="space-y-1.5 text-xs">

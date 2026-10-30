@@ -115,6 +115,8 @@ export async function syncUserAccountToSupabase(
 export interface UserCloudPreferences {
   id: '__user_prefs_v1__';
   skipWelcome?: boolean;
+  /** True once the "Hi, I'm Michael" welcome popup has been shown to this account. */
+  welcomeSeen?: boolean;
   coachEnabled?: boolean;
   celebrateWins?: boolean;
   deletedSessionIds?: string[];

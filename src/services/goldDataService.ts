@@ -1806,8 +1806,29 @@ const historicalSeries = new Map<string, Candle[]>();
 const historicalLabels = new Map<InstrumentSymbol,string>();
 const historicalStarts = new Map<InstrumentSymbol,number>();
 const historicalEnds = new Map<InstrumentSymbol,number>();
+const historicalLoadedRanges = new Map<InstrumentSymbol,Array<[number,number]>>();
 const liveHistorySeries = new Map<string,Candle[]>();
 const liveHistoryLabels = new Map<InstrumentSymbol,string>();
+function mergeLoadedRange(ranges:Array<[number,number]>, nextStart:number, nextEnd:number):Array<[number,number]> {
+  if(!Number.isFinite(nextStart)||!Number.isFinite(nextEnd)||nextEnd<nextStart)return ranges;
+  const all=[...ranges,[nextStart,nextEnd] as [number,number]].sort((a,b)=>a[0]-b[0]);
+  const merged:Array<[number,number]>=[];
+  for(const [s,e] of all){
+    const last=merged[merged.length-1];
+    if(last && s<=last[1]+4*86400)last[1]=Math.max(last[1],e);
+    else merged.push([s,e]);
+  }
+  return merged;
+}
+export function getLoadedHistorical1mRangeForClock(symbol:InstrumentSymbol,clock:number):[number,number]|null {
+  const ranges=historicalLoadedRanges.get(symbol);
+  if(!ranges?.length)return null;
+  const minute=Math.floor(clock/60)*60;
+  for(const [s,e] of ranges){
+    if(minute>=s && minute<=e)return [s,e];
+  }
+  return null;
+}
 function mergeSourceBars(previous:Candle[], next:Candle[]):Candle[] {
   const rows=new Map(previous.map(bar=>[bar.time,bar]));
   for(const bar of next)rows.set(bar.time,bar);
@@ -1815,6 +1836,10 @@ function mergeSourceBars(previous:Candle[], next:Candle[]):Candle[] {
 }
 export function extendHistoricalCandles(symbol:InstrumentSymbol,series:Record<string,Candle[]>):void {
   for(const [tf,bars] of Object.entries(series))historicalSeries.set(`${symbol}_${tf}`,mergeSourceBars(historicalSeries.get(`${symbol}_${tf}`)||[],bars));
+  const m1=series['1m'];
+  if(m1 && m1.length>0){
+    historicalLoadedRanges.set(symbol,mergeLoadedRange(historicalLoadedRanges.get(symbol)||[],m1[0].time,m1[m1.length-1].time));
+  }
 }
 export function setLiveHistoricalCandles(symbol:InstrumentSymbol,series:Record<string,Candle[]>,label:string):void {
   for(const [tf,bars] of Object.entries(series))liveHistorySeries.set(`${symbol}_${tf}`,mergeSourceBars(liveHistorySeries.get(`${symbol}_${tf}`)||[],bars));
@@ -1834,6 +1859,12 @@ export function setHistoricalCandles(symbol:InstrumentSymbol, series:Record<stri
   historicalLabels.set(symbol,label);
   if(Number.isFinite(first))historicalStarts.set(symbol,first!);
   if(Number.isFinite(last))historicalEnds.set(symbol,last!);
+  const m1=series['1m'];
+  if(m1 && m1.length>0){
+    historicalLoadedRanges.set(symbol,[[m1[0].time,m1[m1.length-1].time]]);
+  }else{
+    historicalLoadedRanges.delete(symbol);
+  }
 }
 export function hasHistoricalArchive(symbol:InstrumentSymbol):boolean { return historicalLabels.has(symbol); }
 export function findExactCandleByTime(bars: Candle[] | null | undefined, targetTime: number): Candle | undefined {
@@ -1884,15 +1915,15 @@ export function getHistoricalReplayAvailability(symbol:InstrumentSymbol,clock:nu
   }
   if(last!==undefined && minute>last)return {kind:'AFTER',message:`This archive ends ${utc(last)}. Choose an earlier replay date or Present Time.`};
   if(bars.length===0)return undefined;
-  const windowFirst=bars[0].time;
-  const windowLast=bars[bars.length-1].time;
-  // When switching sessions across months/years, `bars` holds only the ~35-day 1m window from the previous session
-  // until `hydrateHistoricalArchive` finishes loading the new window. Do not report a false GAP or jump to the stale window.
-  if((first!==undefined && minute>=first && minute<windowFirst-5*86400) || (last!==undefined && minute<=last && minute>windowLast)){
+  const loadedRange=getLoadedHistorical1mRangeForClock(symbol,minute);
+  const hasExplicitBounds=historicalStarts.has(symbol) && historicalEnds.has(symbol);
+  // When switching sessions across months/years or extending disjoint windows, `bars` only covers loaded 1m ranges
+  // until `hydrateHistoricalArchive` finishes loading the new window. Never report a false GAP or jump to a stale window.
+  if(hasExplicitBounds && !loadedRange){
     return undefined;
   }
   const rawNextTime=findFirstCandleAfterTime(bars,minute)?.time;
-  const nextTime=rawNextTime!==undefined && rawNextTime-minute<=7*86400 ? rawNextTime : undefined;
+  const nextTime=rawNextTime!==undefined && rawNextTime-minute<=7*86400 && (!loadedRange || rawNextTime<=loadedRange[1]) ? rawNextTime : undefined;
   if(isWeekendClosedTimestamp(minute,symbol))return {kind:'WEEKEND',nextTime,message:`Market closed for the weekend. Trading is paused.${nextTime ? ` Next available bar: ${utc(nextTime)}.` : ''}`};
   return {kind:'GAP',nextTime,message:`No source quote for this minute: a market break, holiday or data gap. Trading is paused.${nextTime ? ` Next available bar: ${utc(nextTime)}.` : ' Choose another replay date.'}`};
 }
@@ -1994,6 +2025,7 @@ export function clearRealCandleCache(): void {
   historicalLabels.clear();
   historicalStarts.clear();
   historicalEnds.clear();
+  historicalLoadedRanges.clear();
   liveHistorySeries.clear();
   liveHistoryLabels.clear();
   clearSpotQuotes();

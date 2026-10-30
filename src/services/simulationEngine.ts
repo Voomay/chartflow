@@ -4090,6 +4090,13 @@ export function startNewChallengeAttempt(
   const startingBalance = frozen?.startingBalance || session.startingBalance;
 
   const nextPhase = targetPhase || prevPhase;
+  const passedPhase1Attempt = (session.previousAttempts ?? []).find(
+    (a) => a.phaseId === 'PHASE_1' && a.status === 'PASSED'
+  );
+  const phaseStartTs =
+    nextPhase === 'PHASE_2' && passedPhase1Attempt?.passedEvent?.timestamp
+      ? passedPhase1Attempt.passedEvent.timestamp
+      : startTs;
   const storedP1Target =
     baseRules.phase1ProfitTargetPct ??
     (prevPhase === 'PHASE_1'
@@ -4131,7 +4138,7 @@ export function startNewChallengeAttempt(
     passedAt: undefined,
     attemptNumber: currentAttemptNum + 1,
     previousAttempts: [archivedAttempt, ...(session.previousAttempts ?? [])],
-    replayTimestamp: startTs,
+    replayTimestamp: phaseStartTs,
     realizedPnL: 0,
     positions: [],
     orders: [],
@@ -4146,7 +4153,7 @@ export function startNewChallengeAttempt(
           propFirmRules: nextRules,
         }
       : frozen,
-    challengeState: createInitialChallengeState(startingBalance, startTs, nextRules),
+    challengeState: createInitialChallengeState(startingBalance, phaseStartTs, nextRules),
     updatedAt: new Date().toISOString(),
   };
 }

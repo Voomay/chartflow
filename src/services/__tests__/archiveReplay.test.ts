@@ -1,8 +1,8 @@
-import {createDefaultSessionsForUser,deduplicateSessions} from '../storageAndAnalytics';
+import {createDefaultSessionsForUser,deduplicateSessions,computeAnalyticsReport} from '../storageAndAnalytics';
 import {getDateRangePresets} from '../../components/CreateSessionModal';
 import {beforeEach,describe,expect,it} from 'vitest';
-import {aggregateCandlesToTimeframe,getReplayWeekdayTarget,getHistoricalReplayAvailability,clearRealCandleCache,setHistoricalCandles,getProviderChartCandles,setCachedRealCandles,getMarketFeedLabel,getInstrumentHistoricalCoverage,snapToOpenTradingDate,findExactCandleByTime,findFirstCandleAfterTime,INSTRUMENTS} from '../goldDataService';
-import {advanceOrRewindSessionToTimestamp,closeOrCancelPosition,modifyPositionOrOrder,validateAndPlaceOrder,evaluateSessionAt1mTimestamp,validateSessionHistoricalData,getLatest1mCandleAtClock,get1mExecutionSlice,getDay1mCandles,getAggregatedCandlesUpToClock} from '../simulationEngine';
+import {aggregateCandlesToTimeframe,getReplayWeekdayTarget,getHistoricalReplayAvailability,getLoadedHistorical1mRangeForClock,extendHistoricalCandles,isWeekendClosedTimestamp,clearRealCandleCache,setHistoricalCandles,getProviderChartCandles,setCachedRealCandles,getMarketFeedLabel,getInstrumentHistoricalCoverage,snapToOpenTradingDate,findExactCandleByTime,findFirstCandleAfterTime,INSTRUMENTS} from '../goldDataService';
+import {advanceOrRewindSessionToTimestamp,closeOrCancelPosition,modifyPositionOrOrder,validateAndPlaceOrder,evaluateSessionAt1mTimestamp,validateSessionHistoricalData,getLatest1mCandleAtClock,get1mExecutionSlice,getDay1mCandles,getAggregatedCandlesUpToClock,startNewChallengeAttempt} from '../simulationEngine';
 import {Candle} from '../../types/trading';
 const t=Date.parse('2015-01-05T08:00:00Z')/1000;
 const bar=(time:number,open=1200):Candle=>({time,open,high:open+2,low:open-1,close:open+1,volume:0});
@@ -294,5 +294,177 @@ describe('Original historical replay archives',()=>{
     }
    }
   }
+ });
+ it('preserves Challenge 1 (Phase 1) and Challenge 2 (Phase 2) breakdown in Analytics and supports Phase 2 Redo',()=>{
+  const base=createDefaultSessionsForUser('prop-2step-test')[1];
+  const startTs=Date.parse('2026-02-02T08:00:00Z')/1000;
+  const p1PassTs=startTs+5*86400;
+  const p1Trade={
+   id:'tr-p1-1',
+   sessionId:base.id,
+   symbol:'US30' as const,
+   side:'LONG' as const,
+   orderType:'MARKET' as const,
+   orderSubType:'MARKET' as const,
+   lotSize:10,
+   sizeOz:10,
+   sessionAtEntry:'NEW_YORK' as const,
+   entryPrice:44000,
+   stopLoss:43800,
+   takeProfit:45000,
+   exitPrice:45000,
+   entryTime:startTs+3600,
+   exitTime:p1PassTs,
+   status:'CLOSED_TP' as const,
+   pnl:10000,
+   rMultiple:5,
+   riskDollars:2000,
+   rewardDollars:10000,
+  };
+  const p2Trade={
+   id:'tr-p2-1',
+   sessionId:base.id,
+   symbol:'US30' as const,
+   side:'SHORT' as const,
+   orderType:'MARKET' as const,
+   orderSubType:'MARKET' as const,
+   lotSize:5,
+   sizeOz:5,
+   sessionAtEntry:'NEW_YORK' as const,
+   entryPrice:45000,
+   stopLoss:45200,
+   takeProfit:44000,
+   exitPrice:44000,
+   entryTime:p1PassTs+3600,
+   exitTime:p1PassTs+7200,
+   status:'CLOSED_TP' as const,
+   pnl:5000,
+   rMultiple:5,
+   riskDollars:1000,
+   rewardDollars:5000,
+  };
+  const sessionInPhase2={
+   ...base,
+   mode:'PROP_FIRM' as const,
+   startingBalance:100000,
+   startTimestamp:startTs,
+   replayTimestamp:p1PassTs+7200,
+   status:'PASSED' as const,
+   propFirmRules:{
+    ...base.propFirmRules,
+    challengePhase:'PHASE_2' as const,
+    phase1ProfitTargetPct:10,
+    phase2ProfitTargetPct:5,
+    profitTargetPct:5,
+   },
+   frozenConfig:base.frozenConfig?{
+    ...base.frozenConfig,
+    startingBalance:100000,
+    propFirmRules:{
+     ...base.frozenConfig.propFirmRules,
+     challengePhase:'PHASE_2' as const,
+     phase1ProfitTargetPct:10,
+     phase2ProfitTargetPct:5,
+     profitTargetPct:5,
+    },
+   }:undefined,
+   positions:[p2Trade],
+   previousAttempts:[{
+    attemptNumber:1,
+    sessionId:base.id,
+    phaseId:'PHASE_1' as const,
+    startedAt:'2026-02-02T08:00:00Z',
+    endedAt:new Date(p1PassTs*1000).toISOString(),
+    status:'PASSED' as const,
+    finalBalance:110000,
+    finalEquity:110000,
+    netPnl:10000,
+    returnPct:10,
+    tradesCount:1,
+    winRatePct:100,
+    tradingDaysCompleted:4,
+    passedEvent:{
+     timestamp:p1PassTs,
+     finalBalance:110000,
+     finalEquity:110000,
+     netPnl:10000,
+     returnPct:10,
+     tradingDaysCompleted:4,
+     minTradingDaysRequired:4,
+     elapsedDays:5,
+     phaseId:'PHASE_1' as const,
+     advancedToPhase2:true,
+     explanation:'Passed Phase 1',
+    },
+    positionsSnapshot:[p1Trade],
+   }],
+  };
+
+  const baseFilters={
+   sessionId:sessionInPhase2.id,
+   mode:'ALL' as const,
+   strategy:'ALL',
+   instrument:'ALL' as const,
+   dateFrom:'',
+   dateTo:'',
+   direction:'ALL' as const,
+   tag:'ALL',
+   searchQuery:'',
+  };
+
+  const allReport=computeAnalyticsReport([sessionInPhase2],sessionInPhase2,{...baseFilters,challengePhaseFilter:'ALL'});
+  expect(allReport.propChallengeSummary).toBeTruthy();
+  expect(allReport.propChallengeSummary?.phase1.status).toBe('PASSED');
+  expect(allReport.propChallengeSummary?.phase1.targetPct).toBe(10);
+  expect(allReport.propChallengeSummary?.phase1.netPnl).toBe(10000);
+  expect(allReport.propChallengeSummary?.phase2.status).toBe('PASSED');
+  expect(allReport.propChallengeSummary?.phase2.targetPct).toBe(5);
+  expect(allReport.propChallengeSummary?.phase2.netPnl).toBe(5000);
+  expect(allReport.filteredClosedTrades).toHaveLength(2);
+
+  const p1Report=computeAnalyticsReport([sessionInPhase2],sessionInPhase2,{...baseFilters,challengePhaseFilter:'PHASE_1'});
+  expect(p1Report.filteredClosedTrades).toHaveLength(1);
+  expect(p1Report.filteredClosedTrades[0].id).toBe('tr-p1-1');
+  expect(p1Report.netPnl).toBe(10000);
+
+  const p2Report=computeAnalyticsReport([sessionInPhase2],sessionInPhase2,{...baseFilters,challengePhaseFilter:'PHASE_2'});
+  expect(p2Report.filteredClosedTrades).toHaveLength(1);
+  expect(p2Report.filteredClosedTrades[0].id).toBe('tr-p2-1');
+  expect(p2Report.netPnl).toBe(5000);
+
+  const redoneP2=startNewChallengeAttempt({...sessionInPhase2,status:'FAILED'},'PHASE_2');
+  expect(redoneP2.status).toBe('ACTIVE');
+  expect(redoneP2.propFirmRules.challengePhase).toBe('PHASE_2');
+  expect(redoneP2.propFirmRules.profitTargetPct).toBe(5);
+  expect(redoneP2.replayTimestamp).toBe(p1PassTs);
+  expect(redoneP2.previousAttempts?.some(a=>a.phaseId==='PHASE_1'&&a.status==='PASSED')).toBe(true);
+ });
+
+ it('prevents false multi-candle jumps on US30 around October 30th and preserves Sunday 22:00/23:00 UTC reopen candles',()=>{
+  const archiveFirst=Date.parse('2013-05-22T00:00:00Z')/1000;
+  const archiveLast=Date.parse('2026-10-23T19:59:00Z')/1000;
+  const nov3=Date.parse('2025-11-03T08:00:00Z')/1000;
+  const nov10=Date.parse('2025-11-10T08:00:00Z')/1000;
+  setHistoricalCandles('US30',{'1m':[bar(nov3,47600),bar(nov10,47800)]},'Dukascopy · US30',archiveFirst,archiveLast);
+
+  // October 30, 2025 is 4 days before nov3; must NOT report a false GAP that jumps 4 days of candles to nov3
+  const oct30=Date.parse('2025-10-30T08:00:00Z')/1000;
+  expect(getLoadedHistorical1mRangeForClock('US30',oct30)).toBeNull();
+  expect(getHistoricalReplayAvailability('US30',oct30)).toBeUndefined();
+
+  // Extending with an older 2024 window (e.g. from 4H chart scroll) must keep 2024 and Nov 2025 ranges separate
+  const jan2024=Date.parse('2024-01-02T08:00:00Z')/1000;
+  extendHistoricalCandles('US30',{'1m':[bar(jan2024,37500),bar(jan2024+3600,37520)]});
+  expect(getLoadedHistorical1mRangeForClock('US30',jan2024)).toEqual([jan2024,jan2024+3600]);
+  expect(getLoadedHistorical1mRangeForClock('US30',oct30)).toBeNull();
+  expect(getHistoricalReplayAvailability('US30',oct30)).toBeUndefined();
+
+  // Once the October 30, 2025 window is extended into US30, oct30 is READY and Sunday reopen (2025-11-02 23:00 UTC) is not skipped
+  const friLast=Date.parse('2025-10-31T20:14:00Z')/1000;
+  const sunReopen=Date.parse('2025-11-02T23:00:00Z')/1000;
+  extendHistoricalCandles('US30',{'1m':[bar(oct30,47500),bar(friLast,47556),bar(sunReopen,47599)]});
+  expect(getHistoricalReplayAvailability('US30',oct30)).toEqual({kind:'READY'});
+  expect(isWeekendClosedTimestamp(sunReopen,'US30')).toBe(false);
+  expect(getHistoricalReplayAvailability('US30',friLast+60)?.nextTime).toBe(sunReopen);
  });
 });

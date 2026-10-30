@@ -264,7 +264,7 @@ async function getMergedManifest(dir){
  return manifest;
 }
 const windowCache=new Map();const inflightWindows=new Map();
-export async function loadHistoricalWindow(symbol,clock,limit=45000){
+export async function loadHistoricalWindow(symbol,clock,limit=65000){
  if(INDEX_SYMBOLS.has(symbol) && capitalEnabled())return capitalClient.history(symbol,clock);
  if(symbol==='BTCUSD'||symbol==='ETHUSD')return loadBitfinexWindow(root(),symbol,clock,deriveLowerBarsFromArchive);
  const dir=root();
@@ -276,17 +276,18 @@ export async function loadHistoricalWindow(symbol,clock,limit=45000){
   const manifest=await getMergedManifest(dir);
   const info=manifest.symbols[symbol];if(!info)return null;
   const refClock=Math.min(Math.max(clock,info.first),info.last);
-  const end=Math.max(clock,refClock)+7*86400;const year=new Date(refClock*1000).getUTCFullYear();
+  const min1mTime=refClock-35*86400;
+  const end=Math.max(clock,refClock)+21*86400;const year=new Date(refClock*1000).getUTCFullYear();
   const all={};
   for(const tf of tfs){
    let parts;
    if(tf==='1m'){
-    const first=new Date((refClock-35*86400)*1000);first.setUTCDate(1);const last=new Date(end*1000);parts=[];
+    const first=new Date(min1mTime*1000);first.setUTCDate(1);const last=new Date(end*1000);parts=[];
     for(let d=new Date(first);d<=last;d.setUTCMonth(d.getUTCMonth()+1))parts.push(d.toISOString().slice(0,7));
    }else parts=Object.keys(info.years).filter(y=>['1D','1W','1M'].includes(tf)||(+y>=year-1&&+y<=year+1)).sort();
    const merged=new Map();
    for(const part of parts)for(const row of await rowsFor(symbol,tf,part)){
-    if(row[0]>end)continue;
+    if(row[0]>end||(tf==='1m'&&row[0]<min1mTime))continue;
     const existing=merged.get(row[0]);
     // Files partition disjoint source minutes. A UTC day/week/month can cross a source-year boundary.
     if(existing)merged.set(row[0],[row[0],existing[1],Math.max(existing[2],row[2]),Math.min(existing[3],row[3]),row[4],existing[5]+row[5]]);

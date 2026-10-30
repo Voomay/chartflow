@@ -13,9 +13,10 @@ import {LegalDocumentKey} from './components/LegalLinks';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MotivationWelcome } from './components/MotivationWelcome';
 import { ChartSponsorLoader } from './components/ChartSponsorLoader';
+import { ConfettiCelebration } from './components/ConfettiCelebration';
 import { getCachedSponsorshipConfig, loadSponsorshipConfig } from './services/sponsorship';
 import { resetMotivationVisit, setMotivationEnabled } from './services/motivation';
-import { getReplayWeekdayTarget, getHistoricalCandles, hasHistoricalArchive, getHistoricalReplayAvailability, isFixedMarketHolidayDate } from './services/goldDataService';
+import { getReplayWeekdayTarget, getHistoricalCandles, hasHistoricalArchive, getHistoricalReplayAvailability, getLoadedHistorical1mRangeForClock, isWeekendClosedTimestamp, isFixedMarketHolidayDate } from './services/goldDataService';
 import { hydrateHistoricalArchive, hydrateLiveHistoricalArchive } from './services/historicalFeed';
 import { shiftTimeframeClock } from './services/goldDataService';
 import {getSpotQuote, getSpotFeedStatus, SPOT_SYMBOLS} from './services/spotFeed';
@@ -635,15 +636,12 @@ export function App() {
   const [secondaryTimeframe, setSecondaryTimeframe] =
     useState<Timeframe>('1H');
 
-  const normalizeReplayStepTf = (tf: Timeframe): Timeframe =>
-    tf === '1W' || tf === '1M' ? '1D' : tf;
-
   useEffect(() => {
     if (activeSession) {
       const nextTf = activeSession.activeTimeframe || '15m';
       setSymbol(activeSession.activeAsset || 'XAUUSD');
       setTimeframe(nextTf);
-      setReplayStepTimeframe(normalizeReplayStepTf(nextTf));
+      setReplayStepTimeframe('5m');
     }
   }, [activeSession?.id]);
 
@@ -662,7 +660,11 @@ export function App() {
   const handleSelectTimeframe = useCallback(
     (nextTf: Timeframe) => {
       setTimeframe(nextTf);
-      setReplayStepTimeframe(normalizeReplayStepTf(nextTf));
+      setReplayStepTimeframe((prevStep) => {
+        const nextSec = TIMEFRAME_CONFIG[nextTf]?.seconds || 900;
+        const prevSec = TIMEFRAME_CONFIG[prevStep]?.seconds || 300;
+        return prevSec > nextSec ? nextTf : prevStep;
+      });
       updateActiveSession((s) => ({
         ...s,
         activeTimeframe: nextTf,
@@ -683,13 +685,9 @@ export function App() {
   const [isMarketDataLoading, setIsMarketDataLoading] = useState<boolean>(false);
   const marketDataRequestKey = `${symbol}:${isPresentTime ? 'present' : Math.floor(authoritativeClockTs / 86400)}`;
   const [loadedMarketDataKey, setLoadedMarketDataKey] = useState<string | null>(null);
-  const existing1mForClock = !isPresentTime && hasHistoricalArchive(symbol) ? getHistoricalCandles('1m', symbol) : null;
+  const loaded1mRangeForClock = !isPresentTime && hasHistoricalArchive(symbol) ? getLoadedHistorical1mRangeForClock(symbol, authoritativeClockTs) : null;
   const isCurrentArchiveWindowLoaded = Boolean(
-    loadedMarketDataKey === marketDataRequestKey ||
-      (existing1mForClock &&
-        existing1mForClock.length > 0 &&
-        authoritativeClockTs >= existing1mForClock[0].time &&
-        authoritativeClockTs <= existing1mForClock[existing1mForClock.length - 1].time)
+    loadedMarketDataKey === marketDataRequestKey || loaded1mRangeForClock !== null
   );
   const historicalAvailability =
     !isPresentTime && !isMarketDataLoading && isCurrentArchiveWindowLoaded
@@ -699,17 +697,13 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     if (!isPresentTime && hasHistoricalArchive(symbol)) {
-      const existing1m = getHistoricalCandles('1m', symbol) || [];
-      if (
-        existing1m.length > 0 &&
-        authoritativeClockTs >= existing1m[0].time - 7 * 86400 &&
-        authoritativeClockTs <= existing1m[existing1m.length - 1].time + 14 * 86400
-      ) {
+      const currentRange = getLoadedHistorical1mRangeForClock(symbol, authoritativeClockTs);
+      if (currentRange) {
         setLoadedMarketDataKey(marketDataRequestKey);
         setIsMarketDataLoading(false);
         if (
-          authoritativeClockTs < existing1m[0].time + 5 * 86400 ||
-          authoritativeClockTs + 3 * 86400 > existing1m[existing1m.length - 1].time
+          authoritativeClockTs < currentRange[0] + 7 * 86400 ||
+          authoritativeClockTs + 7 * 86400 > currentRange[1]
         ) {
           void hydrateHistoricalArchive(symbol, authoritativeClockTs, 'extend').then((loaded) => {
             if (loaded && !cancelled) setMarketDataVersion((v) => v + 1);
@@ -724,7 +718,8 @@ export function App() {
     if(isPresentTime)void hydrateLiveHistoricalArchive(symbol,authoritativeClockTs).then(loaded=>{
       if(loaded && !cancelled)setMarketDataVersion(value=>value+1);
     });
-    (isPresentTime ? hydrateRealMarketDataForSymbol(symbol,timeframe) : hydrateHistoricalArchive(symbol,authoritativeClockTs).then(found=>found || hydrateRealMarketDataForSymbol(symbol,timeframe)))
+    const archiveMode = !isPresentTime && hasHistoricalArchive(symbol) ? 'extend' : 'replay';
+    (isPresentTime ? hydrateRealMarketDataForSymbol(symbol,timeframe) : hydrateHistoricalArchive(symbol,authoritativeClockTs,archiveMode).then(found=>found || hydrateRealMarketDataForSymbol(symbol,timeframe)))
       .then((loaded) => {
         if (!cancelled) {
           setIsMarketDataLoading(false);
@@ -865,9 +860,8 @@ export function App() {
 
   // 7. Replay Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [replayStepTimeframe, setReplayStepTimeframe] = useState<Timeframe>(() =>
-    normalizeReplayStepTf(activeSession?.activeTimeframe || '15m')
-  );
+  const [replayStepTimeframe, setReplayStepTimeframe] =
+    useState<Timeframe>('5m');
   const [playbackSpeedMs, setPlaybackSpeedMs] = useState<number>(400);
 
   const isSessionLocked =
@@ -897,6 +891,16 @@ export function App() {
     explanation: string;
     advancedToPhase2?: boolean;
   } | null>(null);
+  const [confettiBurstKey, setConfettiBurstKey] = useState<number>(0);
+  const triggerConfetti = useCallback(() => {
+    setConfettiBurstKey((k) => k + 1);
+  }, []);
+
+  useEffect(() => {
+    if (challengeAlertModal?.status === 'PASSED') {
+      setConfettiBurstKey((k) => k + 1);
+    }
+  }, [challengeAlertModal]);
 
   const showToast = useCallback(
     (text: string, tone: 'up' | 'down' | 'info' = 'info') => {
@@ -1350,9 +1354,16 @@ export function App() {
 
       if (outcome.breachedNow) {
         setIsPlaying(false);
+        const breachedPhase =
+          outcome.session.frozenConfig?.propFirmRules?.challengePhase ||
+          outcome.session.propFirmRules?.challengePhase ||
+          'PHASE_1';
         setChallengeAlertModal({
           status: 'FAILED',
-          title: 'Prop Firm Challenge Failed — Trading Locked',
+          title:
+            breachedPhase === 'PHASE_2'
+              ? 'Phase 2 (Challenge 2) Failed — Would You Like to Redo?'
+              : 'Phase 1 (Challenge 1) Failed — Would You Like to Redo?',
           explanation: outcome.breachedNow.explanation,
         });
       } else if (outcome.passedNow) {
@@ -1360,7 +1371,7 @@ export function App() {
         setChallengeAlertModal({
           status: 'PASSED',
           title: outcome.passedNow.advancedToPhase2
-            ? 'Phase 1 Passed! Automatically Advanced to Phase 2!'
+            ? 'Phase 1 Passed! Ready to Start Phase 2'
             : 'Congratulations! Prop Firm Challenge Passed!',
           explanation: outcome.passedNow.explanation,
           advancedToPhase2: outcome.passedNow.advancedToPhase2,
@@ -1376,13 +1387,36 @@ export function App() {
     async (deltaBars: number) => {
       if (replayStepBusy.current || isMarketDataLoading) return;
       const replayClock = activeSession.replayTimestamp || activeSession.startTimestamp || authoritativeClockTs;
-      const requested = shiftTimeframeClock(isPresentTime ? replayClock : authoritativeClockTs, replayStepTimeframe, deltaBars);
-      const weekday = deltaBars > 0 && !isPresentTime ? getReplayWeekdayTarget(symbol, requested) : requested;
+      const baseClock = isPresentTime ? replayClock : authoritativeClockTs;
+      const chartSec = TIMEFRAME_CONFIG[timeframe]?.seconds || 900;
+      const rawStepSec = TIMEFRAME_CONFIG[replayStepTimeframe]?.seconds || 300;
+      // During automatic playback, never step by a larger interval than the visible chart timeframe
+      // so every single candlestick plays out smoothly one-by-one without jumping multiple candles at once.
+      const effectiveStepTf =
+        isPlaying && !isPresentTime && rawStepSec > chartSec ? timeframe : replayStepTimeframe;
+      const stepSec = TIMEFRAME_CONFIG[effectiveStepTf]?.seconds || 300;
+      const requested =
+        deltaBars > 0 && !isPresentTime && stepSec >= 300 && baseClock % stepSec !== 0
+          ? Math.floor(baseClock / stepSec) * stepSec + deltaBars * stepSec
+          : shiftTimeframeClock(baseClock, effectiveStepTf, deltaBars);
+      const isArchive = !isPresentTime && hasHistoricalArchive(symbol);
+      const weekday = deltaBars > 0 && !isPresentTime && !isArchive ? getReplayWeekdayTarget(symbol, requested) : requested;
+      const loadedRangeForRequested =
+        deltaBars > 0 && isArchive
+          ? getLoadedHistorical1mRangeForClock(symbol, requested)
+          : null;
+      const isWithinLoadedArchiveWindow = loadedRangeForRequested !== null;
       const availability =
-        deltaBars > 0 && !isPresentTime && hasHistoricalArchive(symbol)
-          ? getHistoricalReplayAvailability(symbol, weekday)
+        deltaBars > 0 && isArchive && isWithinLoadedArchiveWindow
+          ? getHistoricalReplayAvailability(symbol, requested)
           : undefined;
-      if (weekday === requested && (!availability || availability.kind === 'READY')) {
+      if (
+        weekday === requested &&
+        (isPresentTime ||
+          deltaBars <= 0 ||
+          (!isArchive && getReplayWeekdayTarget(symbol, requested) === requested) ||
+          availability?.kind === 'READY')
+      ) {
         handleAdvanceOrRewindToTimestamp(requested);
         return;
       }
@@ -1394,11 +1428,14 @@ export function App() {
             ? availability.nextTime
             : weekday;
         const findNext = () =>
-          (hasHistoricalArchive(symbol)
-            ? getHistoricalCandles('1m', symbol)
-            : getCachedRealCandles('1m', symbol)
-          )?.find((c) => c.time >= targetMinTime && getReplayWeekdayTarget(symbol, c.time) === c.time)?.time;
-        let next = findNext();
+          isArchive
+            ? getHistoricalCandles('1m', symbol)?.find(
+                (c) => c.time >= targetMinTime && !isWeekendClosedTimestamp(c.time, symbol)
+              )?.time
+            : getCachedRealCandles('1m', symbol)?.find(
+                (c) => c.time >= targetMinTime && getReplayWeekdayTarget(symbol, c.time) === c.time
+              )?.time;
+        let next = isWithinLoadedArchiveWindow ? findNext() : undefined;
         if (next === undefined) {
           setIsMarketDataLoading(true);
           await hydrateHistoricalArchive(
@@ -1420,14 +1457,21 @@ export function App() {
         }
         const outcome = handleAdvanceOrRewindToTimestamp(next);
         if (outcome.ok) {
-          const skipLabel =
-            weekday !== requested || availability?.kind === 'WEEKEND'
+          const isWeekendSkip =
+            weekday !== requested ||
+            isWeekendClosedTimestamp(requested, symbol) ||
+            getReplayWeekdayTarget(symbol, requested) !== requested ||
+            availability?.kind === 'WEEKEND';
+          const skippedSeconds = next - requested;
+          if (isWeekendSkip || skippedSeconds >= 4 * 3600) {
+            const skipLabel = isWeekendSkip
               ? 'Weekend closed'
               : 'Market holiday / break';
-          showToast(
-            `${skipLabel} — skipped to ${new Date(next * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC.`,
-            'info'
-          );
+            showToast(
+              `${skipLabel} — skipped to ${new Date(next * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC.`,
+              'info'
+            );
+          }
         } else {
           setIsPlaying(false);
         }
@@ -1439,8 +1483,10 @@ export function App() {
     [
       activeSession,
       isPresentTime,
+      isPlaying,
       isMarketDataLoading,
       authoritativeClockTs,
+      timeframe,
       replayStepTimeframe,
       symbol,
       handleAdvanceOrRewindToTimestamp,
@@ -1448,22 +1494,29 @@ export function App() {
     ]
   );
 
-  // Auto-advance initial replay clock if a session starts on a market holiday / weekend break with no open trades
+  // Auto-advance initial replay clock once if a session starts on a market holiday / weekend break with no open trades
+  const initialSessionSnapRef = useRef<string | null>(null);
   useEffect(() => {
     if (
       isPresentTime ||
+      isPlaying ||
       isMarketDataLoading ||
       !isCurrentArchiveWindowLoaded ||
       !hasHistoricalArchive(symbol)
     )
       return;
+    const initialTs = activeSession.startTimestamp;
+    if (!initialTs || authoritativeClockTs !== initialTs) return;
+    const snapKey = `${activeSession.id}:${initialTs}`;
+    if (initialSessionSnapRef.current === snapKey) return;
     const hasOpenOrPending = (activeSession.positions || []).some(
       (p) => p.status === 'OPEN' || p.status === 'PENDING'
     );
     if (hasOpenOrPending) return;
     const availability = getHistoricalReplayAvailability(symbol, authoritativeClockTs);
+    if (!availability) return;
+    initialSessionSnapRef.current = snapKey;
     if (
-      availability &&
       availability.kind !== 'READY' &&
       availability.nextTime !== undefined &&
       availability.nextTime > authoritativeClockTs &&
@@ -1485,12 +1538,14 @@ export function App() {
     }
   }, [
     isPresentTime,
+    isPlaying,
     isMarketDataLoading,
     isCurrentArchiveWindowLoaded,
     marketDataVersion,
     symbol,
     authoritativeClockTs,
     activeSession.id,
+    activeSession.startTimestamp,
     activeSession.endTimestamp,
     activeSession.positions,
     handleAdvanceOrRewindToTimestamp,
@@ -1679,9 +1734,16 @@ export function App() {
       );
       if (res.breachedNow) {
         setIsPlaying(false);
+        const breachedPhase =
+          nextSession.frozenConfig?.propFirmRules?.challengePhase ||
+          nextSession.propFirmRules?.challengePhase ||
+          'PHASE_1';
         setChallengeAlertModal({
           status: 'FAILED',
-          title: 'Prop Firm Challenge Failed — Trading Locked',
+          title:
+            breachedPhase === 'PHASE_2'
+              ? 'Phase 2 (Challenge 2) Failed — Would You Like to Redo?'
+              : 'Phase 1 (Challenge 1) Failed — Would You Like to Redo?',
           explanation: res.breachedNow.explanation,
         });
       } else if (res.passedNow) {
@@ -1689,7 +1751,7 @@ export function App() {
         setChallengeAlertModal({
           status: 'PASSED',
           title: res.passedNow.advancedToPhase2
-            ? 'Phase 1 Passed! Automatically Advanced to Phase 2!'
+            ? 'Phase 1 Passed! Ready to Start Phase 2'
             : 'Congratulations! Prop Firm Challenge Passed!',
           explanation: res.passedNow.explanation,
           advancedToPhase2: res.passedNow.advancedToPhase2,
@@ -1756,9 +1818,16 @@ export function App() {
       );
       if (res.breachedNow) {
         setIsPlaying(false);
+        const breachedPhase =
+          res.session.frozenConfig?.propFirmRules?.challengePhase ||
+          res.session.propFirmRules?.challengePhase ||
+          'PHASE_1';
         setChallengeAlertModal({
           status: 'FAILED',
-          title: 'Prop Firm Challenge Failed — Trading Locked',
+          title:
+            breachedPhase === 'PHASE_2'
+              ? 'Phase 2 (Challenge 2) Failed — Would You Like to Redo?'
+              : 'Phase 1 (Challenge 1) Failed — Would You Like to Redo?',
           explanation: res.breachedNow.explanation,
         });
       } else if (res.passedNow) {
@@ -1766,7 +1835,7 @@ export function App() {
         setChallengeAlertModal({
           status: 'PASSED',
           title: res.passedNow.advancedToPhase2
-            ? 'Phase 1 Passed! Automatically Advanced to Phase 2!'
+            ? 'Phase 1 Passed! Ready to Start Phase 2'
             : 'Congratulations! Prop Firm Challenge Passed!',
           explanation: res.passedNow.explanation,
           advancedToPhase2: res.passedNow.advancedToPhase2,
@@ -1883,7 +1952,7 @@ export function App() {
       setSymbol(newSession.activeAsset);
       const nextTf = newSession.activeTimeframe || '15m';
       setTimeframe(nextTf);
-      setReplayStepTimeframe(normalizeReplayStepTf(nextTf));
+      setReplayStepTimeframe('5m');
       setViewportFocusVersion((v) => v + 1);
       setIsCreateSessionModalOpen(false);
       if (openTerminalView) {
@@ -3203,6 +3272,9 @@ export function App() {
         onStepChange={handleTourStepChange}
       />
 
+      {/* Celebratory Confetti Overlay */}
+      <ConfettiCelebration burstKey={confettiBurstKey} />
+
       {/* Challenge Breach / Pass Alert Modal */}
       {challengeAlertModal && (
         <div className="dark-modal fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -3212,7 +3284,7 @@ export function App() {
                 {challengeAlertModal.status === 'FAILED' ? (
                   <XCircle className="w-6 h-6 text-rose-500" />
                 ) : (
-                  <Trophy className="w-6 h-6 text-emerald-400" />
+                  <Trophy className="w-6 h-6 text-amber-400" />
                 )}
                 <h3 className="text-base font-extrabold">
                   {challengeAlertModal.title}
@@ -3230,9 +3302,41 @@ export function App() {
               {challengeAlertModal.explanation}
             </p>
 
+            {challengeAlertModal.advancedToPhase2 ? (
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 space-y-1">
+                <div className="font-extrabold text-emerald-400">
+                  🎉 Congratulations! Challenge 1 (Phase 1) Completed &amp; Saved to Analytics
+                </div>
+                <p className="text-[11px] opacity-90">
+                  Your Phase 1 trades and target results are recorded under Challenge 1 in Performance Analytics. Click <strong>Congratulations — Go to Phase 2</strong> below to shoot confetti and begin your Phase 2 verification.
+                </p>
+              </div>
+            ) : challengeAlertModal.status === 'PASSED' ? (
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 space-y-1">
+                <div className="font-extrabold text-emerald-400">
+                  🎉 Congratulations! Prop Firm Challenge Successfully Passed!
+                </div>
+                <p className="text-[11px] opacity-90">
+                  You hit the profit target while respecting all daily and maximum drawdown rules. Both Challenge 1 and Challenge 2 results are saved in Performance Analytics.
+                </p>
+              </div>
+            ) : challengeAlertModal.status === 'FAILED' ? (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200 space-y-1">
+                <div className="font-extrabold text-rose-400">
+                  Would you like to redo this challenge phase?
+                </div>
+                <p className="text-[11px] opacity-90">
+                  You can immediately redo your current phase with a fresh balance and drawdown allowance while keeping your earlier attempt history intact.
+                </p>
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
               <button
                 onClick={() => {
+                  if (challengeAlertModal.status === 'PASSED') {
+                    triggerConfetti();
+                  }
                   setChallengeAlertModal(null);
                   setHubInitialSection('analytics');
                   setActiveView('analytics_page');
@@ -3245,19 +3349,63 @@ export function App() {
 
               {challengeAlertModal.advancedToPhase2 ? (
                 <button
-                  onClick={() => setChallengeAlertModal(null)}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg"
+                  onClick={() => {
+                    triggerConfetti();
+                    setChallengeAlertModal(null);
+                    showToast(
+                      '🎉 Congratulations on passing Phase 1! Phase 2 (Challenge 2) is now active!',
+                      'up'
+                    );
+                  }}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg"
                 >
-                  <Trophy className="w-4 h-4" />
-                  <span>Continue Trading Phase 2</span>
+                  <Trophy className="w-4 h-4 text-amber-300" />
+                  <span>🎉 Congratulations — Go to Phase 2</span>
                 </button>
+              ) : challengeAlertModal.status === 'PASSED' ? (
+                <button
+                  onClick={() => {
+                    triggerConfetti();
+                    setChallengeAlertModal(null);
+                    showToast(
+                      '🎉 Congratulations! Prop Firm Challenge Passed & Saved to Analytics!',
+                      'up'
+                    );
+                  }}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg"
+                >
+                  <Trophy className="w-4 h-4 text-amber-300" />
+                  <span>🎉 Congratulations! Celebrate &amp; Continue</span>
+                </button>
+              ) : (activeSession.frozenConfig?.propFirmRules?.challengePhase ||
+                  activeSession.propFirmRules?.challengePhase) === 'PHASE_2' ? (
+                <>
+                  <button
+                    onClick={() =>
+                      handleStartNewChallengeAttempt(undefined, 'PHASE_1')
+                    }
+                    className="px-3.5 py-2 rounded-xl bg-[#22262f] hover:bg-[#2c313d] border border-[#323744] text-white text-xs font-extrabold flex items-center gap-1.5"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Restart Phase 1</span>
+                  </button>
+                  <button
+                    onClick={() =>
+                      handleStartNewChallengeAttempt(undefined, 'PHASE_2')
+                    }
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Redo Phase 2</span>
+                  </button>
+                </>
               ) : (
                 <>
                   <button
                     onClick={() =>
                       handleStartNewChallengeAttempt(undefined, 'PHASE_1')
                     }
-                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5"
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg"
                   >
                     <RotateCcw className="w-4 h-4" />
                     <span>Redo Phase 1</span>
@@ -3269,7 +3417,7 @@ export function App() {
                     className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center gap-1.5"
                   >
                     <RotateCcw className="w-4 h-4" />
-                    <span>Redo Phase 2</span>
+                    <span>Go to Phase 2</span>
                   </button>
                 </>
               )}

@@ -909,6 +909,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     textEditor,
     candleRemainingText,
     isReplayMode,
+    replayAnimationMs,
     theme,
     stayInDrawingMode,
     lockDrawings,
@@ -963,6 +964,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     textEditor,
     candleRemainingText,
     isReplayMode,
+    replayAnimationMs,
     theme,
     stayInDrawingMode,
     lockDrawings,
@@ -3959,7 +3961,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       const state=stateRef.current;
       const before=state.candles[0]?.time;
       const boundary=`${state.symbol}:${state.timeframe}:${before}`;
-      if(before && chart.getVisibleRange().from<=30 && !olderHistoryBusy.current && olderHistoryBoundary.current!==boundary && olderHistoryLoaderRef.current) {
+      const isActivelyReplaying=Boolean(state.isReplayMode && state.replayAnimationMs && state.replayAnimationMs>0);
+      if(!isActivelyReplaying && before && chart.getVisibleRange().from<=30 && !olderHistoryBusy.current && olderHistoryBoundary.current!==boundary && olderHistoryLoaderRef.current) {
         olderHistoryBusy.current=true;
         olderHistoryBoundary.current=boundary;
         void olderHistoryLoaderRef.current(state.timeframe,before).finally(()=>{olderHistoryBusy.current=false;});
@@ -5359,7 +5362,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         chart.setBarSpace(savedBarSpace);
       }
       if (typeof savedRightDiff === 'number' && Number.isFinite(savedRightDiff) && typeof chartStore?.setLastBarRightSideDiffBarCount === 'function') {
-        const clampedDiff = savedRightDiff < -5 ? 14 : savedRightDiff;
+        const clampedDiff = firstTime < prevMeta.firstTime ? savedRightDiff : savedRightDiff < -5 ? 14 : savedRightDiff;
         chartStore.setLastBarRightSideDiffBarCount(clampedDiff);
         chartStore._adjustVisibleRange?.();
       } else {

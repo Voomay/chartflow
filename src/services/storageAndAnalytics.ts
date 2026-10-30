@@ -868,6 +868,27 @@ export interface AnalyticsFilterState {
   tag: string; // 'ALL' or specific tag
   searchQuery: string;
   displayCurrency?: 'SESSION' | AccountCurrency;
+  challengePhaseFilter?: 'ALL' | 'PHASE_1' | 'PHASE_2';
+}
+
+export interface PropChallengePhaseSummary {
+  phaseId: 'PHASE_1' | 'PHASE_2';
+  label: string;
+  status: 'PASSED' | 'ACTIVE' | 'FAILED' | 'PENDING';
+  targetPct: number;
+  targetAmount: number;
+  startingBalance: number;
+  finalBalance: number;
+  netPnl: number;
+  returnPct: number;
+  tradesCount: number;
+  winsCount: number;
+  lossesCount: number;
+  winRatePct: number | null;
+  tradingDaysCompleted: number;
+  minTradingDaysRequired: number;
+  maxDailyDrawdownPct: number;
+  maxOverallDrawdownPct: number;
 }
 
 export interface ComputedAnalyticsReport {
@@ -965,6 +986,12 @@ export interface ComputedAnalyticsReport {
     netPnl: number;
     tone: 'win' | 'loss' | 'flat';
   }[];
+  propChallengeSummary?: {
+    isPropFirm: boolean;
+    currentPhase: 'PHASE_1' | 'PHASE_2' | 'FUNDED';
+    phase1: PropChallengePhaseSummary;
+    phase2: PropChallengePhaseSummary;
+  } | null;
 }
 
 function getISOWeekKey(timestampSec: number): string {
@@ -1063,44 +1090,220 @@ export function computeAnalyticsReport(
     : null;
   const q = filters.searchQuery.trim().toLowerCase();
 
+  const phaseFilter = filters.challengePhaseFilter || 'ALL';
+  const closedStatuses = new Set([
+    'CLOSED_TP',
+    'CLOSED_SL',
+    'CLOSED_MANUAL',
+    'CLOSED_BREACH',
+  ]);
+
   const allPositions: BacktestPosition[] = [];
   for (const s of targetSessions) {
     const sessCurr = getSessionCurrency(s);
     const conv = (val: number | undefined): number =>
       convertBetweenAccountCurrencies(val ?? 0, sessCurr, accountCurrency);
-    for (const p of s.positions ?? []) {
-      const j = s.journals?.[p.id];
-      const mergedTags = Array.from(
-        new Set([...(p.journalTags ?? []), ...(j?.setupTags ?? [])])
+    const pushConvertedPositions = (
+      list: BacktestPosition[],
+      phaseTag?: string
+    ) => {
+      for (const p of list) {
+        const j = s.journals?.[p.id];
+        const mergedTags = Array.from(
+          new Set([
+            ...(phaseTag ? [phaseTag] : []),
+            ...(p.journalTags ?? []),
+            ...(j?.setupTags ?? []),
+          ])
+        );
+        allPositions.push({
+          ...p,
+          sessionId: p.sessionId || s.id,
+          symbol: p.symbol || s.activeAsset,
+          pnl: conv(p.pnl),
+          openFloatingPnl:
+            p.openFloatingPnl !== undefined ? conv(p.openFloatingPnl) : undefined,
+          bankedPartialPnl:
+            p.bankedPartialPnl !== undefined ? conv(p.bankedPartialPnl) : undefined,
+          commissionPaid:
+            p.commissionPaid !== undefined ? conv(p.commissionPaid) : undefined,
+          spreadCost: p.spreadCost !== undefined ? conv(p.spreadCost) : undefined,
+          slippageCost:
+            p.slippageCost !== undefined ? conv(p.slippageCost) : undefined,
+          initialRiskDollars:
+            p.initialRiskDollars !== undefined
+              ? conv(p.initialRiskDollars)
+              : undefined,
+          riskDollars: conv(p.riskDollars),
+          rewardDollars: conv(p.rewardDollars),
+          journalTags: mergedTags,
+          journalNotes: p.journalNotes ?? j?.notes,
+          journalEntryReasoning: p.journalEntryReasoning ?? j?.entryReasoning,
+          journalExitReasoning: p.journalExitReasoning ?? j?.exitReasoning,
+          journalLessonsLearned: p.journalLessonsLearned ?? j?.lessonsLearned,
+          journalEmotionalState: p.journalEmotionalState ?? j?.emotionalState,
+        });
+      }
+    };
+
+    if (s.mode === 'PROP_FIRM') {
+      const rules = s.frozenConfig?.propFirmRules || s.propFirmRules;
+      const currentPhase = rules?.challengePhase || 'PHASE_1';
+      const passedP1Attempt = (s.previousAttempts ?? []).find(
+        (a) => a.phaseId === 'PHASE_1' && a.status === 'PASSED'
       );
-      allPositions.push({
-        ...p,
-        sessionId: p.sessionId || s.id,
-        symbol: p.symbol || s.activeAsset,
-        pnl: conv(p.pnl),
-        openFloatingPnl:
-          p.openFloatingPnl !== undefined ? conv(p.openFloatingPnl) : undefined,
-        bankedPartialPnl:
-          p.bankedPartialPnl !== undefined ? conv(p.bankedPartialPnl) : undefined,
-        commissionPaid:
-          p.commissionPaid !== undefined ? conv(p.commissionPaid) : undefined,
-        spreadCost: p.spreadCost !== undefined ? conv(p.spreadCost) : undefined,
-        slippageCost:
-          p.slippageCost !== undefined ? conv(p.slippageCost) : undefined,
-        initialRiskDollars:
-          p.initialRiskDollars !== undefined
-            ? conv(p.initialRiskDollars)
-            : undefined,
-        riskDollars: conv(p.riskDollars),
-        rewardDollars: conv(p.rewardDollars),
-        journalTags: mergedTags,
-        journalNotes: p.journalNotes ?? j?.notes,
-        journalEntryReasoning: p.journalEntryReasoning ?? j?.entryReasoning,
-        journalExitReasoning: p.journalExitReasoning ?? j?.exitReasoning,
-        journalLessonsLearned: p.journalLessonsLearned ?? j?.lessonsLearned,
-        journalEmotionalState: p.journalEmotionalState ?? j?.emotionalState,
-      });
+
+      if (currentPhase === 'PHASE_1') {
+        if (phaseFilter === 'ALL' || phaseFilter === 'PHASE_1') {
+          pushConvertedPositions(s.positions ?? [], 'Challenge 1 (Phase 1)');
+        }
+      } else {
+        if (
+          (phaseFilter === 'ALL' || phaseFilter === 'PHASE_1') &&
+          passedP1Attempt?.positionsSnapshot
+        ) {
+          pushConvertedPositions(
+            passedP1Attempt.positionsSnapshot,
+            'Challenge 1 (Phase 1)'
+          );
+        }
+        if (phaseFilter === 'ALL' || phaseFilter === 'PHASE_2') {
+          pushConvertedPositions(s.positions ?? [], 'Challenge 2 (Phase 2)');
+        }
+      }
+    } else {
+      pushConvertedPositions(s.positions ?? []);
     }
+  }
+
+  let propChallengeSummary: ComputedAnalyticsReport['propChallengeSummary'] = null;
+  if (primarySession.mode === 'PROP_FIRM') {
+    const sessCurr = getSessionCurrency(primarySession);
+    const conv = (val: number | undefined): number =>
+      convertBetweenAccountCurrencies(val ?? 0, sessCurr, accountCurrency);
+    const rules =
+      primarySession.frozenConfig?.propFirmRules || primarySession.propFirmRules;
+    const currentPhase = rules?.challengePhase || 'PHASE_1';
+    const startBal = getSessionAccountBalance(primarySession);
+    const p1TargetPct =
+      rules?.phase1ProfitTargetPct ??
+      (currentPhase === 'PHASE_1'
+        ? rules?.profitTargetPct ?? 10
+        : Math.min(20, Number(((rules?.profitTargetPct ?? 5) * 2).toFixed(1))));
+    const p2TargetPct =
+      rules?.phase2ProfitTargetPct ??
+      (currentPhase === 'PHASE_2'
+        ? rules?.profitTargetPct ?? 5
+        : Math.max(1, Number((p1TargetPct * 0.5).toFixed(1))));
+    const minDays =
+      rules?.minTradingDaysEnabled !== false ? rules?.minTradingDays ?? 4 : 0;
+
+    const passedP1Attempt = (primarySession.previousAttempts ?? []).find(
+      (a) => a.phaseId === 'PHASE_1' && a.status === 'PASSED'
+    );
+    const p1RawPositions =
+      currentPhase === 'PHASE_1'
+        ? primarySession.positions ?? []
+        : passedP1Attempt?.positionsSnapshot ?? [];
+    const p1Closed = p1RawPositions.filter((p) => closedStatuses.has(p.status));
+    const p1Wins = p1Closed.filter((p) => p.pnl > 0.005);
+    const p1Losses = p1Closed.filter((p) => p.pnl < -0.005);
+    const p1NetPnl =
+      currentPhase !== 'PHASE_1' && passedP1Attempt
+        ? Number(conv(passedP1Attempt.netPnl).toFixed(2))
+        : Number(
+            p1Closed.reduce((sum, p) => sum + conv(p.pnl), 0).toFixed(2)
+          );
+    const p1FinalBal = Number((startBal + p1NetPnl).toFixed(2));
+    const p1ReturnPct =
+      startBal > 0 ? Number(((p1NetPnl / startBal) * 100).toFixed(2)) : 0;
+    const p1Status: PropChallengePhaseSummary['status'] =
+      currentPhase !== 'PHASE_1' && passedP1Attempt
+        ? 'PASSED'
+        : primarySession.challengeState?.status === 'FAILED' ||
+          primarySession.status === 'FAILED'
+        ? 'FAILED'
+        : primarySession.challengeState?.status === 'PASSED' ||
+          primarySession.status === 'PASSED'
+        ? 'PASSED'
+        : 'ACTIVE';
+
+    const p2RawPositions =
+      currentPhase !== 'PHASE_1' ? primarySession.positions ?? [] : [];
+    const p2Closed = p2RawPositions.filter((p) => closedStatuses.has(p.status));
+    const p2Wins = p2Closed.filter((p) => p.pnl > 0.005);
+    const p2Losses = p2Closed.filter((p) => p.pnl < -0.005);
+    const p2NetPnl = Number(
+      p2Closed.reduce((sum, p) => sum + conv(p.pnl), 0).toFixed(2)
+    );
+    const p2FinalBal = Number((startBal + p2NetPnl).toFixed(2));
+    const p2ReturnPct =
+      startBal > 0 ? Number(((p2NetPnl / startBal) * 100).toFixed(2)) : 0;
+    const p2Status: PropChallengePhaseSummary['status'] =
+      currentPhase === 'PHASE_1'
+        ? 'PENDING'
+        : primarySession.challengeState?.status === 'FAILED' ||
+          primarySession.status === 'FAILED'
+        ? 'FAILED'
+        : primarySession.challengeState?.status === 'PASSED' ||
+          primarySession.status === 'PASSED'
+        ? 'PASSED'
+        : 'ACTIVE';
+
+    propChallengeSummary = {
+      isPropFirm: true,
+      currentPhase,
+      phase1: {
+        phaseId: 'PHASE_1',
+        label: 'Challenge 1 (Phase 1)',
+        status: p1Status,
+        targetPct: p1TargetPct,
+        targetAmount: Number((startBal * (p1TargetPct / 100)).toFixed(2)),
+        startingBalance: startBal,
+        finalBalance: p1FinalBal,
+        netPnl: p1NetPnl,
+        returnPct: p1ReturnPct,
+        tradesCount: p1Closed.length,
+        winsCount: p1Wins.length,
+        lossesCount: p1Losses.length,
+        winRatePct:
+          p1Closed.length > 0
+            ? Number(((p1Wins.length / p1Closed.length) * 100).toFixed(1))
+            : null,
+        tradingDaysCompleted:
+          currentPhase !== 'PHASE_1' && passedP1Attempt
+            ? passedP1Attempt.tradingDaysCompleted
+            : primarySession.challengeState?.tradedDays?.length ?? 0,
+        minTradingDaysRequired: minDays,
+        maxDailyDrawdownPct: rules?.maxDailyDrawdownPct ?? 5,
+        maxOverallDrawdownPct: rules?.maxTotalDrawdownPct ?? 10,
+      },
+      phase2: {
+        phaseId: 'PHASE_2',
+        label: 'Challenge 2 (Phase 2)',
+        status: p2Status,
+        targetPct: p2TargetPct,
+        targetAmount: Number((startBal * (p2TargetPct / 100)).toFixed(2)),
+        startingBalance: startBal,
+        finalBalance: p2FinalBal,
+        netPnl: p2NetPnl,
+        returnPct: p2ReturnPct,
+        tradesCount: p2Closed.length,
+        winsCount: p2Wins.length,
+        lossesCount: p2Losses.length,
+        winRatePct:
+          p2Closed.length > 0
+            ? Number(((p2Wins.length / p2Closed.length) * 100).toFixed(1))
+            : null,
+        tradingDaysCompleted:
+          currentPhase !== 'PHASE_1'
+            ? primarySession.challengeState?.tradedDays?.length ?? 0
+            : 0,
+        minTradingDaysRequired: minDays,
+        maxDailyDrawdownPct: rules?.maxDailyDrawdownPct ?? 5,
+        maxOverallDrawdownPct: rules?.maxTotalDrawdownPct ?? 10,
+      },
+    };
   }
 
   const matchingPositions = allPositions.filter((p) => {
@@ -1135,12 +1338,6 @@ export function computeAnalyticsReport(
     return true;
   });
 
-  const closedStatuses = new Set([
-    'CLOSED_TP',
-    'CLOSED_SL',
-    'CLOSED_MANUAL',
-    'CLOSED_BREACH',
-  ]);
   const filteredClosedTrades = matchingPositions
     .filter((p) => closedStatuses.has(p.status))
     .sort((a, b) => (a.exitTime || a.entryTime) - (b.exitTime || b.entryTime));
@@ -1542,6 +1739,7 @@ export function computeAnalyticsReport(
     byWeek,
     byMonth,
     outcomeDistribution: distBuckets,
+    propChallengeSummary,
   };
 }
 

@@ -975,26 +975,53 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                           )}
                           {onStartNewChallengeAttempt && (
                             <div className="grid grid-cols-2 gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onStartNewChallengeAttempt(sess.id, 'PHASE_1')
-                                }
-                                className="py-1.5 px-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[10px] flex items-center justify-center gap-1 transition"
-                              >
-                                <RotateCcw className="w-3 h-3" />
-                                <span>Redo Phase 1</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onStartNewChallengeAttempt(sess.id, 'PHASE_2')
-                                }
-                                className="py-1.5 px-2 rounded-lg bg-[#252a34] hover:bg-[#2f3542] border border-[#3a404f] text-white keep-white font-extrabold text-[10px] flex items-center justify-center gap-1 transition"
-                              >
-                                <RotateCcw className="w-3 h-3" />
-                                <span>Redo Phase 2</span>
-                              </button>
+                              {sessPhase === 'PHASE_2' ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onStartNewChallengeAttempt(sess.id, 'PHASE_2')
+                                    }
+                                    className="py-1.5 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white keep-white font-extrabold text-[10px] flex items-center justify-center gap-1 transition"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    <span>Redo Phase 2</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onStartNewChallengeAttempt(sess.id, 'PHASE_1')
+                                    }
+                                    className="py-1.5 px-2 rounded-lg bg-[#252a34] hover:bg-[#2f3542] border border-[#3a404f] text-white keep-white font-extrabold text-[10px] flex items-center justify-center gap-1 transition"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    <span>Restart Phase 1</span>
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onStartNewChallengeAttempt(sess.id, 'PHASE_1')
+                                    }
+                                    className="py-1.5 px-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[10px] flex items-center justify-center gap-1 transition"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    <span>Redo Phase 1</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onStartNewChallengeAttempt(sess.id, 'PHASE_2')
+                                    }
+                                    className="py-1.5 px-2 rounded-lg bg-[#252a34] hover:bg-[#2f3542] border border-[#3a404f] text-white keep-white font-extrabold text-[10px] flex items-center justify-center gap-1 transition"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    <span>Go to Phase 2</span>
+                                  </button>
+                                </>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1365,6 +1392,254 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 </div>
               </div>
             </div>
+
+            {report.propChallengeSummary && (
+              <div className={`p-4 sm:p-5 rounded-2xl border space-y-4 ${cardBg}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-amber-400">
+                      <Trophy className="w-3.5 h-3.5" />
+                      <span>2-Step Prop Firm Evaluation Progression</span>
+                    </div>
+                    <h3 className="text-sm sm:text-base font-extrabold mt-0.5">
+                      Challenge 1 (Phase 1) &amp; Challenge 2 (Phase 2) Breakdown
+                    </h3>
+                    <p className="text-[11px] opacity-65">
+                      Inspect each evaluation step individually or view your combined challenge performance across all charts and trade records below.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(
+                      [
+                        { id: 'ALL', label: 'All Phases (Combined)' },
+                        {
+                          id: 'PHASE_1',
+                          label: `Challenge 1 (${report.propChallengeSummary.phase1.targetPct}%)`,
+                        },
+                        {
+                          id: 'PHASE_2',
+                          label: `Challenge 2 (${report.propChallengeSummary.phase2.targetPct}%)`,
+                        },
+                      ] as const
+                    ).map((tab) => {
+                      const activePhaseFilter =
+                        filters.challengePhaseFilter || 'ALL';
+                      const isSelected = activePhaseFilter === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() =>
+                            setFilters((prev) => ({
+                              ...prev,
+                              challengePhaseFilter: tab.id,
+                            }))
+                          }
+                          className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border transition ${
+                            isSelected
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow'
+                              : `${subCardBg} opacity-75 hover:opacity-100`
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[
+                    report.propChallengeSummary.phase1,
+                    report.propChallengeSummary.phase2,
+                  ].map((phase) => {
+                    const isFocused =
+                      filters.challengePhaseFilter === phase.phaseId;
+                    const progressPct =
+                      phase.targetAmount > 0
+                        ? Math.min(
+                            100,
+                            Math.max(
+                              0,
+                              Number(
+                                (
+                                  (Math.max(0, phase.netPnl) /
+                                    phase.targetAmount) *
+                                  100
+                                ).toFixed(1)
+                              )
+                            )
+                          )
+                        : 0;
+                    const badgeCls =
+                      phase.status === 'PASSED'
+                        ? 'bg-emerald-500 text-white keep-white'
+                        : phase.status === 'FAILED'
+                        ? 'bg-rose-500 text-white keep-white'
+                        : phase.status === 'ACTIVE'
+                        ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                        : 'bg-gray-500/15 text-gray-400 border border-gray-500/25';
+                    return (
+                      <div
+                        key={phase.phaseId}
+                        className={`p-4 rounded-xl border space-y-3 transition ${
+                          isFocused
+                            ? 'border-emerald-500 ring-1 ring-emerald-500/40'
+                            : phase.status === 'PASSED'
+                            ? 'border-emerald-500/40'
+                            : phase.status === 'FAILED'
+                            ? 'border-rose-500/40'
+                            : ''
+                        } ${subCardBg}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs sm:text-sm font-extrabold">
+                                {phase.label}
+                              </span>
+                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                {phase.targetPct}% Target (
+                                {formatMoney(
+                                  phase.targetAmount,
+                                  report.accountCurrency
+                                )}
+                                )
+                              </span>
+                            </div>
+                            <div className="text-[10px] opacity-65 font-mono mt-0.5">
+                              Max Daily Loss: {phase.maxDailyDrawdownPct}% · Max
+                              Overall Loss: {phase.maxOverallDrawdownPct}%
+                            </div>
+                          </div>
+                          <span
+                            className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded uppercase ${badgeCls}`}
+                          >
+                            {phase.status === 'PENDING'
+                              ? 'UNLOCKS AFTER PHASE 1'
+                              : phase.status}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+                          <div>
+                            <div className="text-[9px] uppercase opacity-60">
+                              Net P&amp;L / Return
+                            </div>
+                            <div
+                              className={`font-extrabold ${
+                                phase.netPnl >= 0
+                                  ? 'text-emerald-400'
+                                  : 'text-rose-400'
+                              }`}
+                            >
+                              {formatMoney(
+                                phase.netPnl,
+                                report.accountCurrency,
+                                true
+                              )}{' '}
+                              ({phase.returnPct >= 0 ? '+' : ''}
+                              {phase.returnPct.toFixed(2)}%)
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[9px] uppercase opacity-60">
+                              Balance
+                            </div>
+                            <div className="font-bold">
+                              {formatMoney(
+                                phase.finalBalance,
+                                report.accountCurrency
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[9px] uppercase opacity-60">
+                              Trades &amp; Win Rate
+                            </div>
+                            <div className="font-bold">
+                              {phase.tradesCount}T ·{' '}
+                              {phase.winRatePct !== null
+                                ? `${phase.winRatePct}% WR`
+                                : 'N/A'}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[10px] font-mono">
+                            <span className="opacity-70">
+                              Target Progress ({progressPct}%)
+                            </span>
+                            <span className="opacity-70">
+                              Trading Days: {phase.tradingDaysCompleted}/
+                              {phase.minTradingDaysRequired}
+                            </span>
+                          </div>
+                          <div className="h-2 rounded-full bg-gray-500/20 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                phase.status === 'PASSED'
+                                  ? 'bg-emerald-500'
+                                  : phase.status === 'FAILED'
+                                  ? 'bg-rose-500'
+                                  : 'bg-blue-500'
+                              }`}
+                              style={{ width: `${progressPct}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                challengePhaseFilter: isFocused
+                                  ? 'ALL'
+                                  : phase.phaseId,
+                              }))
+                            }
+                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition ${
+                              isFocused
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10'
+                            }`}
+                          >
+                            {isFocused
+                              ? `Showing ${phase.label} Only (Click for All)`
+                              : `Filter by ${phase.label}`}
+                          </button>
+
+                          {phase.status === 'FAILED' &&
+                            onStartNewChallengeAttempt && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onStartNewChallengeAttempt(
+                                    selectedAnalyticsSession.id,
+                                    phase.phaseId
+                                  )
+                                }
+                                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-extrabold inline-flex items-center gap-1 transition"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>
+                                  Redo{' '}
+                                  {phase.phaseId === 'PHASE_2'
+                                    ? 'Phase 2'
+                                    : 'Phase 1'}
+                                </span>
+                              </button>
+                            )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <PerformanceOverview report={report} isLight={isLight} />
             <details className="hub-surface rounded-2xl p-4 space-y-4"><summary className="cursor-pointer text-xs font-semibold opacity-75">Advanced metrics, drawdown &amp; execution costs</summary>
@@ -2038,8 +2313,10 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                     ) : (
                       report.filteredClosedTrades.map((tr) => {
                         const parentSess =
-                          sessions.find((s) =>
-                            (s.positions || []).some((p) => p.id === tr.id)
+                          sessions.find(
+                            (s) =>
+                              s.id === tr.sessionId ||
+                              (s.positions || []).some((p) => p.id === tr.id)
                           ) || selectedAnalyticsSession;
                         const parentAcctBalance =
                           parentSess.frozenConfig?.startingBalance ??

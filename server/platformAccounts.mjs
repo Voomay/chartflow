@@ -1,11 +1,14 @@
 import {readAdminWaitlist} from './waitlistStore.mjs';
-import {createSupabaseAccountStore} from './supabaseStore.mjs';
+import {createSupabaseAccountStore,hasSqlInjectionPattern,isSafeEmailFormat,isSafeIdentifier} from './supabaseStore.mjs';
 import {sendWelcomeEmail,sendPasswordResetEmail,sendFirstTradeFeedbackEmail,resolvePublicAppUrl,isResendConfigured} from './resendMail.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {randomBytes,randomUUID,scrypt as nodeScrypt,timingSafeEqual,createHash,createCipheriv,createDecipheriv} from 'node:crypto';
 import {promisify} from 'node:util';
+export {hasSqlInjectionPattern,isSafeEmailFormat,isSafeIdentifier};
+export const LOGIN_MAX_FAILURES=3;
+export const LOGIN_LOCKOUT_MS=30*1000;
 const scrypt=promisify(nodeScrypt);
 export const platformDataDirectory=()=>process.env.PLATFORM_DATA_DIR||path.join(homedir(),'.chart-replay');
 export async function hashPassword(password){const salt=randomBytes(16).toString('hex');const key=await scrypt(password,salt,32);return `scrypt:${salt}:${key.toString('hex')}`;}
@@ -100,15 +103,69 @@ export function validAdminSession(token,config,now=Date.now()){
 }
 export function createPlatformHandler({store=createSupabaseAccountStore({fallbackStore:createFileAccountStore(platformDataDirectory())}),now=()=>Date.now(),waitlistReader=readAdminWaitlist,env=process.env,request=fetch}={}){
  const attempts=new Map();
+ const loginLockouts=new Map();
  const visitors=new Map();
  const online=()=>{const cutoff=now()-120000;for(const[id,visit]of visitors)if(visit.seen<cutoff)visitors.delete(id);return {onlineVisitors:visitors.size,onlineAccounts:new Set([...visitors.values()].map(v=>v.userId).filter(Boolean)).size};};
  const limited=(key,max)=>{const time=now();for(const [entry,value]of attempts)if(value.until<=time)attempts.delete(entry);if(attempts.size>20000)return true;const value=attempts.get(key)||{count:0,until:time+15*60*1000};value.count++;attempts.set(key,value);return value.count>max;};
+ const clientIp=req=>{const xff=req?.headers?.['x-forwarded-for'];if(typeof xff==='string'&&xff.trim()){return xff.split(',')[0].trim().slice(0,80);}return String(req?.socket?.remoteAddress||'local').slice(0,80);};
+ const lockoutKeys=(scopeKey,ip,email)=>{const keys=[`${scopeKey}:ip:${ip}`];if(email)keys.push(`${scopeKey}:email:${email.slice(0,160)}`);return keys;};
+ const pruneLockouts=time=>{for(const[k,v]of loginLockouts){if((v.lockedUntil&&v.lockedUntil<=time)||(time-(v.lastFailAt||0)>15*60*1000&&!v.lockedUntil))loginLockouts.delete(k);}};
+ const getLoginLockout=(scopeKey,ip,email)=>{
+  const time=now();
+  pruneLockouts(time);
+  let maxLockedUntil=0;
+  let maxFails=0;
+  for(const key of lockoutKeys(scopeKey,ip,email)){
+   const entry=loginLockouts.get(key);
+   if(!entry)continue;
+   if(entry.lockedUntil>time&&entry.lockedUntil>maxLockedUntil)maxLockedUntil=entry.lockedUntil;
+   if(entry.fails>maxFails)maxFails=entry.fails;
+  }
+  if(maxLockedUntil>time){
+   const retryAfterSeconds=Math.max(1,Math.ceil((maxLockedUntil-time)/1000));
+   return {locked:true,lockedUntil:maxLockedUntil,retryAfterSeconds,failedAttempts:LOGIN_MAX_FAILURES,remainingAttempts:0};
+  }
+  return {locked:false,lockedUntil:0,retryAfterSeconds:0,failedAttempts:maxFails,remainingAttempts:Math.max(0,LOGIN_MAX_FAILURES-maxFails)};
+ };
+ const recordLoginFailure=(scopeKey,ip,email)=>{
+  const time=now();
+  pruneLockouts(time);
+  if(loginLockouts.size>20000)loginLockouts.clear();
+  let maxFails=0;
+  let maxLockedUntil=0;
+  for(const key of lockoutKeys(scopeKey,ip,email)){
+   const prev=loginLockouts.get(key);
+   const fails=(prev&&(!prev.lockedUntil||prev.lockedUntil>time)?prev.fails:0)+1;
+   const lockedUntil=fails>=LOGIN_MAX_FAILURES?time+LOGIN_LOCKOUT_MS:0;
+   loginLockouts.set(key,{fails,lockedUntil,lastFailAt:time});
+   if(fails>maxFails)maxFails=fails;
+   if(lockedUntil>maxLockedUntil)maxLockedUntil=lockedUntil;
+  }
+  if(maxLockedUntil>time){
+   const retryAfterSeconds=Math.max(1,Math.ceil((maxLockedUntil-time)/1000));
+   return {locked:true,lockedUntil:maxLockedUntil,retryAfterSeconds,failedAttempts:maxFails,remainingAttempts:0};
+  }
+  return {locked:false,lockedUntil:0,retryAfterSeconds:0,failedAttempts:maxFails,remainingAttempts:Math.max(0,LOGIN_MAX_FAILURES-maxFails)};
+ };
+ const clearLoginLockout=(scopeKey,ip,email)=>{
+  for(const key of lockoutKeys(scopeKey,ip,email))loginLockouts.delete(key);
+ };
  const findUserById=async id=>typeof store.findById==='function'?store.findById(id):(await store.read()).find(u=>u.id===id)||null;
  const findUserByEmail=async email=>typeof store.findByEmail==='function'?store.findByEmail(email):(await store.read()).find(u=>u.email===email)||null;
  const updateUserPassword=async(userId,passwordHash,nowIso)=>typeof store.updatePassword==='function'?store.updatePassword(userId,passwordHash,nowIso):store.change(users=>{const u=users.find(item=>item.id===userId);if(!u)return null;u.passwordHash=passwordHash;u.lastSeenAt=nowIso;return u;});
  return async(req,res)=>{
   res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');
   const send=(status,body)=>{res.statusCode=status;res.end(JSON.stringify(body));};
+  const sendLockout=lockState=>{
+   res.setHeader('Retry-After',String(lockState.retryAfterSeconds));
+   return send(429,{
+    error:`Too many failed login attempts (${LOGIN_MAX_FAILURES}/${LOGIN_MAX_FAILURES}). Account login is locked for ${lockState.retryAfterSeconds} seconds — please wait before trying again.`,
+    lockedOut:true,
+    lockedUntil:lockState.lockedUntil,
+    retryAfterSeconds:lockState.retryAfterSeconds,
+    remainingAttempts:0,
+   });
+  };
   const url=new URL(req.url,'http://localhost');const action=url.searchParams.get('action')||'status';
   // File store is local-only; Supabase store supports both local and hosted environments.
   const local=/^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(req.headers.host||'')&&!process.env.VERCEL;
@@ -277,16 +334,45 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     return send(200,{ok:true});
    }
    if(action==='admin-logout'){res.setHeader('Set-Cookie',`chart_replay_admin=; ${cookieOptions}; Max-Age=0`);return send(200,{ok:true});}
-   const email=typeof body.email==='string'?body.email.trim().toLowerCase():'';
+   const rawEmail=typeof body.email==='string'?body.email.trim():'';
+   const email=rawEmail.toLowerCase();
    const password=typeof body.password==='string'?body.password:'';
-   const ip=req.socket?.remoteAddress||'local';
-   if(limited(`${action}:${ip}`,action==='admin-login'||action==='request-password-reset'||action==='reset-password'?10:120)){res.setHeader('Retry-After','900');return send(429,{error:'Too many attempts. Please try again in fifteen minutes.'});}
+   const rawName=typeof body.name==='string'?body.name.trim():'';
+   const ip=clientIp(req);
+   if(action==='login'||action==='admin-login'){
+    const lockScope=action==='admin-login'?'admin':'user';
+    const currentLock=getLoginLockout(lockScope,ip,email);
+    if(currentLock.locked)return sendLockout(currentLock);
+   }
+   if(hasSqlInjectionPattern(rawEmail)||hasSqlInjectionPattern(password)||hasSqlInjectionPattern(rawName)||(typeof body.token==='string'&&hasSqlInjectionPattern(body.token))){
+    if(action==='login'||action==='admin-login'){
+     const lockScope=action==='admin-login'?'admin':'user';
+     const failState=recordLoginFailure(lockScope,ip,email);
+     if(failState.locked)return sendLockout(failState);
+     return send(400,{
+      error:`Invalid input detected. SQL or script expressions are not allowed. (${failState.remainingAttempts} ${failState.remainingAttempts===1?'attempt':'attempts'} remaining before 30s lockout)`,
+      lockedOut:false,
+      remainingAttempts:failState.remainingAttempts,
+     });
+    }
+    return send(400,{error:'Invalid input detected. SQL or script expressions are not allowed.'});
+   }
+   if(limited(`${action}:${ip}`,action==='admin-login'||action==='request-password-reset'||action==='reset-password'?25:120)){res.setHeader('Retry-After','900');return send(429,{error:'Too many attempts. Please try again in fifteen minutes.'});}
    if(action==='admin-login'){
-    if(!hasAdmin||password.length>256||email!==config.email||!await verifyPassword(password,config.passwordHash))return send(401,{error:'Incorrect administrator email or password.'});
+    if(!hasAdmin||!isSafeEmailFormat(email)||password.length>256||email!==config.email||!await verifyPassword(password,config.passwordHash)){
+     const failState=recordLoginFailure('admin',ip,email);
+     if(failState.locked)return sendLockout(failState);
+     return send(401,{
+      error:`Incorrect administrator email or password. (${failState.remainingAttempts} ${failState.remainingAttempts===1?'attempt':'attempts'} remaining before 30s lockout)`,
+      lockedOut:false,
+      remainingAttempts:failState.remainingAttempts,
+     });
+    }
+    clearLoginLockout('admin',ip,email);
     res.setHeader('Set-Cookie',`chart_replay_admin=${createAdminSession(config,now())}; ${cookieOptions}; Max-Age=28800`);return send(200,{admin:{email:config.email}});
    }
    if(action==='request-password-reset'){
-    if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return send(400,{error:'Please enter a valid email address.'});
+    if(!isSafeEmailFormat(email))return send(400,{error:'Please enter a valid email address.'});
     if(!isResendConfigured(env))return send(503,{error:'Email delivery is not configured on this server yet.'});
     const found=await findUserByEmail(email);
     if(found){
@@ -310,14 +396,24 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     const time=new Date(now()).toISOString();
     const updated=await updateUserPassword(found.id,newHash,time);
     if(!updated)return send(404,{error:'Account not found.'});
+    clearLoginLockout('user',ip,found.email);
     const result=publicAccount(updated);
     setUserCookie(result);
     return send(200,{ok:true,user:result});
    }
    if(action!=='register'&&action!=='login')return send(404,{error:'Unknown action.'});
-   if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<4||password.length>256)return send(400,{error:'Enter a valid email address and password.'});
+   if(action==='login'&&(!isSafeEmailFormat(email)||password.length<1||password.length>256)){
+    const failState=recordLoginFailure('user',ip,email);
+    if(failState.locked)return sendLockout(failState);
+    return send(401,{
+     error:`Incorrect email or password. (${failState.remainingAttempts} ${failState.remainingAttempts===1?'attempt':'attempts'} remaining before 30s lockout)`,
+     lockedOut:false,
+     remainingAttempts:failState.remainingAttempts,
+    });
+   }
+   if(!isSafeEmailFormat(email)||password.length<4||password.length>256)return send(400,{error:'Enter a valid email address and password.'});
    if(action==='register'){
-    const name=typeof body.name==='string'?body.name.trim():'';
+    const name=rawName;
     if(!name||name.length>80||/[\x00-\x1f]/.test(name)||password.length<4)return send(400,{error:'Use a name of up to 80 characters and a password of at least four characters.'});
     const passwordHash=await hashPassword(password);
     const time=new Date(now()).toISOString();
@@ -333,7 +429,16 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     setUserCookie(result);return send(201,{user:result,welcomeEmailSent:isResendConfigured(env)});
    }
    const found=await findUserByEmail(email);
-   if(!found||!await verifyPassword(password,found.passwordHash))return send(401,{error:'Incorrect email or password.'});
+   if(!found||!await verifyPassword(password,found.passwordHash)){
+    const failState=recordLoginFailure('user',ip,email);
+    if(failState.locked)return sendLockout(failState);
+    return send(401,{
+     error:`Incorrect email or password. (${failState.remainingAttempts} ${failState.remainingAttempts===1?'attempt':'attempts'} remaining before 30s lockout)`,
+     lockedOut:false,
+     remainingAttempts:failState.remainingAttempts,
+    });
+   }
+   clearLoginLockout('user',ip,email);
    const time=new Date(now()).toISOString();
    const updated=typeof store.recordLogin==='function'
     ?await store.recordLogin(found,time)

@@ -1,5 +1,5 @@
 import {localWaitlistReady,saveLocalWaitlist} from '../server/waitlistStore.mjs';
-import {isSupabaseConfigured,saveSupabaseWaitlist} from '../server/supabaseStore.mjs';
+import {isSupabaseConfigured,saveSupabaseWaitlist,hasSqlInjectionPattern,isSafeEmailFormat} from '../server/supabaseStore.mjs';
 import {createHash} from 'node:crypto';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -40,7 +40,8 @@ export function createWaitlistHandler({env = process.env, request = fetch,localR
       if (body.website) return send(400, {error:'Please leave the website field empty.'});
       const name = typeof body.name === 'string' ? body.name.trim() : '';
       const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-      if (!name || name.length > 80 || /[\x00-\x1f]/.test(name) || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send(400, {error:'Please enter a valid email address and a name of 80 characters or fewer.'});
+      if (hasSqlInjectionPattern(name) || hasSqlInjectionPattern(email)) return send(400, {error:'Invalid input detected. Special SQL or script expressions are not allowed.'});
+      if (!name || name.length > 80 || /[\x00-\x1f]/.test(name) || !isSafeEmailFormat(email)) return send(400, {error:'Please enter a valid email address and a name of 80 characters or fewer.'});
       if (body.consent !== true) return send(400, {error:'Please agree to receive launch and early-access updates.'});
       const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
       const record = {email, name, joinedAt:new Date().toISOString(), consent:true, consentVersion:'launch-updates-v1', source:'coming-soon'};

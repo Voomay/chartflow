@@ -3,6 +3,8 @@ import {
   deleteAllUserSupabaseData,
   deleteUserSessionFromSupabase,
   deleteUserStrategyFromSupabase,
+  hasSqlInjectionPattern,
+  isSafeEmailFormat,
   isUntouchedStarterSession,
   syncCustomRuleProfilesToSupabase,
   syncUserAccountToSupabase,
@@ -11,6 +13,7 @@ import {
   syncUserStrategiesToSupabase,
   syncUserStrategyNotesToSupabase,
 } from './supabaseClient';
+export { hasSqlInjectionPattern, isSafeEmailFormat };
 import {
   AccountCurrency,
   BacktestPosition,
@@ -156,6 +159,175 @@ export function getRegisteredUsers(): RegisteredUser[] {
   return [defaultUser];
 }
 
+export const LOGIN_MAX_ATTEMPTS = 3;
+export const LOGIN_LOCKOUT_DURATION_MS = 30 * 1000;
+const LOGIN_LOCKOUT_STORAGE_KEY = 'aurum_replay_login_lockout_v1';
+
+export interface LoginLockoutStatus {
+  locked: boolean;
+  lockedUntil: number;
+  retryAfterSeconds: number;
+  failedAttempts: number;
+  remainingAttempts: number;
+}
+
+interface StoredLockoutEntry {
+  fails: number;
+  lockedUntil: number;
+  lastFailAt: number;
+}
+
+function readLockoutMap(): Record<string, StoredLockoutEntry> {
+  const store = runtimeStorage();
+  try {
+    const raw = store.getItem(LOGIN_LOCKOUT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeLockoutMap(map: Record<string, StoredLockoutEntry>): void {
+  const store = runtimeStorage();
+  try {
+    store.setItem(LOGIN_LOCKOUT_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
+
+export function getLoginLockoutStatus(
+  email?: string,
+  nowMs: number = Date.now()
+): LoginLockoutStatus {
+  const map = readLockoutMap();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const keys = ['__client__', ...(cleanEmail ? [`email:${cleanEmail}`] : [])];
+  let maxLockedUntil = 0;
+  let maxFails = 0;
+  let dirty = false;
+
+  for (const [k, entry] of Object.entries(map)) {
+    if (!entry) continue;
+    if (
+      (entry.lockedUntil && entry.lockedUntil <= nowMs) ||
+      (!entry.lockedUntil && nowMs - (entry.lastFailAt || 0) > 15 * 60 * 1000)
+    ) {
+      delete map[k];
+      dirty = true;
+    }
+  }
+  if (dirty) writeLockoutMap(map);
+
+  for (const k of keys) {
+    const entry = map[k];
+    if (!entry) continue;
+    if (entry.lockedUntil > nowMs && entry.lockedUntil > maxLockedUntil) {
+      maxLockedUntil = entry.lockedUntil;
+    }
+    if (entry.fails > maxFails) {
+      maxFails = entry.fails;
+    }
+  }
+
+  if (maxLockedUntil > nowMs) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((maxLockedUntil - nowMs) / 1000));
+    return {
+      locked: true,
+      lockedUntil: maxLockedUntil,
+      retryAfterSeconds,
+      failedAttempts: LOGIN_MAX_ATTEMPTS,
+      remainingAttempts: 0,
+    };
+  }
+
+  return {
+    locked: false,
+    lockedUntil: 0,
+    retryAfterSeconds: 0,
+    failedAttempts: maxFails,
+    remainingAttempts: Math.max(0, LOGIN_MAX_ATTEMPTS - maxFails),
+  };
+}
+
+export function recordClientLoginFailure(
+  email?: string,
+  nowMs: number = Date.now()
+): LoginLockoutStatus {
+  const map = readLockoutMap();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const keys = ['__client__', ...(cleanEmail ? [`email:${cleanEmail}`] : [])];
+  let maxFails = 0;
+  let maxLockedUntil = 0;
+
+  for (const k of keys) {
+    const prev = map[k];
+    const activePrev =
+      prev &&
+      (!prev.lockedUntil || prev.lockedUntil > nowMs) &&
+      nowMs - (prev.lastFailAt || 0) <= 15 * 60 * 1000
+        ? prev.fails
+        : 0;
+    const fails = activePrev + 1;
+    const lockedUntil = fails >= LOGIN_MAX_ATTEMPTS ? nowMs + LOGIN_LOCKOUT_DURATION_MS : 0;
+    map[k] = { fails, lockedUntil, lastFailAt: nowMs };
+    if (fails > maxFails) maxFails = fails;
+    if (lockedUntil > maxLockedUntil) maxLockedUntil = lockedUntil;
+  }
+
+  writeLockoutMap(map);
+
+  if (maxLockedUntil > nowMs) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((maxLockedUntil - nowMs) / 1000));
+    return {
+      locked: true,
+      lockedUntil: maxLockedUntil,
+      retryAfterSeconds,
+      failedAttempts: maxFails,
+      remainingAttempts: 0,
+    };
+  }
+
+  return {
+    locked: false,
+    lockedUntil: 0,
+    retryAfterSeconds: 0,
+    failedAttempts: maxFails,
+    remainingAttempts: Math.max(0, LOGIN_MAX_ATTEMPTS - maxFails),
+  };
+}
+
+export function syncClientLoginLockout(
+  lockedUntil: number,
+  email?: string,
+  nowMs: number = Date.now()
+): void {
+  if (!lockedUntil || lockedUntil <= nowMs) return;
+  const map = readLockoutMap();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const keys = ['__client__', ...(cleanEmail ? [`email:${cleanEmail}`] : [])];
+  for (const k of keys) {
+    map[k] = {
+      fails: LOGIN_MAX_ATTEMPTS,
+      lockedUntil,
+      lastFailAt: nowMs,
+    };
+  }
+  writeLockoutMap(map);
+}
+
+export function clearClientLoginLockout(email?: string): void {
+  const map = readLockoutMap();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  delete map['__client__'];
+  if (cleanEmail) {
+    delete map[`email:${cleanEmail}`];
+  }
+  writeLockoutMap(map);
+}
+
 export function registerUserAccount(
   name: string,
   email: string,
@@ -163,13 +335,23 @@ export function registerUserAccount(
 ): { ok: boolean; error?: string; user?: RegisteredUser } {
   const cleanEmail = email.trim().toLowerCase();
   const cleanName = name.trim();
-  if (!cleanName) {
+  if (
+    hasSqlInjectionPattern(name) ||
+    hasSqlInjectionPattern(email) ||
+    hasSqlInjectionPattern(password)
+  ) {
+    return {
+      ok: false,
+      error: 'Invalid input detected. SQL or script expressions are not allowed.',
+    };
+  }
+  if (!cleanName || cleanName.length > 80) {
     return { ok: false, error: 'Please enter your full name or trader alias.' };
   }
-  if (!cleanEmail || !cleanEmail.includes('@')) {
+  if (!cleanEmail || !isSafeEmailFormat(cleanEmail)) {
     return { ok: false, error: 'Please enter a valid email address.' };
   }
-  if (password.length < 4) {
+  if (password.length < 4 || password.length > 256) {
     return { ok: false, error: 'Password must be at least 4 characters long.' };
   }
 
@@ -208,10 +390,51 @@ export function registerUserAccount(
 
 export function authenticateUserAccount(
   email: string,
-  password: string
-): { ok: boolean; error?: string; user?: RegisteredUser } {
+  password: string,
+  nowMs: number = Date.now()
+): {
+  ok: boolean;
+  error?: string;
+  user?: RegisteredUser;
+  lockedOut?: boolean;
+  lockedUntil?: number;
+  retryAfterSeconds?: number;
+  remainingAttempts?: number;
+} {
   const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail || !cleanEmail.includes('@')) {
+  const currentLock = getLoginLockoutStatus(cleanEmail, nowMs);
+  if (currentLock.locked) {
+    return {
+      ok: false,
+      lockedOut: true,
+      lockedUntil: currentLock.lockedUntil,
+      retryAfterSeconds: currentLock.retryAfterSeconds,
+      remainingAttempts: 0,
+      error: `Too many failed login attempts (${LOGIN_MAX_ATTEMPTS}/${LOGIN_MAX_ATTEMPTS}). Account login is locked for ${currentLock.retryAfterSeconds} seconds — please wait before trying again.`,
+    };
+  }
+
+  if (hasSqlInjectionPattern(email) || hasSqlInjectionPattern(password)) {
+    const failState = recordClientLoginFailure(cleanEmail, nowMs);
+    if (failState.locked) {
+      return {
+        ok: false,
+        lockedOut: true,
+        lockedUntil: failState.lockedUntil,
+        retryAfterSeconds: failState.retryAfterSeconds,
+        remainingAttempts: 0,
+        error: `Too many failed login attempts (${LOGIN_MAX_ATTEMPTS}/${LOGIN_MAX_ATTEMPTS}). Account login is locked for ${failState.retryAfterSeconds} seconds — please wait before trying again.`,
+      };
+    }
+    return {
+      ok: false,
+      lockedOut: false,
+      remainingAttempts: failState.remainingAttempts,
+      error: `Invalid input detected. SQL or script expressions are not allowed. (${failState.remainingAttempts} ${failState.remainingAttempts === 1 ? 'attempt' : 'attempts'} remaining before 30s lockout)`,
+    };
+  }
+
+  if (!cleanEmail || !isSafeEmailFormat(cleanEmail)) {
     return { ok: false, error: 'Please enter a valid email address.' };
   }
   if (!password) {
@@ -221,20 +444,47 @@ export function authenticateUserAccount(
   const users = getRegisteredUsers();
   const found = users.find((u) => u.email.toLowerCase() === cleanEmail);
   if (!found) {
+    const failState = recordClientLoginFailure(cleanEmail, nowMs);
+    if (failState.locked) {
+      return {
+        ok: false,
+        lockedOut: true,
+        lockedUntil: failState.lockedUntil,
+        retryAfterSeconds: failState.retryAfterSeconds,
+        remainingAttempts: 0,
+        error: `Too many failed login attempts (${LOGIN_MAX_ATTEMPTS}/${LOGIN_MAX_ATTEMPTS}). Account login is locked for ${failState.retryAfterSeconds} seconds — please wait before trying again.`,
+      };
+    }
     return {
       ok: false,
-      error: 'No account found for this email address. Please create a free account.',
+      lockedOut: false,
+      remainingAttempts: failState.remainingAttempts,
+      error: `No account found for this email address. (${failState.remainingAttempts} ${failState.remainingAttempts === 1 ? 'attempt' : 'attempts'} remaining before 30s lockout)`,
     };
   }
 
   const expectedHash = cleanEmail === 'trader@chartflow.io' && !found.passwordHash ? simpleHash('demo1234') : found.passwordHash;
   if (expectedHash !== simpleHash(password)) {
+    const failState = recordClientLoginFailure(cleanEmail, nowMs);
+    if (failState.locked) {
+      return {
+        ok: false,
+        lockedOut: true,
+        lockedUntil: failState.lockedUntil,
+        retryAfterSeconds: failState.retryAfterSeconds,
+        remainingAttempts: 0,
+        error: `Too many failed login attempts (${LOGIN_MAX_ATTEMPTS}/${LOGIN_MAX_ATTEMPTS}). Account login is locked for ${failState.retryAfterSeconds} seconds — please wait before trying again.`,
+      };
+    }
     return {
       ok: false,
-      error: 'Incorrect password. Please try again or use "Forgot Password?" to reset it.',
+      lockedOut: false,
+      remainingAttempts: failState.remainingAttempts,
+      error: `Incorrect password. (${failState.remainingAttempts} ${failState.remainingAttempts === 1 ? 'attempt' : 'attempts'} remaining before 30s lockout)`,
     };
   }
 
+  clearClientLoginLockout(cleanEmail);
   const updated={...found,passwordHash:found.authSource==='server'||cleanEmail==='trader@chartflow.io'?'':found.passwordHash,loginCount:(found.loginCount||0)+1,lastLoginAt:new Date().toISOString()};
   const store = runtimeStorage();
   try {
@@ -253,10 +503,13 @@ export function resetUserPassword(
   newPassword: string
 ): { ok: boolean; error?: string; user?: RegisteredUser } {
   const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail || !cleanEmail.includes('@')) {
+  if (hasSqlInjectionPattern(email) || hasSqlInjectionPattern(newPassword)) {
+    return { ok: false, error: 'Invalid input detected. SQL or script expressions are not allowed.' };
+  }
+  if (!cleanEmail || !isSafeEmailFormat(cleanEmail)) {
     return { ok: false, error: 'Please enter a valid email address.' };
   }
-  if (newPassword.length < 4) {
+  if (newPassword.length < 4 || newPassword.length > 256) {
     return { ok: false, error: 'New password must be at least 4 characters long.' };
   }
 

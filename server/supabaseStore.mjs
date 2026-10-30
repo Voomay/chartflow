@@ -106,14 +106,48 @@ function rowToUser(row) {
   };
 }
 
+export function hasSqlInjectionPattern(value) {
+  if (typeof value !== 'string' || !value) return false;
+  if (value.includes('\u0000')) return true;
+  const patterns = [
+    /(?:^|['"`\s;()])(?:union\s+(?:all\s+)?select|select\s+.+\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|drop\s+(?:table|database|schema|function)|alter\s+table|truncate\s+table|exec(?:ute)?\s+|xp_cmdshell|pg_sleep\s*\(|waitfor\s+delay|benchmark\s*\()/i,
+    /['"`]\s*(?:or|and)\s+['"`]?\w+['"`]?\s*(?:=|like|in|is)\s*['"`]?\w+/i,
+    /['"`]\s*;\s*(?:--|\/\*|select|insert|update|delete|drop|alter|create|truncate|union|exec)/i,
+    /--\s*$/m,
+    /\/\*[\s\S]*?\*\//,
+  ];
+  return patterns.some((re) => re.test(value));
+}
+
+export function isSafeEmailFormat(email) {
+  if (typeof email !== 'string') return false;
+  const clean = email.trim().toLowerCase();
+  if (!clean || clean.length > 160 || hasSqlInjectionPattern(clean)) return false;
+  return /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,24}$/i.test(clean);
+}
+
+export function isSafeIdentifier(id) {
+  if (typeof id !== 'string') return false;
+  const clean = id.trim();
+  if (!clean || clean.length > 128 || hasSqlInjectionPattern(clean)) return false;
+  return /^[a-zA-Z0-9._:-]+$/.test(clean);
+}
+
+function sanitizeTextValue(value, maxLen = 500) {
+  return String(value ?? '')
+    .replace(/\u0000/g, '')
+    .trim()
+    .slice(0, maxLen);
+}
+
 function userToRow(user) {
   return {
-    id: user.id,
-    name: user.name,
-    email: String(user.email || '').toLowerCase(),
+    id: sanitizeTextValue(user.id, 128),
+    name: sanitizeTextValue(user.name, 80),
+    email: sanitizeTextValue(user.email, 160).toLowerCase(),
     password_hash: user.passwordHash || '',
-    auth_source: user.authSource || 'server',
-    plan: user.plan || 'FREE_FOREVER',
+    auth_source: sanitizeTextValue(user.authSource || 'server', 32),
+    plan: sanitizeTextValue(user.plan || 'FREE_FOREVER', 48),
     joined_at: user.joinedAt || new Date().toISOString(),
     login_count: Number(user.loginCount ?? 1),
     last_login_at: user.lastLoginAt || null,
@@ -293,7 +327,7 @@ export function createSupabaseAccountStore({
       return isSupabaseConfigured(env) ? 'supabase' : 'localhost';
     },
     async findById(userId) {
-      if (!userId) return null;
+      if (!userId || !isSafeIdentifier(String(userId))) return null;
       if (!isSupabaseConfigured(env)) {
         if (!fallbackStore) return null;
         if (typeof fallbackStore.findById === 'function') return fallbackStore.findById(userId);
@@ -323,7 +357,7 @@ export function createSupabaseAccountStore({
     },
     async findByEmail(email) {
       const cleanEmail = String(email || '').trim().toLowerCase();
-      if (!cleanEmail) return null;
+      if (!cleanEmail || !isSafeEmailFormat(cleanEmail)) return null;
       if (!isSupabaseConfigured(env)) {
         if (!fallbackStore) return null;
         if (typeof fallbackStore.findByEmail === 'function') return fallbackStore.findByEmail(cleanEmail);

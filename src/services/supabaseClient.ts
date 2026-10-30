@@ -84,11 +84,39 @@ function isValidUuid(id?: string): boolean {
   );
 }
 
+export function hasSqlInjectionPattern(value?: string | null): boolean {
+  if (typeof value !== 'string' || !value) return false;
+  if (value.includes('\u0000')) return true;
+  const patterns = [
+    /(?:^|['"`\s;()])(?:union\s+(?:all\s+)?select|select\s+.+\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|drop\s+(?:table|database|schema|function)|alter\s+table|truncate\s+table|exec(?:ute)?\s+|xp_cmdshell|pg_sleep\s*\(|waitfor\s+delay|benchmark\s*\()/i,
+    /['"`]\s*(?:or|and)\s+['"`]?\w+['"`]?\s*(?:=|like|in|is)\s*['"`]?\w+/i,
+    /['"`]\s*;\s*(?:--|\/\*|select|insert|update|delete|drop|alter|create|truncate|union|exec)/i,
+    /--\s*$/m,
+    /\/\*[\s\S]*?\*\//,
+  ];
+  return patterns.some((re) => re.test(value));
+}
+
+export function isSafeEmailFormat(email?: string | null): boolean {
+  if (typeof email !== 'string') return false;
+  const clean = email.trim().toLowerCase();
+  if (!clean || clean.length > 160 || hasSqlInjectionPattern(clean)) return false;
+  return /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,24}$/i.test(clean);
+}
+
+export function isSafeIdentifier(id?: string | null): boolean {
+  if (typeof id !== 'string') return false;
+  const clean = id.trim();
+  if (!clean || clean.length > 128 || hasSqlInjectionPattern(clean)) return false;
+  return /^[a-zA-Z0-9._:-]+$/.test(clean);
+}
+
 export async function syncUserAccountToSupabase(
   user: RegisteredUser
 ): Promise<void> {
   const cleanEmail = user.email.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return;
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail)) return;
+  if (hasSqlInjectionPattern(user.name)) return;
 
   // Never send password verifiers from browser clients; server-side scrypt manages password_hash.
   const payload: Record<string, unknown> = {
@@ -189,7 +217,7 @@ export async function syncUserSessionsToSupabase(
   sessions: TradingSession[]
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || sessions.length === 0) {
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail) || sessions.length === 0) {
     return;
   }
 
@@ -253,7 +281,7 @@ export async function fetchUserSessionsFromSupabase(
   userEmail: string
 ): Promise<TradingSession[] | null> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return null;
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail)) return null;
 
   const rows = await supabaseFetch<
     Array<{
@@ -325,7 +353,7 @@ export async function deleteUserSessionFromSupabase(
   sessionId: string
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || !sessionId) return;
+  if (!cleanEmail || !sessionId || !isSafeEmailFormat(cleanEmail) || !isSafeIdentifier(sessionId)) return;
   await supabaseFetch(
     `trading_sessions?user_email=eq.${encodeURIComponent(
       cleanEmail
@@ -339,7 +367,7 @@ export async function deleteUserStrategyFromSupabase(
   strategyId: string
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !strategyId) return;
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !strategyId || !isSafeEmailFormat(cleanEmail) || !isSafeIdentifier(strategyId)) return;
   await supabaseFetch(
     `user_strategies?user_email=eq.${encodeURIComponent(
       cleanEmail
@@ -353,7 +381,7 @@ export async function syncUserStrategiesToSupabase(
   strategies: StrategyRecord[]
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') {
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail)) {
     return;
   }
 
@@ -388,7 +416,7 @@ export async function fetchUserStrategiesFromSupabase(
   userEmail: string
 ): Promise<StrategyRecord[] | null> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return null;
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail)) return null;
 
   const rows = await supabaseFetch<
     Array<{
@@ -422,7 +450,7 @@ export async function syncUserStrategyNotesToSupabase(
   notesText: string
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return;
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail)) return;
 
   await supabaseFetch('user_strategy_notes?on_conflict=user_email', {
     method: 'POST',
@@ -439,7 +467,7 @@ export async function fetchUserStrategyNotesFromSupabase(
   userEmail: string
 ): Promise<string | null> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return null;
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail)) return null;
 
   const rows = await supabaseFetch<Array<{ notes_text: string }>>(
     `user_strategy_notes?user_email=eq.${encodeURIComponent(
@@ -455,7 +483,7 @@ export async function syncCustomRuleProfilesToSupabase(
   profiles: CustomRuleProfile[]
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || profiles.length === 0) {
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail) || profiles.length === 0) {
     return;
   }
 
@@ -479,7 +507,7 @@ export async function fetchCustomRuleProfilesFromSupabase(
   userEmail: string
 ): Promise<CustomRuleProfile[] | null> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return null;
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail)) return null;
 
   const rows = await supabaseFetch<Array<{ rules_data: CustomRuleProfile }>>(
     `custom_rule_profiles?user_email=eq.${encodeURIComponent(
@@ -508,7 +536,7 @@ export async function fetchUserPreferencesFromSupabase(
   userEmail: string
 ): Promise<UserCloudPreferences | null> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return null;
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail)) return null;
 
   const rows = await supabaseFetch<Array<{ rules_data: UserCloudPreferences }>>(
     `custom_rule_profiles?user_email=eq.${encodeURIComponent(
@@ -528,7 +556,7 @@ export async function syncUserPreferencesToSupabase(
   patch: Partial<Omit<UserCloudPreferences, 'id'>>
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return;
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail)) return;
 
   const existing = cloudPrefsCache.get(cleanEmail) || { id: USER_PREFS_PROFILE_ID };
   const merged: UserCloudPreferences = {
@@ -557,7 +585,7 @@ export async function deleteAllUserSupabaseData(
   userEmail: string
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
-  if (!cleanEmail || cleanEmail === 'trader@chartflow.io') return;
+  if (!cleanEmail || cleanEmail === 'trader@chartflow.io' || !isSafeEmailFormat(cleanEmail)) return;
   const encoded = encodeURIComponent(cleanEmail);
   await Promise.allSettled([
     supabaseFetch(`trading_sessions?user_email=eq.${encoded}`, { method: 'DELETE' }),

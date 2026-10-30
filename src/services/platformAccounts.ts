@@ -15,13 +15,26 @@ export async function platformRequest(action:string,body?:object){
 export async function serverAccountRequest(action:'register'|'login',body:{name?:string;email:string;password:string}){
  const result=await platformRequest(action,body);
  if(result.status===503&&String(result.error||'').toLowerCase().includes('not configured')){
-  return {available:false,ok:false,user:undefined as RegisteredUser|undefined,error:undefined as string|undefined,welcomeEmailSent:false};
+  return {available:false,ok:false,status:result.status,user:undefined as RegisteredUser|undefined,error:undefined as string|undefined,welcomeEmailSent:false,lockedOut:false,lockedUntil:0,retryAfterSeconds:0,remainingAttempts:undefined as number|undefined};
  }
  if(result.status>=500)throw Error('Account service unavailable. Please try again.');
- if(!result.ok||!result.user)return {available:true,ok:false,user:undefined as RegisteredUser|undefined,error:result.error as string,welcomeEmailSent:false};
+ if(!result.ok||!result.user){
+  return {
+   available:true,
+   ok:false,
+   status:result.status,
+   user:undefined as RegisteredUser|undefined,
+   error:result.error as string,
+   welcomeEmailSent:false,
+   lockedOut:Boolean(result.lockedOut||result.status===429),
+   lockedUntil:typeof result.lockedUntil==='number'?result.lockedUntil:result.status===429?Date.now()+(Number(result.retryAfterSeconds)||30)*1000:0,
+   retryAfterSeconds:typeof result.retryAfterSeconds==='number'?result.retryAfterSeconds:result.status===429?30:0,
+   remainingAttempts:typeof result.remainingAttempts==='number'?result.remainingAttempts:undefined,
+  };
+ }
  const user:RegisteredUser={...result.user,authSource:'server',passwordHash:''};
  purgeBrowserSensitiveStorage();
- setActiveLoggedInUser(user);return {available:true,ok:true,user,error:undefined,welcomeEmailSent:Boolean(result.welcomeEmailSent)};
+ setActiveLoggedInUser(user);return {available:true,ok:true,status:result.status,user,error:undefined,welcomeEmailSent:Boolean(result.welcomeEmailSent),lockedOut:false,lockedUntil:0,retryAfterSeconds:0,remainingAttempts:3};
 }
 export async function requestPasswordResetEmail(email:string){
  const result=await platformRequest('request-password-reset',{email});

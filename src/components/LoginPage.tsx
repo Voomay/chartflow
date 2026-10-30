@@ -10,19 +10,28 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  Clock,
   Eye,
   EyeOff,
   KeyRound,
   Lock,
   Mail,
+  ShieldAlert,
   User,
 } from 'lucide-react';
 import {
   authenticateUserAccount,
+  clearClientLoginLockout,
+  getLoginLockoutStatus,
+  getRegisteredUsers,
+  hasSqlInjectionPattern,
+  LOGIN_LOCKOUT_DURATION_MS,
+  LOGIN_MAX_ATTEMPTS,
+  recordClientLoginFailure,
   RegisteredUser,
   registerUserAccount,
   resetUserPassword,
-  getRegisteredUsers,
+  syncClientLoginLockout,
 } from '../services/storageAndAnalytics';
 
 export interface ChartFlowUser {
@@ -74,6 +83,47 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [lockoutUntil, setLockoutUntil] = useState<number>(() =>
+    getLoginLockoutStatus(initialEmail || '').lockedUntil
+  );
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  const lockoutSecondsLeft =
+    lockoutUntil > nowMs ? Math.max(1, Math.ceil((lockoutUntil - nowMs) / 1000)) : 0;
+  const isLockedOut = mode === 'login' && lockoutSecondsLeft > 0;
+
+  useEffect(() => {
+    const status = getLoginLockoutStatus(email);
+    if (status.locked && status.lockedUntil > lockoutUntil) {
+      setLockoutUntil(status.lockedUntil);
+      setNowMs(Date.now());
+    }
+  }, [email, lockoutUntil]);
+
+  useEffect(() => {
+    if (lockoutUntil <= Date.now()) {
+      if (lockoutUntil !== 0) {
+        setLockoutUntil(0);
+        setErrorMsg((prev) =>
+          prev && prev.toLowerCase().includes('locked') ? null : prev
+        );
+      }
+      return;
+    }
+    setNowMs(Date.now());
+    const interval = window.setInterval(() => {
+      const current = Date.now();
+      setNowMs(current);
+      if (current >= lockoutUntil) {
+        setLockoutUntil(0);
+        setErrorMsg((prev) =>
+          prev && prev.toLowerCase().includes('locked') ? null : prev
+        );
+        window.clearInterval(interval);
+      }
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [lockoutUntil]);
 
   useEffect(() => {
     if (initialResetToken) {
@@ -164,26 +214,122 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    if(submitting)return;
-    if(mode==='login'||mode==='signup'){
-      setSubmitting(true);
-      try{
-        const server=await serverAccountRequest(mode==='signup'?'register':'login',{name,email,password});
-        if(server.available){
-          if(server.ok&&server.user){handleCompleteUser(server.user);return;}
-          const legacy=mode==='login'&&getRegisteredUsers().some(user=>user.email.toLowerCase()===email.trim().toLowerCase()&&user.authSource!=='server'&&Boolean(user.passwordHash));
-          if(!legacy){setErrorMsg(server.error||'Unable to sign in.');return;}
+    if (submitting) return;
+
+    if (mode === 'login') {
+      const currentLock = getLoginLockoutStatus(email);
+      if (currentLock.locked || lockoutSecondsLeft > 0) {
+        const until = currentLock.lockedUntil || lockoutUntil;
+        const secs = Math.max(1, Math.ceil((until - Date.now()) / 1000));
+        setLockoutUntil(until);
+        setNowMs(Date.now());
+        setErrorMsg(
+          `Too many failed login attempts (${LOGIN_MAX_ATTEMPTS}/${LOGIN_MAX_ATTEMPTS}). Account login is locked for ${secs} seconds — please wait before trying again.`
+        );
+        return;
+      }
+    }
+
+    if (
+      hasSqlInjectionPattern(email) ||
+      hasSqlInjectionPattern(password) ||
+      (mode === 'signup' && hasSqlInjectionPattern(name))
+    ) {
+      if (mode === 'login') {
+        const failState = recordClientLoginFailure(email);
+        if (failState.locked) {
+          setLockoutUntil(failState.lockedUntil);
+          setNowMs(Date.now());
+          setErrorMsg(
+            `Too many failed login attempts (${LOGIN_MAX_ATTEMPTS}/${LOGIN_MAX_ATTEMPTS}). Account login is locked for ${failState.retryAfterSeconds} seconds — please wait before trying again.`
+          );
+          return;
         }
-      }catch(reason){setErrorMsg(reason instanceof Error?reason.message:'Account service unavailable.');return;}
-      finally{setSubmitting(false);}
+        setErrorMsg(
+          `Invalid input detected. SQL or script expressions are not allowed. (${failState.remainingAttempts} ${
+            failState.remainingAttempts === 1 ? 'attempt' : 'attempts'
+          } remaining before 30s lockout)`
+        );
+        return;
+      }
+      setErrorMsg('Invalid input detected. SQL or script expressions are not allowed.');
+      return;
+    }
+
+    if (mode === 'login' || mode === 'signup') {
+      setSubmitting(true);
+      try {
+        const server = await serverAccountRequest(
+          mode === 'signup' ? 'register' : 'login',
+          { name, email, password }
+        );
+        if (server.available) {
+          if (server.ok && server.user) {
+            clearClientLoginLockout(email);
+            setLockoutUntil(0);
+            handleCompleteUser(server.user);
+            return;
+          }
+          if (mode === 'login' && server.lockedOut) {
+            const until =
+              server.lockedUntil && server.lockedUntil > Date.now()
+                ? server.lockedUntil
+                : Date.now() +
+                  (server.retryAfterSeconds || LOGIN_LOCKOUT_DURATION_MS / 1000) * 1000;
+            syncClientLoginLockout(until, email);
+            setLockoutUntil(until);
+            setNowMs(Date.now());
+            setErrorMsg(
+              server.error ||
+                `Too many failed login attempts (${LOGIN_MAX_ATTEMPTS}/${LOGIN_MAX_ATTEMPTS}). Account login is locked for 30 seconds.`
+            );
+            return;
+          }
+          const legacy =
+            mode === 'login' &&
+            getRegisteredUsers().some(
+              (user) =>
+                user.email.toLowerCase() === email.trim().toLowerCase() &&
+                user.authSource !== 'server' &&
+                Boolean(user.passwordHash)
+            );
+          if (!legacy) {
+            if (mode === 'login') {
+              const clientFail = recordClientLoginFailure(email);
+              if (clientFail.locked) {
+                setLockoutUntil(clientFail.lockedUntil);
+                setNowMs(Date.now());
+                setErrorMsg(
+                  `Too many failed login attempts (${LOGIN_MAX_ATTEMPTS}/${LOGIN_MAX_ATTEMPTS}). Account login is locked for ${clientFail.retryAfterSeconds} seconds — please wait before trying again.`
+                );
+                return;
+              }
+            }
+            setErrorMsg(server.error || 'Unable to sign in.');
+            return;
+          }
+        }
+      } catch (reason) {
+        setErrorMsg(
+          reason instanceof Error ? reason.message : 'Account service unavailable.'
+        );
+        return;
+      } finally {
+        setSubmitting(false);
+      }
     }
 
     if (mode === 'login') {
       const res = authenticateUserAccount(email, password);
       if (!res.ok || !res.user) {
+        if (res.lockedOut && res.lockedUntil) {
+          setLockoutUntil(res.lockedUntil);
+          setNowMs(Date.now());
+        }
         setErrorMsg(res.error || 'Unable to sign in.');
         return;
       }
+      setLockoutUntil(0);
       handleCompleteUser(res.user);
       return;
     }
@@ -595,19 +741,56 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             )}
 
-            {errorMsg && (
+            {isLockedOut && (
+              <div
+                role="alert"
+                aria-live="polite"
+                className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs space-y-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 font-bold text-amber-300">
+                    <ShieldAlert className="w-4 h-4 shrink-0" />
+                    <span>Login Locked (3 Failed Attempts)</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 font-mono font-bold px-2 py-0.5 rounded-md bg-amber-400/20 text-amber-200">
+                    <Clock className="w-3.5 h-3.5" />
+                    {lockoutSecondsLeft}s
+                  </span>
+                </div>
+                <p className="text-amber-100/90 leading-relaxed">
+                  For your security, sign-in is paused for 30 seconds after 3 failed attempts. You can try again in{' '}
+                  <strong className="font-mono text-white">{lockoutSecondsLeft}s</strong>.
+                </p>
+                <div className="w-full h-1.5 rounded-full bg-black/40 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-400 to-rose-400 transition-all duration-300"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.max(0, (lockoutSecondsLeft / (LOGIN_LOCKOUT_DURATION_MS / 1000)) * 100)
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {errorMsg && !isLockedOut && (
               <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 text-sm sm:text-xs break-words">
                 {errorMsg}
               </div>
             )}
 
             <button
-              type="submit" disabled={submitting}
-              className="lp-btn-primary w-full py-3.5 min-h-[48px] text-base sm:text-sm"
+              type="submit"
+              disabled={submitting || isLockedOut}
+              className="lp-btn-primary w-full py-3.5 min-h-[48px] text-base sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span>
                 {submitting
                   ? 'Please wait…'
+                  : isLockedOut
+                  ? `Locked — Wait ${lockoutSecondsLeft}s`
                   : mode === 'login'
                   ? 'Sign In'
                   : mode === 'signup'

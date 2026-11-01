@@ -195,7 +195,7 @@ const BASE: Quote[] = [
 
 const fmt = (q: Quote) => q.price.toLocaleString('en-US', { minimumFractionDigits: q.dp, maximumFractionDigits: q.dp });
 
-const TickerItem: React.FC<{ q: Quote; flash?: 'up' | 'down' }> = ({ q, flash }) => {
+const TickerItem: React.FC<{ q: Quote; flash?: 'up' | 'down' }> = React.memo(({ q, flash }) => {
   const chg = ((q.price - q.open) / q.open) * 100;
   const up = chg >= 0;
   return (
@@ -209,15 +209,30 @@ const TickerItem: React.FC<{ q: Quote; flash?: 'up' | 'down' }> = ({ q, flash })
       <span className="text-white/10 pl-3" aria-hidden="true">|</span>
     </span>
   );
-};
+});
 
 export const ForexTicker: React.FC = () => {
   const [quotes, setQuotes] = useState<Quote[]>(BASE);
   const [flash, setFlash] = useState<Record<string, 'up' | 'down'>>({});
   const prev = useRef(quotes);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let inView = true;
+    const el = rootRef.current;
+    const observer =
+      el && typeof IntersectionObserver !== 'undefined'
+        ? new IntersectionObserver(
+            (entries) => {
+              if (entries[0]) inView = entries[0].isIntersecting;
+            },
+            { threshold: 0 }
+          )
+        : null;
+    if (el && observer) observer.observe(el);
+
     const id = window.setInterval(() => {
+      if (!inView || document.hidden) return;
       setQuotes((qs) => {
         const next = qs.map((q) => {
           if (Math.random() < 0.35) return q;
@@ -235,12 +250,15 @@ export const ForexTicker: React.FC = () => {
         setFlash(f);
         return next;
       });
-    }, 2000);
-    return () => window.clearInterval(id);
+    }, 2500);
+    return () => {
+      observer?.disconnect();
+      window.clearInterval(id);
+    };
   }, []);
 
   return (
-    <div className="lp-ticker relative border-y border-white/[0.06] bg-[#080b12]/80 backdrop-blur py-3 overflow-hidden" aria-label="Live market prices">
+    <div ref={rootRef} className="lp-ticker relative border-y border-white/[0.06] bg-[#080b12]/80 backdrop-blur py-3 overflow-hidden" aria-label="Live market prices">
       <div className="pointer-events-none absolute inset-y-0 left-0 w-12 sm:w-24 bg-gradient-to-r from-[#06080d] to-transparent z-10" />
       <div className="pointer-events-none absolute inset-y-0 right-0 w-12 sm:w-24 bg-gradient-to-l from-[#06080d] to-transparent z-10" />
       <div className="lp-ticker-track">

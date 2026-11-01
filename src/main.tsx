@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import {InstallAppPrompt} from './components/InstallAppPrompt';
+import {AccessibilityWidget} from './components/AccessibilityWidget';
 
 // Register only built deployments; keep development sessions free of worker caching.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
@@ -18,5 +19,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
     <InstallAppPrompt />
+    <AccessibilityWidget />
   </React.StrictMode>
 );

@@ -1,18 +1,12 @@
-import {TradingMindset} from './components/TradingMindset';
-import {PartnerPage} from './components/PartnerPage';
-import {SitemapPage} from './components/SitemapPage';
-import {TradersInsightPage} from './components/TradersInsightPage';
 import {applyPageSeo} from './services/seo';
 import {usePlatformActivity} from './services/usePlatformActivity';
 import {AnimatedOrderPanel} from './components/AnimatedOrderPanel';
-import {AdminDashboard} from './components/AdminDashboard';
-import {ComingSoonPage} from './components/ComingSoonPage';
 import {BalanceBadge} from './components/BalanceBadge';
-import {LegalPage} from './components/LegalPage';
 import {LegalDocumentKey} from './components/LegalLinks';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MotivationWelcome } from './components/MotivationWelcome';
 import { ChartSponsorLoader } from './components/ChartSponsorLoader';
+import { WorkspaceGhostLoader } from './components/WorkspaceGhostLoader';
 import { ConfettiCelebration } from './components/ConfettiCelebration';
 import { getCachedSponsorshipConfig, loadSponsorshipConfig } from './services/sponsorship';
 import { resetMotivationVisit, setMotivationEnabled } from './services/motivation';
@@ -21,7 +15,7 @@ import { hydrateHistoricalArchive, hydrateLiveHistoricalArchive } from './servic
 import { shiftTimeframeClock } from './services/goldDataService';
 import {getSpotQuote, getSpotFeedStatus, SPOT_SYMBOLS} from './services/spotFeed';
 import {createLivePaperSession} from './services/livePaperTrading';
-import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   BacktestSessionMode,
   CandleColorStyle,
@@ -59,7 +53,6 @@ import {
   convertSessionAccountCurrency,
   createPracticeBranchSession,
   formatMoney,
-  getAggregatedCandlesUpToClock,
   getBidAskFromMid,
   getEffectiveInstrumentSpec,
   getInstrumentPipLabel,
@@ -103,7 +96,6 @@ import {
   getAdminImpersonationState,
   platformRequest,
 } from './services/platformAccounts';
-import { PlatformFeedbackPage } from './components/PlatformFeedbackPage';
 import {
   fetchCustomRuleProfilesFromSupabase,
   fetchUserPreferencesFromSupabase,
@@ -112,14 +104,9 @@ import {
   fetchUserStrategyNotesFromSupabase,
   isUntouchedStarterSession,
 } from './services/supabaseClient';
-import { TopNavigation, ChartIndicatorsState } from './components/TopNavigation';
-import { LeftToolbar } from './components/LeftToolbar';
-import { TradingChart } from './components/TradingChart';
-import { RightOrderPanel } from './components/RightOrderPanel';
-import { ReplayAndSessionsDock } from './components/ReplayAndSessionsDock';
+import type { ChartIndicatorsState } from './components/TopNavigation';
 import { LandingPage } from './components/LandingPage';
-import { ChartFlowUser, LoginPage } from './components/LoginPage';
-import { CreateSessionModal } from './components/CreateSessionModal';
+import type { ChartFlowUser } from './components/LoginPage';
 import {
   GuidedTour,
   hasSeenTour,
@@ -135,10 +122,7 @@ import {
   hasSeenWorkspaceTour,
   markWorkspaceTourSeen,
 } from './components/WorkspaceTour';
-import {
-  AnalyticsDashboardPage,
-  HubSidebarSection,
-} from './components/AnalyticsDashboardPage';
+import type { HubSidebarSection } from './components/AnalyticsDashboardPage';
 import {
   BarChart3,
   RotateCcw,
@@ -147,6 +131,55 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
+
+const TradingMindset = React.lazy(() =>
+  import('./components/TradingMindset').then((m) => ({ default: m.TradingMindset }))
+);
+const PartnerPage = React.lazy(() =>
+  import('./components/PartnerPage').then((m) => ({ default: m.PartnerPage }))
+);
+const SitemapPage = React.lazy(() =>
+  import('./components/SitemapPage').then((m) => ({ default: m.SitemapPage }))
+);
+const TradersInsightPage = React.lazy(() =>
+  import('./components/TradersInsightPage').then((m) => ({ default: m.TradersInsightPage }))
+);
+const AdminDashboard = React.lazy(() =>
+  import('./components/AdminDashboard').then((m) => ({ default: m.AdminDashboard }))
+);
+const ComingSoonPage = React.lazy(() =>
+  import('./components/ComingSoonPage').then((m) => ({ default: m.ComingSoonPage }))
+);
+const LegalPage = React.lazy(() =>
+  import('./components/LegalPage').then((m) => ({ default: m.LegalPage }))
+);
+const PlatformFeedbackPage = React.lazy(() =>
+  import('./components/PlatformFeedbackPage').then((m) => ({ default: m.PlatformFeedbackPage }))
+);
+const TopNavigation = React.lazy(() =>
+  import('./components/TopNavigation').then((m) => ({ default: m.TopNavigation }))
+);
+const LeftToolbar = React.lazy(() =>
+  import('./components/LeftToolbar').then((m) => ({ default: m.LeftToolbar }))
+);
+const TradingChart = React.lazy(() =>
+  import('./components/TradingChart').then((m) => ({ default: m.TradingChart }))
+);
+const RightOrderPanel = React.lazy(() =>
+  import('./components/RightOrderPanel').then((m) => ({ default: m.RightOrderPanel }))
+);
+const ReplayAndSessionsDock = React.lazy(() =>
+  import('./components/ReplayAndSessionsDock').then((m) => ({ default: m.ReplayAndSessionsDock }))
+);
+const LoginPage = React.lazy(() =>
+  import('./components/LoginPage').then((m) => ({ default: m.LoginPage }))
+);
+const CreateSessionModal = React.lazy(() =>
+  import('./components/CreateSessionModal').then((m) => ({ default: m.CreateSessionModal }))
+);
+const AnalyticsDashboardPage = React.lazy(() =>
+  import('./components/AnalyticsDashboardPage').then((m) => ({ default: m.AnalyticsDashboardPage }))
+);
 
 const DOCK_HINT_KEY = 'chart_replay_dock_hint_dismissed_v1';
 
@@ -296,13 +329,63 @@ export function App() {
     return 'landing';
   });
 
+  const restoreStartedAtRef = useRef<number>(Date.now());
+  const [isRestoringSession, setIsRestoringSession] = useState<boolean>(() => {
+    if (getActiveLoggedInUser()) return false;
+    try {
+      const p = normalizePath();
+      const hasReset = Boolean(
+        new URLSearchParams(window.location.search).get('reset_token')
+      );
+      if (
+        hasReset ||
+        p === '/reset-password' ||
+        p === '/signup' ||
+        p === '/sign-up' ||
+        p === '/register'
+      ) {
+        return false;
+      }
+    } catch {
+      // ignore
+    }
+    return true;
+  });
+
+  const completeSessionRestore = useCallback((minDisplayMs = 320) => {
+    const elapsed = Date.now() - restoreStartedAtRef.current;
+    const remaining = Math.max(0, minDisplayMs - elapsed);
+    if (remaining > 0) {
+      window.setTimeout(() => {
+        setIsRestoringSession(false);
+      }, remaining);
+    } else {
+      setIsRestoringSession(false);
+    }
+  }, []);
+
   useEffect(() => {
     purgeBrowserSensitiveStorage();
-    if (activeView === 'login') return;
+    const p = normalizePath();
+    const isExplicitResetOrSignup =
+      Boolean(new URLSearchParams(window.location.search).get('reset_token')) ||
+      p === '/reset-password' ||
+      p === '/signup' ||
+      p === '/sign-up' ||
+      p === '/register';
+    if (isExplicitResetOrSignup) {
+      setIsRestoringSession(false);
+      return;
+    }
     let cancelled = false;
+    let fallbackTimer: number | undefined;
     void platformRequest('status')
       .then((res) => {
-        if (cancelled || !res?.user) return;
+        if (cancelled) return;
+        if (!res?.user) {
+          setIsRestoringSession(false);
+          return;
+        }
         const u = res.user;
         setActiveLoggedInUser({
           ...u,
@@ -321,11 +404,19 @@ export function App() {
             hasSeenChartAnnouncement(u.email) ||
             hasSeenWorkspaceTour(u.email),
         });
-        setActiveView((prev) => (prev === 'landing' ? 'dashboard' : prev));
+        setActiveView((prev) =>
+          prev === 'landing' || prev === 'login' ? 'dashboard' : prev
+        );
+        fallbackTimer = window.setTimeout(() => {
+          if (!cancelled) setIsRestoringSession(false);
+        }, 850);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setIsRestoringSession(false);
+      });
     return () => {
       cancelled = true;
+      if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
     };
   }, []);
 
@@ -478,12 +569,18 @@ export function App() {
       .then((remoteSessions) => {
         if (cancelled) return;
         hasHydratedSessionsRef.current = email;
-        if (!remoteSessions || remoteSessions.length === 0) return;
+        if (!remoteSessions || remoteSessions.length === 0) {
+          completeSessionRestore();
+          return;
+        }
         const deletedIds = getDeletedSessionIds(email);
         const activeRemoteSessions = remoteSessions.filter(
           (r) => !deletedIds.has(r.id) && !isUntouchedStarterSession(r)
         );
-        if (activeRemoteSessions.length === 0) return;
+        if (activeRemoteSessions.length === 0) {
+          completeSessionRestore();
+          return;
+        }
         setTradingSessions((prev) => {
           const nonStarterPrev = prev.filter(
             (s) => !deletedIds.has(s.id) && !isUntouchedStarterSession(s)
@@ -529,10 +626,12 @@ export function App() {
           }
           return preferredSession.id;
         });
+        completeSessionRestore();
       })
       .catch(() => {
         if (!cancelled) {
           hasHydratedSessionsRef.current = email;
+          completeSessionRestore();
         }
       });
     void fetchUserStrategiesFromSupabase(email).then((remoteStrats) => {
@@ -695,6 +794,7 @@ export function App() {
       : undefined;
 
   useEffect(() => {
+    if (activeView !== 'terminal') return;
     let cancelled = false;
     if (!isPresentTime && hasHistoricalArchive(symbol)) {
       const currentRange = getLoadedHistorical1mRangeForClock(symbol, authoritativeClockTs);
@@ -735,10 +835,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [symbol, timeframe, isPresentTime, Math.floor(authoritativeClockTs / 86400)]);
+  }, [activeView, symbol, timeframe, isPresentTime, Math.floor(authoritativeClockTs / 86400)]);
 
   useEffect(() => {
-    if (!isPresentTime) return;
+    if (activeView !== 'terminal' || !isPresentTime) return;
     let cancelled = false;
     let refreshing = false;
     const refresh = async () => {
@@ -756,13 +856,22 @@ export function App() {
     const clockTimer = setInterval(() => setPresentClockTs(Math.floor(Date.now() / 1000)), 1000);
     const dataTimer = setInterval(() => void refresh(), 5000);
     return () => { cancelled = true; clearInterval(clockTimer); clearInterval(dataTimer); };
-  }, [isPresentTime, symbol, timeframe, secondaryTimeframe, activeSession.chartLayout]);
+  }, [activeView, isPresentTime, symbol, timeframe, secondaryTimeframe, activeSession.chartLayout]);
 
-  const visibleCandles = useMemo(() => getProviderChartCandles(symbol, timeframe, authoritativeClockTs, isPresentTime),
-    [symbol, timeframe, authoritativeClockTs, isPresentTime, marketDataVersion]);
-  const secondaryVisibleCandles = useMemo(() => activeSession.chartLayout === 'SPLIT_2'
-    ? getProviderChartCandles(symbol, secondaryTimeframe, authoritativeClockTs, isPresentTime) : [],
-    [symbol, secondaryTimeframe, authoritativeClockTs, isPresentTime, marketDataVersion, activeSession.chartLayout]);
+  const visibleCandles = useMemo(
+    () =>
+      activeView === 'terminal'
+        ? getProviderChartCandles(symbol, timeframe, authoritativeClockTs, isPresentTime)
+        : [],
+    [activeView, symbol, timeframe, authoritativeClockTs, isPresentTime, marketDataVersion]
+  );
+  const secondaryVisibleCandles = useMemo(
+    () =>
+      activeView === 'terminal' && activeSession.chartLayout === 'SPLIT_2'
+        ? getProviderChartCandles(symbol, secondaryTimeframe, authoritativeClockTs, isPresentTime)
+        : [],
+    [activeView, symbol, secondaryTimeframe, authoritativeClockTs, isPresentTime, marketDataVersion, activeSession.chartLayout]
+  );
   const olderHistoryAttempts = useRef(new Set<string>());
   const loadOlderChartHistory = useCallback(async (tf:Timeframe,before:number):Promise<boolean> => {
     const key=`${symbol}:${tf}:${before}:${isPresentTime?'live':'replay'}`;
@@ -793,7 +902,7 @@ export function App() {
   const paperAccount = tradingSessions.find(s => s.marketMode === 'LIVE_PAPER');
   const paperSymbols = Array.from(new Set([paperAccount?.activeAsset, ...(paperAccount?.positions || []).filter(p => p.status === 'OPEN' || p.status === 'PENDING').map(p => p.symbol || paperAccount?.activeAsset)].filter(Boolean))).sort().join(',');
   useEffect(() => {
-    if (!paperAccount) return;
+    if (!currentUser || !paperAccount || (activeView !== 'terminal' && activeView !== 'dashboard' && activeView !== 'analytics_page')) return;
     const accountId = paperAccount.id;
     let cancelled = false;
     let busy = false;
@@ -822,7 +931,7 @@ export function App() {
     void refresh();
     const timer = setInterval(() => void refresh(), 5000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [paperAccount?.id, paperSymbols]);
+  }, [currentUser, activeView, paperAccount?.id, paperSymbols]);
 
   const atr14 = useMemo(() => {
     if (visibleCandles.length < 2) {
@@ -969,12 +1078,28 @@ export function App() {
     () => activeView === 'terminal' && getCachedSponsorshipConfig().enabled
   );
   useEffect(() => {
+    if (activeView !== 'terminal' && !adminPage) return;
     void loadSponsorshipConfig().then((cfg) => {
       if (!cfg.enabled) {
         setChartSponsorLoading(false);
       }
     });
-  }, []);
+  }, [activeView, adminPage]);
+
+  // Background idle prefetching so subsequent route transitions feel instantaneous
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (activeView === 'landing') {
+        void import('./components/LoginPage');
+      } else if (activeView === 'dashboard' || activeView === 'analytics_page') {
+        void import('./components/TradingChart');
+        void import('./components/TopNavigation');
+        void import('./components/RightOrderPanel');
+        void import('./components/ReplayAndSessionsDock');
+      }
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [activeView]);
   const prevActiveViewRef = useRef(activeView);
   useEffect(() => {
     if (prevActiveViewRef.current !== 'terminal' && activeView === 'terminal') {
@@ -1972,8 +2097,25 @@ export function App() {
   }, [activeSession, showToast]);
 
   const liveMetrics = useMemo(
-    () => computeLiveSessionMetrics(activeSession),
-    [activeSession]
+    () =>
+      activeView === 'terminal' || activeView === 'dashboard' || activeView === 'analytics_page'
+        ? computeLiveSessionMetrics(activeSession)
+        : {
+            currentBalance: activeSession.startingBalance,
+            currentEquity: activeSession.startingBalance,
+            netPnL: 0,
+            netReturnPct: 0,
+            winRatePct: 0,
+            profitFactor: 0,
+            averageRMultiple: 0,
+            maxDrawdownPct: 0,
+            dailyDrawdownPct: 0,
+            totalClosedTrades: 0,
+            winningTrades: 0,
+            losingTrades: 0,
+            expectancyCurrency: 0,
+          },
+    [activeView, activeSession]
   );
 
   const currentCandle = visibleCandles[visibleCandles.length - 1];
@@ -1982,13 +2124,15 @@ export function App() {
 
   const sessionBoxes = useMemo(
     () =>
-      computeSessionBoxes(
-        visibleCandles,
-        sessionsConfig,
-        timeframe,
-        getInstrumentConfig(symbol).decimals
-      ),
-    [visibleCandles, sessionsConfig, timeframe, symbol]
+      activeView === 'terminal' && showSessionBoxes
+        ? computeSessionBoxes(
+            visibleCandles,
+            sessionsConfig,
+            timeframe,
+            getInstrumentConfig(symbol).decimals
+          )
+        : [],
+    [activeView, showSessionBoxes, visibleCandles, sessionsConfig, timeframe, symbol]
   );
 
   const allStrategyNames = useMemo(() => {
@@ -2111,6 +2255,7 @@ export function App() {
 
   useEffect(() => {
     if (
+      isRestoringSession ||
       legalPage ||
       sitemapPage ||
       insightRoute.active ||
@@ -2135,7 +2280,12 @@ export function App() {
     } else if (activeView === 'analytics_page') {
       targetPath = '/analytics';
     } else if (activeView === 'dashboard') {
-      targetPath = hubInitialSection === 'analytics' ? '/analytics' : '/dashboard';
+      targetPath =
+        hubInitialSection === 'analytics'
+          ? '/analytics'
+          : hubInitialSection === 'dashboard'
+          ? '/dashboard'
+          : `/${hubInitialSection}`;
     } else if (activeView === 'terminal') {
       targetPath = '/chart';
     }
@@ -2161,6 +2311,7 @@ export function App() {
       });
     }
   }, [
+    isRestoringSession,
     activeView,
     currentUser,
     loginInitialMode,
@@ -2177,51 +2328,55 @@ export function App() {
     timeframe,
   ]);
 
-  if(legalPage)return <LegalPage page={legalPage} onNavigate={openLegal} onOpenSitemap={openSitemap} onBack={closeLegal}/>;
-  if(sitemapPage)return <SitemapPage onBack={closeSitemap} onNavigateRoute={navigateFromSitemap} onOpenLegal={openLegal}/>;
+  if(legalPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><LegalPage page={legalPage} onNavigate={openLegal} onOpenSitemap={openSitemap} onBack={closeLegal}/></Suspense>;
+  if(sitemapPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><SitemapPage onBack={closeSitemap} onNavigateRoute={navigateFromSitemap} onOpenLegal={openLegal}/></Suspense>;
   if(feedbackRoute.active)return (
-    <PlatformFeedbackPage
-      initialName={feedbackRoute.name||currentUser?.name||null}
-      initialEmail={feedbackRoute.email||currentUser?.email||null}
-      userId={currentUser?.id||null}
-      onBack={closeFeedbackPage}
-    />
+    <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}>
+      <PlatformFeedbackPage
+        initialName={feedbackRoute.name||currentUser?.name||null}
+        initialEmail={feedbackRoute.email||currentUser?.email||null}
+        userId={currentUser?.id||null}
+        onBack={closeFeedbackPage}
+      />
+    </Suspense>
   );
 
   if(insightRoute.active)return (
-    <TradersInsightPage
-      activeSlug={insightRoute.slug}
-      onSelectArticle={(slug)=>openTradersInsight(slug)}
-      onBackToHome={closeTradersInsight}
-      onOpenLegal={openLegal}
-      onOpenSitemap={openSitemap}
-      onLaunchSimulator={(action)=>{
-        window.history.pushState({},'','/');
-        setInsightRoute({active:false,slug:null});
-        if(action==='prop_firm'){
-          setCreateSessionModalMode('PROP_FIRM');
-          setIsCreateSessionModalOpen(true);
+    <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}>
+      <TradersInsightPage
+        activeSlug={insightRoute.slug}
+        onSelectArticle={(slug)=>openTradersInsight(slug)}
+        onBackToHome={closeTradersInsight}
+        onOpenLegal={openLegal}
+        onOpenSitemap={openSitemap}
+        onLaunchSimulator={(action)=>{
+          window.history.pushState({},'','/');
+          setInsightRoute({active:false,slug:null});
+          if(action==='prop_firm'){
+            setCreateSessionModalMode('PROP_FIRM');
+            setIsCreateSessionModalOpen(true);
+            setActiveView('terminal');
+            return;
+          }
+          if(action==='new_backtest'){
+            setCreateSessionModalMode('BACKTESTING');
+            setIsCreateSessionModalOpen(true);
+            setActiveView('terminal');
+            return;
+          }
+          if(action==='analytics'){
+            setHubInitialSection('analytics');
+            setActiveView('analytics_page');
+            return;
+          }
           setActiveView('terminal');
-          return;
-        }
-        if(action==='new_backtest'){
-          setCreateSessionModalMode('BACKTESTING');
-          setIsCreateSessionModalOpen(true);
-          setActiveView('terminal');
-          return;
-        }
-        if(action==='analytics'){
-          setHubInitialSection('analytics');
-          setActiveView('analytics_page');
-          return;
-        }
-        setActiveView('terminal');
-      }}
-    />
+        }}
+      />
+    </Suspense>
   );
-  if(partnerPage)return <PartnerPage onBack={()=>{window.history.pushState({},'','/');setPartnerPage(false);setActiveView('landing');}} onOpenLegal={openLegal} onOpenSitemap={openSitemap}/>;
-  if(adminPage)return <AdminDashboard onBack={()=>{window.history.pushState({},'','/');setAdminPage(false);setActiveView('landing');}} onLoginAsUser={handleAdminLoginAsUser}/>;
-  if(comingSoon)return <ComingSoonPage onBack={closeComingSoon} onOpenLegal={openLegal} onOpenSitemap={openSitemap}/>;
+  if(partnerPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><PartnerPage onBack={()=>{window.history.pushState({},'','/');setPartnerPage(false);setActiveView('landing');}} onOpenLegal={openLegal} onOpenSitemap={openSitemap}/></Suspense>;
+  if(adminPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><AdminDashboard onBack={()=>{window.history.pushState({},'','/');setAdminPage(false);setActiveView('landing');}} onLoginAsUser={handleAdminLoginAsUser}/></Suspense>;
+  if(comingSoon)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><ComingSoonPage onBack={closeComingSoon} onOpenLegal={openLegal} onOpenSitemap={openSitemap}/></Suspense>;
 
   // VIEW 1: LANDING PAGE (HOMEPAGE)
   if (activeView === 'landing') {
@@ -2261,9 +2416,34 @@ export function App() {
     );
   }
 
+  // SMOOTH GHOST LOADER WHILE RESTORING LOGGED-IN CLIENT SESSION ON REFRESH
+  if (
+    isRestoringSession &&
+    (activeView === 'dashboard' ||
+      activeView === 'analytics_page' ||
+      activeView === 'terminal')
+  ) {
+    return (
+      <WorkspaceGhostLoader
+        theme={theme}
+        variant={
+          activeView === 'terminal'
+            ? 'terminal'
+            : activeView === 'analytics_page'
+            ? 'analytics_page'
+            : 'dashboard'
+        }
+        section={
+          activeView === 'analytics_page' ? 'analytics' : hubInitialSection
+        }
+      />
+    );
+  }
+
   // VIEW 2: LOGIN / REGISTRATION / PASSWORD RESET
   if (activeView === 'login' || !currentUser) {
     return (
+      <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]" />}>
       <LoginPage
         initialMode={urlResetParams.token ? 'reset' : loginInitialMode}
         onModeChange={(nextMode) => setLoginInitialMode(nextMode)}
@@ -2271,6 +2451,7 @@ export function App() {
         initialEmail={urlResetParams.email}
         onClearResetToken={clearUrlResetParams}
         onSuccessAuth={(user: ChartFlowUser) => {
+          setIsRestoringSession(false);
           if (user.isReturningLogin || (user.loginCount ?? 1) > 1) {
             markChartAnnouncementSeen(user.email);
             markWorkspaceTourSeen(user.email);
@@ -2308,6 +2489,7 @@ export function App() {
         onSkipToTerminal={() => setActiveView('dashboard')}
         onOpenLegal={openLegal}
       />
+      </Suspense>
     );
   }
 
@@ -2390,7 +2572,15 @@ export function App() {
   // VIEW 3: ACCOUNT DASHBOARD, SESSIONS, ANALYTICS, STRATEGIES & SETTINGS HUB
   if (activeView === 'dashboard' || activeView === 'analytics_page') {
     return (
-      <>
+      <Suspense
+        fallback={
+          <WorkspaceGhostLoader
+            theme={theme}
+            variant={activeView === 'analytics_page' ? 'analytics_page' : 'dashboard'}
+            section={activeView === 'analytics_page' ? 'analytics' : hubInitialSection}
+          />
+        }
+      >
         {adminImpersonationBanner}
         <AnalyticsDashboardPage
           activeSession={activeSession}
@@ -2476,47 +2666,49 @@ export function App() {
           onOpenTradersInsight={() => openTradersInsight()}
         />
 
-        <CreateSessionModal
-          isOpen={isCreateSessionModalOpen}
-          initialMode={createSessionModalMode}
-          onClose={() => setIsCreateSessionModalOpen(false)}
-          sessions={tradingSessions}
-          activeSessionId={activeSession.id}
-          theme={theme}
-          onCreateSession={(newSession) => handleCreateNewSession(newSession, true)}
-          onSelectSession={(sessId) => {
-            setIsPlaying(false);
-            setActiveSessionId(sessId);
-            setViewportFocusVersion((v) => v + 1);
-            setIsCreateSessionModalOpen(false);
-            setActiveView('terminal');
-          }}
-          onDeleteSession={handleDeleteSession}
-          savedStrategies={allStrategyNames}
-          onAddStrategy={(newStratName: string) => {
-            if (!allStrategyNames.includes(newStratName)) {
-              const next: StrategyRecord[] = [
-                ...strategies,
-                {
-                  id: `strat-${Date.now()}`,
-                  name: newStratName,
-                  description: 'Created during session setup',
-                  defaultChecklist: ['HTF aligned', 'Risk within plan'],
-                  setupTags: ['Standard'],
-                  createdAt: new Date().toISOString().slice(0, 10),
-                },
-              ];
-              setStrategies(next);
-              saveUserStrategies(currentUser.email, next);
-            }
-          }}
-          customRuleProfiles={customRuleProfiles}
-          onSaveCustomRuleProfile={(profile) => {
-            const next = [...customRuleProfiles, profile];
-            setCustomRuleProfiles(next);
-            saveUserCustomRuleProfiles(currentUser.email, next);
-          }}
-        />
+        {isCreateSessionModalOpen && (
+          <CreateSessionModal
+            isOpen={isCreateSessionModalOpen}
+            initialMode={createSessionModalMode}
+            onClose={() => setIsCreateSessionModalOpen(false)}
+            sessions={tradingSessions}
+            activeSessionId={activeSession.id}
+            theme={theme}
+            onCreateSession={(newSession) => handleCreateNewSession(newSession, true)}
+            onSelectSession={(sessId) => {
+              setIsPlaying(false);
+              setActiveSessionId(sessId);
+              setViewportFocusVersion((v) => v + 1);
+              setIsCreateSessionModalOpen(false);
+              setActiveView('terminal');
+            }}
+            onDeleteSession={handleDeleteSession}
+            savedStrategies={allStrategyNames}
+            onAddStrategy={(newStratName: string) => {
+              if (!allStrategyNames.includes(newStratName)) {
+                const next: StrategyRecord[] = [
+                  ...strategies,
+                  {
+                    id: `strat-${Date.now()}`,
+                    name: newStratName,
+                    description: 'Created during session setup',
+                    defaultChecklist: ['HTF aligned', 'Risk within plan'],
+                    setupTags: ['Standard'],
+                    createdAt: new Date().toISOString().slice(0, 10),
+                  },
+                ];
+                setStrategies(next);
+                saveUserStrategies(currentUser.email, next);
+              }
+            }}
+            customRuleProfiles={customRuleProfiles}
+            onSaveCustomRuleProfile={(profile) => {
+              const next = [...customRuleProfiles, profile];
+              setCustomRuleProfiles(next);
+              saveUserCustomRuleProfiles(currentUser.email, next);
+            }}
+          />
+        )}
 
         <MotivationWelcome
           userKey={currentUser.email}
@@ -2528,7 +2720,7 @@ export function App() {
           onOpen={() => { setMotivationOpen(true); setIsPlaying(false); }}
           onDismiss={() => setMotivationOpen(false)}
         />
-      </>
+      </Suspense>
     );
   }
 
@@ -2538,6 +2730,15 @@ export function App() {
   const dailyChangePct = firstClose > 0 ? (dailyChange / firstClose) * 100 : 0;
 
   return (
+    <Suspense
+      fallback={
+        <WorkspaceGhostLoader
+          theme={theme}
+          variant="terminal"
+          section={hubInitialSection}
+        />
+      }
+    >
     <div
       className={`h-[100dvh] w-full max-w-full flex flex-col overflow-hidden select-none ${
         theme === 'light'
@@ -3203,47 +3404,49 @@ export function App() {
       )}
 
       {/* Create Session Modal */}
-      <CreateSessionModal
-        isOpen={isCreateSessionModalOpen}
-        initialMode={createSessionModalMode}
-        onClose={() => setIsCreateSessionModalOpen(false)}
-        sessions={tradingSessions}
-        activeSessionId={activeSession.id}
-        theme={theme}
-        onCreateSession={(newSession) => handleCreateNewSession(newSession, false)}
-        onSelectSession={(sessId) => {
-          setIsPlaying(false);
-          setActiveSessionId(sessId);
-          setViewportFocusVersion((v) => v + 1);
-          setIsCreateSessionModalOpen(false);
-          setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
-        }}
-        onDeleteSession={handleDeleteSession}
-        savedStrategies={allStrategyNames}
-        onAddStrategy={(newStratName: string) => {
-          if (!allStrategyNames.includes(newStratName)) {
-            const next: StrategyRecord[] = [
-              ...strategies,
-              {
-                id: `strat-${Date.now()}`,
-                name: newStratName,
-                description: 'Created during session setup',
-                defaultChecklist: ['HTF aligned', 'Risk within plan'],
-                setupTags: ['Standard'],
-                createdAt: new Date().toISOString().slice(0, 10),
-              },
-            ];
-            setStrategies(next);
-            saveUserStrategies(currentUser.email, next);
-          }
-        }}
-        customRuleProfiles={customRuleProfiles}
-        onSaveCustomRuleProfile={(profile) => {
-          const next = [...customRuleProfiles, profile];
-          setCustomRuleProfiles(next);
-          saveUserCustomRuleProfiles(currentUser.email, next);
-        }}
-      />
+      {isCreateSessionModalOpen && (
+        <CreateSessionModal
+          isOpen={isCreateSessionModalOpen}
+          initialMode={createSessionModalMode}
+          onClose={() => setIsCreateSessionModalOpen(false)}
+          sessions={tradingSessions}
+          activeSessionId={activeSession.id}
+          theme={theme}
+          onCreateSession={(newSession) => handleCreateNewSession(newSession, false)}
+          onSelectSession={(sessId) => {
+            setIsPlaying(false);
+            setActiveSessionId(sessId);
+            setViewportFocusVersion((v) => v + 1);
+            setIsCreateSessionModalOpen(false);
+            setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
+          }}
+          onDeleteSession={handleDeleteSession}
+          savedStrategies={allStrategyNames}
+          onAddStrategy={(newStratName: string) => {
+            if (!allStrategyNames.includes(newStratName)) {
+              const next: StrategyRecord[] = [
+                ...strategies,
+                {
+                  id: `strat-${Date.now()}`,
+                  name: newStratName,
+                  description: 'Created during session setup',
+                  defaultChecklist: ['HTF aligned', 'Risk within plan'],
+                  setupTags: ['Standard'],
+                  createdAt: new Date().toISOString().slice(0, 10),
+                },
+              ];
+              setStrategies(next);
+              saveUserStrategies(currentUser.email, next);
+            }
+          }}
+          customRuleProfiles={customRuleProfiles}
+          onSaveCustomRuleProfile={(profile) => {
+            const next = [...customRuleProfiles, profile];
+            setCustomRuleProfiles(next);
+            saveUserCustomRuleProfiles(currentUser.email, next);
+          }}
+        />
+      )}
 
       <ChartSponsorLoader
         open={chartSponsorLoading && !isCreateSessionModalOpen}
@@ -3426,6 +3629,7 @@ export function App() {
         </div>
       )}
     </div>
+    </Suspense>
   );
 }
 

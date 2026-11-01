@@ -64,6 +64,8 @@ export function TradingMindset({session,userKey,displayName,open,onClose,onOpen,
   const [expanded,setExpanded]=useState(false);
   const [editing,setEditing]=useState(false);
   const [overflowing,setOverflowing]=useState(false);
+  const [botHidden,setBotHidden]=useState(false);
+  useEffect(()=>{if(open)setBotHidden(false);},[open]);
   const content=useRef<HTMLDivElement>(null);
   const collapsed=useRef<NoteBounds|null>(null);
   const fontSize=Math.max(10,Math.min(16,13*Math.sqrt(note.width*note.height/(286*300))));
@@ -193,7 +195,21 @@ export function TradingMindset({session,userKey,displayName,open,onClose,onOpen,
     </aside>}
     {(confettiBurst || moment?.kind==='win') && prefs.celebrate && <div key={confettiBurst?.id ?? moment?.id} className="mindset-confetti" aria-hidden="true">{Array.from({length:64},(_,i)=><i key={i} style={{left:`${(i*37)%100}%`,background:['#2dd4bf','#fbbf24','#c4b5fd','#fb7185','#7dd3fc'][i%5],animationDelay:`${(i%4)*.012}s`,['--drift' as string]:`${(i%2?-1:1)*(20+i%7*15)}px`,['--turn' as string]:`${i%2?640:-580}deg`}}/>)}</div>}
     <div className="mindset-coach-cluster" data-popover-below={mobileBelow?"true":"false"} data-under-controls={mobileTop!==null?"true":"false"} data-panel-open={rightPanelOpen?'true':'false'} style={{'--coach-mobile-bottom':`${mobileBottom}px`,...(mobileTop!==null?{'--coach-mobile-top':`${mobileTop}px`}:{})} as React.CSSProperties}>
-    <button data-panel-open={rightPanelOpen?'true':'false'} className={`mindset-coach-dock ${moment?.kind==='affirm'||moment?.kind==='win'?'is-happy':''} ${!prefs.coachEnabled?'is-paused':''}`} aria-label="Open psychology coach" title={prefs.coachEnabled?'Michael, your psychology coach · Click for options':'Michael (Coach paused) · Click to enable'} onClick={onOpen}><CoachFace mood={moment?.kind||'idle'}/><span className="mindset-coach-dot"/></button>
+    {!botHidden && (
+      <div className="mindset-coach-dock-wrap group relative flex items-center justify-center">
+        <button data-panel-open={rightPanelOpen?'true':'false'} className={`mindset-coach-dock ${moment?.kind==='affirm'||moment?.kind==='win'?'is-happy':''} ${!prefs.coachEnabled?'is-paused':''}`} aria-label="Open psychology coach" title={prefs.coachEnabled?'Michael, your psychology coach · Click for options':'Michael (Coach paused) · Click to enable'} onClick={onOpen}><CoachFace mood={moment?.kind||'idle'}/><span className="mindset-coach-dot"/></button>
+        <button
+          type="button"
+          aria-label="Close psychology coach bot"
+          title="Hide coach bot"
+          onClick={(e)=>{e.stopPropagation();setBotHidden(true);onClose();dispatchCoach({type:'disable'});}}
+          className="mindset-bot-close absolute -top-1 -right-1 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-white/25 bg-[#0f172a] text-slate-300 opacity-0 shadow-md transition-opacity duration-150 hover:border-rose-400/60 hover:bg-rose-500 hover:text-white group-hover:opacity-100 focus:opacity-100"
+        >
+          <X size={11} strokeWidth={2.75} />
+        </button>
+      </div>
+    )}
+    <div id="chart-a11y-slot" data-panel-open={rightPanelOpen?'true':'false'} className="flex items-center justify-center empty:hidden" />
     {open && <div className="mindset-menu" ref={panel} role="dialog" aria-label="Mindset options">
       <header><span><CoachFace/>Michael · Psychology coach</span><button autoFocus aria-label="Close mindset options" onClick={onClose}><X size={16}/></button></header>
       <button className="mindset-plan-toggle" onClick={()=>{setNote(n=>({...n,pinned:!n.pinned}));onClose();}}><StickyNote size={17}/><span>{note.pinned?'Hide sticky note':'Show my trading plan'}<small>Drag to move or resize. Always saved.</small></span><Pin size={13}/></button>
@@ -201,7 +217,7 @@ export function TradingMindset({session,userKey,displayName,open,onClose,onOpen,
       <label className="mindset-toggle"><span><strong>Celebrate my wins</strong><small>A quick congratulations + confetti.</small></span><input aria-label="Celebrate my wins" type="checkbox" checked={prefs.celebrate} onChange={e=>setPrefs(p=>({...p,celebrate:e.target.checked}))}/></label>
       <div className="mindset-samples"><span>PREVIEW A NOTIFICATION</span><div><button onClick={()=>preview('entry')}>Plan check</button><button onClick={()=>preview('loss')}>Loss</button><button onClick={()=>preview('win')}><PartyPopper size={12}/>Win</button></div></div>
     </div>}
-    {moment && <section data-panel-open={rightPanelOpen?'true':'false'} key={moment.id} className={`mindset-toast mindset-${moment.kind}`} role="status" aria-live="polite"><div className="mindset-toast-copy">{moment.preview&&<small>PREVIEW</small>}<strong>{moment.title}</strong><p>{moment.body}</p>{moment.kind==='entry'&&<div className="mindset-toast-actions"><button onClick={confirmPlan}>Yes <Check size={12}/></button><button className="mindset-no" onClick={declinePlan}>No</button><button onClick={()=>{setNote(n=>({...n,pinned:true}));}}>View plan</button></div>}{moment.kind==='entry'&&<small className="mindset-trade-context">Check-in for your open trade. Take your time to answer.</small>}{moment.kind==='reset'&&<div className="mindset-toast-actions"><button onClick={()=>{setNote(n=>({...n,pinned:true}));}}>Review my plan</button><button onClick={()=>dispatchCoach({type:'dismiss'})}>Got it</button></div>}<button className="mindset-disable-coach" onClick={()=>{setPrefs(p=>({...p,coachEnabled:false}));dispatchCoach({type:'disable'});}}>Disable coach</button></div><button className="mindset-dismiss" aria-label="Dismiss mindset message" onClick={()=>dispatchCoach({type:'dismiss'})}><X size={14}/></button></section>}
+    {!botHidden && moment && <section data-panel-open={rightPanelOpen?'true':'false'} key={moment.id} className={`mindset-toast mindset-${moment.kind}`} role="status" aria-live="polite"><div className="mindset-toast-copy">{moment.preview&&<small>PREVIEW</small>}<strong>{moment.title}</strong><p>{moment.body}</p>{moment.kind==='entry'&&<div className="mindset-toast-actions"><button onClick={confirmPlan}>Yes <Check size={12}/></button><button className="mindset-no" onClick={declinePlan}>No</button><button onClick={()=>{setNote(n=>({...n,pinned:true}));}}>View plan</button></div>}{moment.kind==='entry'&&<small className="mindset-trade-context">Check-in for your open trade. Take your time to answer.</small>}{moment.kind==='reset'&&<div className="mindset-toast-actions"><button onClick={()=>{setNote(n=>({...n,pinned:true}));}}>Review my plan</button><button onClick={()=>dispatchCoach({type:'dismiss'})}>Got it</button></div>}<button className="mindset-disable-coach" onClick={()=>{setPrefs(p=>({...p,coachEnabled:false}));dispatchCoach({type:'disable'});}}>Disable coach</button></div><button className="mindset-dismiss" aria-label="Dismiss mindset message" onClick={()=>dispatchCoach({type:'dismiss'})}><X size={14}/></button></section>}
     </div>
   </>;
 }

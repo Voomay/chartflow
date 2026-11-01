@@ -8,13 +8,17 @@ import {
   BrainCircuit,
   CandlestickChart,
   CheckCircle2,
+  CircleDollarSign,
   Clock,
+  Layers,
   Menu,
   ShieldCheck,
   StickyNote,
   Target,
+  TrendingDown,
   TrendingUp,
   Trophy,
+  Wallet,
   X,
   Zap,
   Handshake,
@@ -22,7 +26,8 @@ import {
 import { ChartReplayLogo } from './ChartReplayLogo';
 import { ForexTicker } from './LandingExtras';
 import { HomepageDemoVideo } from './HomepageDemoVideo';
-import { TRADERS_INSIGHT_ARTICLES } from '../services/tradersInsightData';
+import { monotonePath } from './analytics/charts';
+import { TRADERS_INSIGHT_PREVIEWS as TRADERS_INSIGHT_ARTICLES } from '../services/tradersInsightPreviews';
 import { applyPageSeo, buildHomeJsonLd, DEFAULT_DESCRIPTION, DEFAULT_KEYWORDS, DEFAULT_TITLE } from '../services/seo';
 
 export type LandingLaunchAction =
@@ -44,8 +49,26 @@ interface LandingPageProps {
 }
 
 const DEMO_EQUITY_POINTS = [
-  100000, 100850, 100190, 101780, 102650, 101420, 100240, 103100, 104420,
-  103390, 105680, 106950, 105890, 108120, 109860,
+  100000, 100920, 100340, 102150, 103480, 102890, 104760, 106320, 105740,
+  108190, 110240, 109680, 111850, 113490, 115420,
+];
+
+const DEMO_BALANCE_POINTS = [
+  100000, 100850, 100280, 101980, 103310, 102750, 104590, 106150, 105610,
+  107980, 110240, 109550, 111640, 113210, 115420,
+];
+
+const DEMO_DAILY_PNL = [
+  { date: '10-14', pnl: 1420 },
+  { date: '10-15', pnl: -580 },
+  { date: '10-16', pnl: 2190 },
+  { date: '10-17', pnl: 1680 },
+  { date: '10-18', pnl: -490 },
+  { date: '10-21', pnl: 2840 },
+  { date: '10-22', pnl: 3180 },
+  { date: '10-23', pnl: -660 },
+  { date: '10-24', pnl: 2630 },
+  { date: '10-25', pnl: 3210 },
 ];
 
 const FEATURES = [
@@ -87,12 +110,435 @@ const FEATURES = [
   },
 ];
 
-const ANALYTICS_KPIS = [
-  { label: 'Net P&L', value: '+$9,860', tone: 'text-emerald-400' },
-  { label: 'Win Rate', value: '71.4%', tone: 'text-white' },
-  { label: 'Profit Factor', value: '2.84', tone: 'text-sky-400' },
-  { label: 'Max Drawdown', value: '2.35%', tone: 'text-rose-400' },
-];
+const HomepageAnalyticsShowcase: React.FC = () => {
+  const [currency, setCurrency] = useState<'USD' | 'ZAR'>('USD');
+  const rate = currency === 'ZAR' ? 18.5 : 1;
+  const sym = currency === 'ZAR' ? 'R' : '$';
+  const fmtMoney = (usdVal: number, signed = false) => {
+    const val = Math.round(usdVal * rate);
+    const absStr = Math.abs(val).toLocaleString('en-US');
+    if (signed) return `${val >= 0 ? '+' : '-'}${sym}${absStr}`;
+    return `${sym}${absStr}`;
+  };
+
+  // Equity curve geometry matching src/components/analytics/charts.tsx
+  const W = 440;
+  const H = 168;
+  const padL = 48;
+  const padR = 14;
+  const padT = 12;
+  const padB = 22;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const minVal = 99000;
+  const maxVal = 116500;
+  const toX = (i: number) => padL + (i / (DEMO_EQUITY_POINTS.length - 1)) * innerW;
+  const toY = (v: number) => padT + innerH - ((v - minVal) / (maxVal - minVal)) * innerH;
+
+  const eqXY = DEMO_EQUITY_POINTS.map((v, i) => ({ x: toX(i), y: toY(v) }));
+  const balXY = DEMO_BALANCE_POINTS.map((v, i) => ({ x: toX(i), y: toY(v) }));
+  const eqPath = monotonePath(eqXY);
+  const balPath = monotonePath(balXY);
+  const bottomY = padT + innerH;
+  const areaPath = `${eqPath}L${eqXY[eqXY.length - 1].x},${bottomY}L${eqXY[0].x},${bottomY}Z`;
+  const lastPt = eqXY[eqXY.length - 1];
+  const yTicks = [100000, 105000, 110000, 115000];
+
+  // Donut chart geometry matching src/components/PerformanceOverview.tsx
+  const totalTrades = 28;
+  const outcomes = [
+    { label: 'Wins', count: 20, color: '#00dfad' },
+    { label: 'Losses', count: 7, color: '#fb7185' },
+    { label: 'Break-even', count: 1, color: '#64748b' },
+  ];
+  const rDonut = 48;
+  const circ = 2 * Math.PI * rDonut;
+
+  const kpis = [
+    {
+      label: 'Account balance',
+      value: fmtMoney(100000),
+      detail: `Current: ${fmtMoney(115420)}`,
+      icon: Wallet,
+      tone: 'blue',
+    },
+    {
+      label: 'Net P&L',
+      value: fmtMoney(15420, true),
+      detail: '+15.42% return',
+      icon: CircleDollarSign,
+      tone: 'teal',
+    },
+    {
+      label: 'Win rate',
+      value: '71.4%',
+      detail: '20W · 7L · 1BE',
+      icon: Target,
+      tone: 'cyan',
+    },
+    {
+      label: 'Profit factor',
+      value: '2.84',
+      detail: '28 closed · +2.15R avg',
+      icon: BarChart3,
+      tone: 'violet',
+    },
+  ] as const;
+
+  return (
+    <div
+      className="hub-modern rounded-2xl border border-[#7db4d7]/20 bg-[#0b121b] p-3.5 sm:p-5 shadow-[0_24px_70px_-20px_rgba(0,0,0,0.85),0_0_40px_rgba(16,185,129,0.1)] text-left"
+      data-hub-theme="dark"
+    >
+      {/* Top workspace header bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3.5 border-b border-[#7db4d7]/15">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center text-emerald-300 shrink-0">
+            <BarChart3 className="w-4 h-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs sm:text-sm font-bold text-white tracking-tight truncate">
+                FTMO {fmtMoney(100000)} · 2-Step Evaluation
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-400/35 text-[10px] font-mono font-extrabold text-emerald-300 uppercase">
+                Funded Ready
+              </span>
+            </div>
+            <p className="text-[10px] sm:text-[11px] text-slate-400 font-mono truncate">
+              XAU/USD · US30 · GER30 · All Phases Combined
+            </p>
+          </div>
+        </div>
+
+        <div className="inline-flex items-center rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-0.5 text-[11px] font-mono font-bold shrink-0">
+          <button
+            type="button"
+            onClick={() => setCurrency('USD')}
+            className={`px-2.5 py-1 rounded-lg transition ${
+              currency === 'USD' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            USD ($)
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrency('ZAR')}
+            className={`px-2.5 py-1 rounded-lg transition ${
+              currency === 'ZAR' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            ZAR (R)
+          </button>
+        </div>
+      </div>
+
+      {/* 1. Real Hub Metric KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 mb-3.5">
+        {kpis.map(({ label, value, detail, icon: Icon, tone }) => (
+          <div key={label} className={`hub-metric hub-tone-${tone} !p-2.5 sm:!p-3`}>
+            <span className="hub-metric-icon !w-8 !h-8 !rounded-lg">
+              <Icon className="w-4 h-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] opacity-70 mb-0.5 truncate">{label}</p>
+              <strong className="!text-xs sm:!text-sm font-bold tracking-tight tabular-nums block truncate">
+                {value}
+              </strong>
+              <span className="text-[9px] sm:text-[10px] opacity-65 font-mono block mt-0.5 truncate">
+                {detail}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 2. 2-Step Prop Firm Evaluation Progression */}
+      <div className="hub-surface rounded-xl p-3 sm:p-3.5 mb-3.5">
+        <div className="flex items-center justify-between gap-2 mb-2.5">
+          <div className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-amber-400">
+            <Trophy className="w-3.5 h-3.5" />
+            <span>2-Step Prop Firm Evaluation Progression</span>
+          </div>
+          <span className="text-[10px] font-mono text-emerald-300 font-semibold">
+            Max DD: 2.35% / 10%
+          </span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {[
+            {
+              title: 'Challenge 1 (Phase 1)',
+              targetPct: '10%',
+              targetAmt: fmtMoney(10000),
+              pnl: fmtMoney(10240, true),
+              ret: '+10.24%',
+              trades: '16T · 75.0% WR',
+              days: '5/4 Days',
+            },
+            {
+              title: 'Challenge 2 (Phase 2)',
+              targetPct: '5%',
+              targetAmt: fmtMoney(5000),
+              pnl: fmtMoney(5180, true),
+              ret: '+5.18%',
+              trades: '12T · 66.7% WR',
+              days: '4/4 Days',
+            },
+          ].map((ph) => (
+            <div
+              key={ph.title}
+              className="rounded-xl border border-emerald-500/35 bg-[#0c1622]/90 p-2.5 space-y-2"
+            >
+              <div className="flex items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[11px] font-extrabold text-white truncate">{ph.title}</span>
+                  <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0">
+                    {ph.targetPct} ({ph.targetAmt})
+                  </span>
+                </div>
+                <span className="text-[9px] font-mono font-extrabold px-1.5 py-0.5 rounded bg-emerald-500 text-slate-950 uppercase shrink-0">
+                  PASSED
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] font-mono">
+                <span className="text-emerald-400 font-bold">
+                  {ph.pnl} ({ph.ret})
+                </span>
+                <span className="text-slate-300">{ph.trades}</span>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[9px] font-mono text-slate-400">
+                  <span>Target Progress (100%)</span>
+                  <span>{ph.days}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-slate-700/50 overflow-hidden">
+                  <div className="h-full w-full rounded-full bg-emerald-500" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 3. Equity Curve + Trade Outcomes Donut */}
+      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 mb-3.5">
+        {/* Equity Curve Surface */}
+        <div className="sm:col-span-7 hub-surface rounded-xl p-3 sm:p-3.5 flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <h3 className="text-xs sm:text-sm font-bold text-white tracking-tight">Equity curve</h3>
+              <p className="text-[10px] text-slate-400 font-mono">
+                Start: <strong className="text-slate-200">{fmtMoney(100000)}</strong> · Current:{' '}
+                <strong className="text-emerald-300">{fmtMoney(115420)}</strong>
+              </p>
+            </div>
+            <div className="flex items-center gap-2.5 text-[9px] font-mono text-slate-300">
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                Equity
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-0.5 bg-indigo-400" />
+                Balance
+              </span>
+            </div>
+          </div>
+
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            className="w-full h-36 sm:h-40 block overflow-visible"
+            role="img"
+            aria-label="Smooth equity and balance curve across 28 closed replay trades"
+          >
+            <defs>
+              <linearGradient id="lp-hub-eq-area" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.32" />
+                <stop offset="55%" stopColor="#3b82f6" stopOpacity="0.12" />
+                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+              </linearGradient>
+              <linearGradient id="lp-hub-eq-stroke" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#22d3ee" />
+                <stop offset="55%" stopColor="#3b82f6" />
+                <stop offset="100%" stopColor="#10b981" />
+              </linearGradient>
+            </defs>
+
+            {yTicks.map((tick) => {
+              const yy = toY(tick);
+              const isStart = tick === 100000;
+              return (
+                <g key={tick}>
+                  <line
+                    x1={padL}
+                    x2={W - padR}
+                    y1={yy}
+                    y2={yy}
+                    stroke={isStart ? '#38bdf8' : '#94a3b8'}
+                    strokeOpacity={isStart ? 0.35 : 0.14}
+                    strokeDasharray={isStart ? '4 3' : '2 3'}
+                  />
+                  <text
+                    x={padL - 6}
+                    y={yy + 3}
+                    textAnchor="end"
+                    fill="#94a3b8"
+                    fontSize="9"
+                    fontFamily="ui-monospace, monospace"
+                  >
+                    {currency === 'ZAR' ? `R${Math.round((tick * rate) / 1000)}k` : `$${tick / 1000}k`}
+                  </text>
+                </g>
+              );
+            })}
+
+            <path d={areaPath} fill="url(#lp-hub-eq-area)" />
+            <path
+              d={balPath}
+              fill="none"
+              stroke="#818cf8"
+              strokeOpacity="0.65"
+              strokeWidth="1.5"
+              strokeDasharray="4 3"
+            />
+            <path
+              d={eqPath}
+              fill="none"
+              stroke="url(#lp-hub-eq-stroke)"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            />
+
+            <circle cx={lastPt.x} cy={lastPt.y} r="6" fill="#10b981" fillOpacity="0.25" />
+            <circle cx={lastPt.x} cy={lastPt.y} r="3.2" fill="#10b981" stroke="#0b121b" strokeWidth="1.5" />
+
+            {[
+              { idx: 0, label: 'Start' },
+              { idx: 4, label: '#8' },
+              { idx: 9, label: '#18' },
+              { idx: 14, label: '#28' },
+            ].map((t) => (
+              <text
+                key={t.label}
+                x={toX(t.idx)}
+                y={H - 4}
+                textAnchor="middle"
+                fill="#64748b"
+                fontSize="9"
+                fontFamily="ui-monospace, monospace"
+              >
+                {t.label}
+              </text>
+            ))}
+          </svg>
+        </div>
+
+        {/* Trade Outcomes Donut + Streaks */}
+        <div className="sm:col-span-5 hub-surface rounded-xl p-3 sm:p-3.5 flex flex-col justify-between">
+          <div>
+            <h3 className="text-xs sm:text-sm font-bold text-white tracking-tight">Trade outcomes</h3>
+            <div className="flex items-center gap-3 mt-2.5">
+              <svg
+                viewBox="0 0 124 124"
+                className="w-24 h-24 shrink-0"
+                role="img"
+                aria-label="71.4% win rate: 20 wins, 7 losses, 1 break-even"
+              >
+                <circle cx="62" cy="62" r={rDonut} fill="none" stroke="#263342" strokeWidth="15" />
+                {outcomes.map((outcome, index) => {
+                  const offset = outcomes.slice(0, index).reduce((sum, item) => sum + item.count, 0);
+                  return (
+                    <circle
+                      key={outcome.label}
+                      cx="62"
+                      cy="62"
+                      r={rDonut}
+                      fill="none"
+                      stroke={outcome.color}
+                      strokeWidth="15"
+                      strokeDasharray={`${(outcome.count / totalTrades) * circ} ${circ}`}
+                      strokeDashoffset={(-offset / totalTrades) * circ}
+                      transform="rotate(-90 62 62)"
+                    />
+                  );
+                })}
+                <text
+                  x="62"
+                  y="58"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill="#ffffff"
+                  fontSize="15"
+                  fontWeight="800"
+                >
+                  71.4%
+                </text>
+                <text x="62" y="74" textAnchor="middle" fill="#94a3b8" fontSize="8.5" fontWeight="600">
+                  Win rate
+                </text>
+              </svg>
+
+              <div className="space-y-2 flex-1 min-w-0">
+                {outcomes.map((outcome) => (
+                  <div key={outcome.label} className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="flex items-center gap-1.5 text-slate-300 truncate">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: outcome.color }} />
+                      {outcome.label}
+                    </span>
+                    <strong className="font-mono font-bold text-white">{outcome.count}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-2.5 mt-2.5 border-t border-slate-500/15">
+            <div className="rounded-lg bg-emerald-500/10 border border-emerald-400/25 px-2.5 py-1.5">
+              <div className="text-[9px] text-slate-400 uppercase font-mono">Win Streak</div>
+              <div className="text-xs font-mono font-extrabold text-emerald-300">7 consecutive</div>
+            </div>
+            <div className="rounded-lg bg-cyan-500/10 border border-cyan-400/25 px-2.5 py-1.5">
+              <div className="text-[9px] text-slate-400 uppercase font-mono">Expectancy</div>
+              <div className="text-xs font-mono font-extrabold text-cyan-300">{fmtMoney(551, true)}/trade</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Compact Daily P&L Bar Strip */}
+      <div className="hub-surface rounded-xl p-3 sm:p-3.5">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs font-bold text-white">Daily P&amp;L</h3>
+            <span className="text-[10px] font-mono text-slate-400">UTC · 10 trading days</span>
+          </div>
+          <span className="text-[10px] font-mono text-emerald-300 font-semibold">
+            8 green · 2 red days
+          </span>
+        </div>
+        <div className="grid grid-cols-10 gap-1.5 items-end h-12 pt-1">
+          {DEMO_DAILY_PNL.map((d) => {
+            const pct = Math.max(18, Math.round((Math.abs(d.pnl) / 3300) * 100));
+            const isWin = d.pnl >= 0;
+            return (
+              <div key={d.date} className="flex flex-col items-center gap-1 h-full justify-end">
+                <div
+                  className={`w-full rounded-sm ${
+                    isWin
+                      ? 'bg-gradient-to-t from-cyan-500/70 to-emerald-400'
+                      : 'bg-gradient-to-t from-rose-600/70 to-rose-400'
+                  }`}
+                  style={{ height: `${pct}%` }}
+                  title={`${d.date}: ${fmtMoney(d.pnl, true)}`}
+                />
+                <span className="text-[8px] font-mono text-slate-400">{d.date.slice(3)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 /* ---------- Small presentational helpers ---------- */
 
@@ -131,37 +577,6 @@ const SWITCH_POINTS = [
     desc: 'Proudly South African, with local support from a team that trades the same sessions you do.',
   },
 ];
-
-const EquityCurve: React.FC = () => {
-  const W = 320;
-  const H = 120;
-  const min = Math.min(...DEMO_EQUITY_POINTS) - 400;
-  const max = Math.max(...DEMO_EQUITY_POINTS) + 400;
-  const pts = DEMO_EQUITY_POINTS.map((v, i) => {
-    const x = (i / (DEMO_EQUITY_POINTS.length - 1)) * W;
-    const yy = H - ((v - min) / (max - min)) * H;
-    return [x, yy] as const;
-  });
-  const line = pts.map(([x, yy], i) => `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${yy.toFixed(1)}`).join(' ');
-  const area = `${line} L ${W} ${H} L 0 ${H} Z`;
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-32 sm:h-40 block" aria-hidden="true">
-      <defs>
-        <linearGradient id="lp-eq-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
-          <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="lp-eq-line" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#38bdf8" />
-          <stop offset="100%" stopColor="#34d399" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill="url(#lp-eq-fill)" />
-      <path d={line} fill="none" stroke="url(#lp-eq-line)" strokeWidth="2.5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-};
 
 /* ---------- Page ---------- */
 
@@ -425,7 +840,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
 
             <div className="lp-fade-up lp-d3 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3">
               <button onClick={() => openAuth('signup')} className="lp-btn-primary group px-7 py-4 text-base">
-                <span>Get Started Free</span>
+                <span>Start Practicing Free</span>
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
               </button>
               <button
@@ -444,7 +859,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
 
           {/* Hero visual */}
           <div className="lp-fade-up lp-d2 relative w-full max-w-[1240px] mx-auto min-w-0">
-            <div className="absolute -inset-6 rounded-[2rem] bg-gradient-to-tr from-[#2962ff]/25 via-transparent to-emerald-400/25 blur-2xl" aria-hidden="true" />
+            <div className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-[radial-gradient(ellipse_at_center,rgba(41,98,255,0.22),rgba(16,185,129,0.16)_55%,transparent_75%)]" aria-hidden="true" />
             <div className="relative">
               <HomepageDemoVideo />
             </div>
@@ -458,7 +873,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
 
 
         {/* FEATURES */}
-        <section id="features" className="max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
+        <section id="features" className="lp-section-cv max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
           <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-14">
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white">
               Everything you need to{' '}
@@ -485,31 +900,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
         </section>
 
         {/* ANALYTICS PREVIEW */}
-        <section id="analytics" className="max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20 grid lg:grid-cols-2 gap-10 lg:gap-14 items-center">
-          <div className="order-2 lg:order-1 lp-gradient-border rounded-2xl">
-            <div className="rounded-2xl bg-[#0a0e17]/95 p-5 sm:p-6">
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <div className="min-w-0">
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-gray-400">FTMO $100K · Phase 1</div>
-                  <div className="text-2xl sm:text-3xl font-black font-mono text-white mt-1">$109,860</div>
-                </div>
-                <span className="shrink-0 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
-                  +9.86%
-                </span>
-              </div>
-              <EquityCurve />
-              <div className="grid grid-cols-2 gap-3 mt-5">
-                {ANALYTICS_KPIS.map((k) => (
-                  <div key={k.label} className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
-                    <div className="text-[11px] text-gray-400">{k.label}</div>
-                    <div className={`text-lg font-black font-mono ${k.tone}`}>{k.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+        <section id="analytics" className="lp-section-cv max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20 grid lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+          <div className="order-2 lg:order-1 lg:col-span-7 min-w-0">
+            <HomepageAnalyticsShowcase />
           </div>
 
-          <div className="order-1 lg:order-2 text-center lg:text-left">
+          <div className="order-1 lg:order-2 lg:col-span-5 text-center lg:text-left">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/25 text-emerald-300 text-xs font-mono font-bold mb-4">
               <BarChart3 className="w-3.5 h-3.5" />
               <span>ANALYTICS DASHBOARD</span>
@@ -519,13 +915,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
               <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">why you win</span>
             </h2>
             <p className="mt-4 text-base sm:text-lg text-[#9ca3af] leading-relaxed">
-              Every replayed trade flows into a rich dashboard so you can spot leaks, refine setups and pass evaluations with confidence.
+              Every replayed trade flows into our full performance hub — built with the exact metrics prop-firm and funded traders rely on.
             </p>
             <ul className="mt-6 space-y-3 text-left max-w-md mx-auto lg:mx-0">
               {[
-                'Balance & equity curves with drawdown tracking',
-                'P&L calendar, R-multiples and strategy breakdowns',
-                'Trade journal with one-click CSV export',
+                '2-Step Prop Firm Challenge progression (Phase 1 & Phase 2 targets)',
+                'Smooth equity & balance curves with live USD ($) / ZAR (R) toggle',
+                'Trade outcomes donut, Daily P&L bars, streaks & R-multiple expectancy',
+                'Full trade journal with setup tags & one-click CSV export',
               ].map((t) => (
                 <li key={t} className="flex items-start gap-3 text-sm sm:text-base text-gray-300">
                   <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
@@ -533,11 +930,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                 </li>
               ))}
             </ul>
+            <div className="mt-7 flex justify-center lg:justify-start">
+              <button onClick={() => openAuth('signup')} className="lp-btn-primary group px-6 py-3.5 text-sm sm:text-base">
+                <span>Start Practicing Now</span>
+                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+              </button>
+            </div>
           </div>
         </section>
 
         {/* WHY SWITCH */}
-        <section id="why-switch" className="max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
+        <section id="why-switch" className="lp-section-cv max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
           <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-14">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/25 text-emerald-300 text-xs font-mono font-bold mb-4">
               <SAFlag className="w-4 h-[11px]" />
@@ -567,7 +970,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
         </section>
 
         {/* COMPARISON */}
-        <section id="compare" className="max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
+        <section id="compare" className="lp-section-cv max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
           <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-14">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-400/25 text-blue-300 text-xs font-mono font-bold mb-4">
               <span>HONEST COMPARISON</span>
@@ -686,7 +1089,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
         </section>
 
         {/* TRADER'S INSIGHT PREVIEW SECTION */}
-        <section id="traders-insight" className="max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
+        <section id="traders-insight" className="lp-section-cv max-w-[1400px] mx-auto py-16 sm:py-20 scroll-mt-20">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/25 text-emerald-300 text-xs font-mono font-bold mb-3">
@@ -728,6 +1131,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                       src={article.image}
                       alt={article.imageAlt}
                       loading="lazy"
+                      decoding="async"
                       width={1200}
                       height={630}
                       className="w-full h-44 object-cover border-b border-white/10"
@@ -759,7 +1163,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
         </section>
 
         {/* CTA */}
-        <section id="get-started" className="max-w-[1400px] mx-auto py-16 sm:py-24 scroll-mt-20">
+        <section id="get-started" className="lp-section-cv max-w-[1400px] mx-auto py-16 sm:py-24 scroll-mt-20">
           <div className="lp-gradient-border rounded-3xl">
             <div className="relative overflow-hidden rounded-3xl bg-[#0a0e17] px-6 py-12 sm:px-12 sm:py-16 text-center">
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.18),transparent_60%),radial-gradient(ellipse_at_bottom,rgba(41,98,255,0.18),transparent_60%)]" aria-hidden="true" />
@@ -772,7 +1176,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                   Ready to master your edge?
                 </h2>
                 <p className="mt-4 text-base sm:text-lg text-gray-300 max-w-xl mx-auto">
-                  Create your free account in seconds and place your first replay trade right away.
+                  Start practicing on real historical charts in seconds and place your first replay trade right away.
                 </p>
                 <div className="mt-8 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3">
                   <a
@@ -784,7 +1188,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                     }}
                     className="lp-btn-primary group px-8 py-4 text-base"
                   >
-                    <span>Create Free Account</span>
+                    <span>Start Practicing Now</span>
                     <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
                   </a>
                   <a

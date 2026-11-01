@@ -125,6 +125,27 @@ function yahooFinanceApiPlugin(): Plugin {
 export default defineConfig({
   plugins: [react(), yahooFinanceApiPlugin(), spotPlugin()],
   cacheDir: 'd:/fx/.vite-cache',
+  build: {
+    target: 'es2020',
+    cssCodeSplit: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('klinecharts') || id.includes('lightweight-charts')) {
+              return 'vendor-charts';
+            }
+            if (id.includes('react-dom') || id.includes('react/') || id.includes('scheduler')) {
+              return 'vendor-react';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons';
+            }
+          }
+        },
+      },
+    },
+  },
   server: {
     fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.chart-replay/**'] },
     port: 3007,

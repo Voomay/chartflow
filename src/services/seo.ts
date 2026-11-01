@@ -1,7 +1,5 @@
-import {
-  TRADERS_INSIGHT_ARTICLES,
-  TradersInsightArticle,
-} from './tradersInsightData';
+import type { TradersInsightArticle } from './tradersInsightData';
+import { TRADERS_INSIGHT_PREVIEWS } from './tradersInsightPreviews';
 import { FAQ_ITEMS } from './faq';
 
 export const SITE_ORIGIN = 'https://chartreplay.co.za';
@@ -283,7 +281,7 @@ export function buildSitemapJsonLd() {
     { name: 'Trading Chart & Bar Replay Terminal', url: `${SITE_ORIGIN}/chart` },
     { name: 'Performance Analytics & Trading Journal', url: `${SITE_ORIGIN}/analytics` },
     { name: "Trader's Insight – Forex & Prop Firm Research Hub", url: `${SITE_ORIGIN}/traders-insight` },
-    ...TRADERS_INSIGHT_ARTICLES.map((a) => ({
+    ...TRADERS_INSIGHT_PREVIEWS.map((a) => ({
       name: a.title,
       url: `${SITE_ORIGIN}/traders-insight/${a.slug}`,
     })),
@@ -365,7 +363,7 @@ export function buildBlogHubJsonLd() {
         description:
           'In-depth quantitative guides on passing prop firm challenges, XAUUSD Gold liquidity sweeps, Smart Money Concepts (SMC), ICT Silver Bullet backtesting, R-multiple risk management, and trading psychology.',
         publisher: { '@id': `${SITE_ORIGIN}/#organization` },
-        blogPost: TRADERS_INSIGHT_ARTICLES.map((a) => ({
+        blogPost: TRADERS_INSIGHT_PREVIEWS.map((a) => ({
           '@type': 'BlogPosting',
           headline: a.title,
           description: a.metaDescription,

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { ChartReplayLogo } from './ChartReplayLogo';
 import { LegalDocumentKey, LegalLinks } from './LegalLinks';
-import { TRADERS_INSIGHT_ARTICLES } from '../services/tradersInsightData';
+import { TRADERS_INSIGHT_PREVIEWS as TRADERS_INSIGHT_ARTICLES } from '../services/tradersInsightPreviews';
 import { applyPageSeo, buildSitemapJsonLd, SITE_ORIGIN } from '../services/seo';
 
 interface SitemapPageProps {

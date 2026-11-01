@@ -65,9 +65,9 @@ export function ChartAnnouncement({open,onClose}:{open:boolean;onClose:()=>void}
           <p>
             Your feedback guides what we refine next. If a candle, drawing, or tool ever feels off, let us know the instrument and timeframe so we can investigate right away.
           </p>
-          <div className="rounded-xl border border-amber-300/15 bg-amber-300/[0.05] px-3.5 py-2.5 text-[12px] leading-[1.55] text-slate-300">
-            <span className="font-semibold text-amber-300">P.S. on US30 pricing — </span>
-            Please give us a little grace while we finish validating our <strong className="font-semibold text-white">US30</strong> feed. Treat US30 prices as provisional while we complete final checks.
+          <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.07] px-3.5 py-2.5 text-[12px] leading-[1.55] text-slate-200">
+            <span className="font-semibold text-emerald-300">P.S. US30 &amp; GER30 (German 30) are live — </span>
+            Our validated <strong className="font-semibold text-white">US30</strong> historical replay archive is now live with multi-year intraday coverage (<strong className="font-semibold text-white">3 years of 5m bars from Nov 2023 – Oct 2026</strong>, 9 years of 15m bars from Nov 2017, and full 2015–2026 session replay), alongside <strong className="font-semibold text-white">GER30 (German 30 / DAX)</strong> with <strong className="font-semibold text-white">nearly 12 years of 1-minute data (2 Jan 2015 – 23 Oct 2026)</strong>.
           </div>
         </div>
 

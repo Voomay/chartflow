@@ -167,19 +167,22 @@
   50% { background-position: 100% 50%; }
 }
 
-.lp-fade-up { animation: lp-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.lp-fade-in { animation: lp-fade-in 0.2s ease-out both; }
-.lp-d1 { animation-delay: 0.08s; }
-.lp-d2 { animation-delay: 0.16s; }
-.lp-d3 { animation-delay: 0.24s; }
-.lp-d4 { animation-delay: 0.32s; }
+.lp-fade-up { animation: lp-fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.lp-fade-in { animation: lp-fade-in 0.18s ease-out both; }
+.lp-d1 { animation-delay: 0.05s; }
+.lp-d2 { animation-delay: 0.1s; }
+.lp-d3 { animation-delay: 0.15s; }
+.lp-d4 { animation-delay: 0.2s; }
 .lp-float { animation: lp-float 6s ease-in-out infinite; }
 .lp-float-delay { animation-delay: -3s; }
-.lp-blob { animation: lp-blob 12s ease-in-out infinite; }
-.lp-blob-delay { animation-delay: -6s; }
+.lp-blob { opacity: 0.92; transform: translateZ(0); }
+.lp-blob-delay { opacity: 0.88; }
 .lp-gradient-text {
   background-size: 200% auto;
-  animation: lp-gradient-pan 8s ease-in-out infinite;
+}
+.lp-section-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 620px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -579,7 +582,7 @@
 
 .mindset-coach-dock{position:fixed;right:76px;bottom:110px;z-index:36;width:72px;height:82px;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:22px;background:radial-gradient(ellipse at 50% 78%,#49d7af26,transparent 70%);transition:right 320ms cubic-bezier(.22,.68,0,1.02),filter .2s,transform .2s}.mindset-coach-dock[data-panel-open="true"]{right:342px}.mindset-coach-dock:hover{filter:brightness(1.08);transform:translateY(-3px)}.mindset-coach-dock>.coach-face{width:72px;height:72px;animation:coach-idle-float 3.8s ease-in-out infinite;filter:drop-shadow(0 5px 6px #0003)}.mindset-coach-dock.is-happy>.coach-face{animation:coach-confirm-dance .75s ease-in-out,coach-idle-float 3.8s .75s ease-in-out infinite}.mindset-coach-dock.is-paused{filter:grayscale(.65);opacity:.75}.mindset-coach-dot{position:absolute;right:7px;bottom:4px;width:8px;height:8px;background:#43dca8;border:2px solid #193c36;border-radius:50%}.mindset-coach-dock.is-paused .mindset-coach-dot{background:#a8b4b2}@keyframes coach-idle-float{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-5px) rotate(2deg)}}@keyframes coach-confirm-dance{0%,100%{transform:translateY(0) rotate(0)}22%{transform:translateY(-9px) rotate(-11deg)}50%{transform:translateY(-3px) rotate(10deg)}76%{transform:translateY(-7px) rotate(-5deg)}}@keyframes coach-bubble-arrive{from{opacity:0;transform:translate(10px,8px) scale(.92)}to{opacity:1;transform:translate(0,0) scale(1)}}
 
-.mindset-coach-cluster{position:fixed;right:76px;bottom:110px;width:72px;height:82px;z-index:36;transition:right 320ms cubic-bezier(.22,.68,0,1.02)}.mindset-coach-cluster[data-panel-open="true"]{right:342px}.mindset-coach-cluster .mindset-coach-dock,.mindset-coach-cluster .mindset-coach-dock[data-panel-open="true"]{position:relative;inset:auto;width:100%;height:100%;transition:filter .2s,transform .2s}.mindset-coach-cluster .mindset-menu{position:absolute;top:auto;right:0;bottom:calc(100% + 12px);width:302px;max-width:calc(100vw - 24px);overflow:hidden;animation:coach-bubble-arrive .3s ease-out;transform-origin:bottom right}.mindset-coach-cluster:focus-within{z-index:44}
+.mindset-coach-cluster{position:fixed;right:76px;bottom:58px;width:72px;height:auto;display:flex;flex-direction:column;align-items:center;gap:8px;z-index:36;transition:right 320ms cubic-bezier(.22,.68,0,1.02)}.mindset-coach-cluster[data-panel-open="true"]{right:342px}.mindset-coach-cluster .mindset-coach-dock,.mindset-coach-cluster .mindset-coach-dock[data-panel-open="true"]{position:relative;inset:auto;width:72px;height:82px;transition:filter .2s,transform .2s}.mindset-coach-cluster .mindset-menu{position:absolute;top:auto;right:0;bottom:calc(100% + 12px);width:302px;max-width:calc(100vw - 24px);overflow:hidden;animation:coach-bubble-arrive .3s ease-out;transform-origin:bottom right}.mindset-coach-cluster:focus-within{z-index:44}
 
 /* Coach speech bubble — dark emerald glass aesthetic matching website, zero scrollbars */
 .mindset-toast,
@@ -792,8 +795,9 @@
 }
 
 @media(max-width:767px){
-  .mindset-coach-cluster,.mindset-coach-cluster[data-panel-open="true"]{left:auto;right:8px;bottom:max(var(--coach-mobile-bottom,130px),calc(env(safe-area-inset-bottom) + 110px));width:48px;height:52px;transition:none}
+  .mindset-coach-cluster,.mindset-coach-cluster[data-panel-open="true"]{left:auto;right:8px;bottom:max(calc(var(--coach-mobile-bottom,130px) - 48px),calc(env(safe-area-inset-bottom) + 64px));width:48px;height:auto;transition:none}
   .mindset-coach-cluster[data-under-controls="true"],.mindset-coach-cluster[data-under-controls="true"][data-panel-open="true"]{top:var(--coach-mobile-top);bottom:auto}
+  .mindset-coach-cluster .mindset-coach-dock,.mindset-coach-cluster .mindset-coach-dock[data-panel-open="true"]{width:48px;height:52px}
   .mindset-coach-cluster .mindset-coach-dock>.coach-face{width:48px;height:48px}
   .mindset-coach-cluster .mindset-menu{left:auto;right:0;bottom:calc(100% + 10px);top:auto;width:min(300px,calc(100vw - 20px));max-width:calc(100vw - 20px);transform-origin:bottom right}
   .mindset-coach-cluster .mindset-toast,.mindset-coach-cluster .mindset-toast[data-panel-open="true"]{left:auto;right:calc(100% + 12px);bottom:0;top:auto;width:min(296px,calc(100vw - 76px));max-width:calc(100vw - 76px);transform-origin:bottom right}
@@ -811,4 +815,231 @@
   45% { width: 68%; }
   100% { width: 100%; }
 }
+
+/* =====================================================================
+   Smooth Ghost Skeleton Loader (Dashboard & Chart Workspace Refresh)
+   ===================================================================== */
+@keyframes ghost-shimmer-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes ghost-root-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ghost-loader-root {
+  animation: ghost-root-fade-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ghost-bone {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    135deg,
+    rgba(148, 163, 184, 0.11) 0%,
+    rgba(100, 116, 139, 0.17) 50%,
+    rgba(148, 163, 184, 0.11) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.ghost-bone::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 15%,
+    rgba(255, 255, 255, 0.07) 42%,
+    rgba(52, 211, 153, 0.12) 50%,
+    rgba(255, 255, 255, 0.07) 58%,
+    transparent 85%
+  );
+  transform: translateX(-120%);
+  animation: ghost-shimmer-sweep 1.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+
+.ghost-bone-emerald {
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.16) 0%,
+    rgba(20, 184, 166, 0.24) 50%,
+    rgba(6, 182, 212, 0.16) 100%
+  );
+  border-color: rgba(52, 211, 153, 0.24);
+}
+
+.ghost-bone-emerald::after {
+  background: linear-gradient(
+    105deg,
+    transparent 15%,
+    rgba(110, 231, 183, 0.18) 48%,
+    rgba(255, 255, 255, 0.22) 52%,
+    transparent 85%
+  );
+}
+
+[data-hub-theme="light"] .ghost-bone {
+  background: linear-gradient(
+    135deg,
+    rgba(148, 163, 184, 0.16) 0%,
+    rgba(203, 213, 225, 0.36) 50%,
+    rgba(148, 163, 184, 0.16) 100%
+  );
+  border-color: rgba(15, 23, 42, 0.05);
+}
+
+[data-hub-theme="light"] .ghost-bone::after {
+  background: linear-gradient(
+    105deg,
+    transparent 15%,
+    rgba(255, 255, 255, 0.65) 48%,
+    rgba(16, 185, 129, 0.14) 52%,
+    transparent 85%
+  );
+}
+
+[data-hub-theme="light"] .ghost-bone-emerald {
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.16) 0%,
+    rgba(20, 184, 166, 0.26) 50%,
+    rgba(14, 165, 233, 0.16) 100%
+  );
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghost-loader-root,
+  .ghost-bone::after {
+    animation: none !important;
+  }
+}
+
+/* =====================================================================
+   Accessibility Widget Adjustments (Font Scale, Spacing, Dyslexia,
+   High Contrast, Grayscale, Highlight Links, Stop Animations, Big Cursor)
+   ===================================================================== */
+
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/woff/OpenDyslexic-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/woff/OpenDyslexic-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 1. Font Size Scaling */
+html[data-a11y-font-scale="1"] {
+  font-size: 110% !important;
+}
+html[data-a11y-font-scale="2"] {
+  font-size: 120% !important;
+}
+html[data-a11y-font-scale="3"] {
+  font-size: 132% !important;
+}
+
+/* Keep the accessibility widget itself at consistent sizing so it stays easy to operate */
+#a11y-widget-root,
+#a11y-widget-root *,
+#chart-a11y-slot,
+#chart-a11y-slot *,
+#faq-a11y-slot,
+#faq-a11y-slot * {
+  letter-spacing: normal;
+}
+
+/* 2. Letter Spacing */
+html[data-a11y-letter-spacing="1"] #root *:not(#a11y-widget-root):not(#a11y-widget-root *):not(#chart-a11y-slot):not(#chart-a11y-slot *):not(#faq-a11y-slot):not(#faq-a11y-slot *) {
+  letter-spacing: 0.04em !important;
+}
+html[data-a11y-letter-spacing="2"] #root *:not(#a11y-widget-root):not(#a11y-widget-root *):not(#chart-a11y-slot):not(#chart-a11y-slot *):not(#faq-a11y-slot):not(#faq-a11y-slot *) {
+  letter-spacing: 0.08em !important;
+  word-spacing: 0.12em !important;
+}
+
+/* 3. Line Height */
+html[data-a11y-line-height="1"] #root :is(p, li, span, div):not(#a11y-widget-root):not(#a11y-widget-root *):not(#chart-a11y-slot):not(#chart-a11y-slot *):not(#faq-a11y-slot):not(#faq-a11y-slot *) {
+  line-height: 1.75 !important;
+}
+html[data-a11y-line-height="2"] #root :is(p, li, span, div):not(#a11y-widget-root):not(#a11y-widget-root *):not(#chart-a11y-slot):not(#chart-a11y-slot *):not(#faq-a11y-slot):not(#faq-a11y-slot *) {
+  line-height: 2.05 !important;
+}
+
+/* 4. Dyslexia-Friendly Font */
+html[data-a11y-dyslexia] #root *:not(#a11y-widget-root):not(#a11y-widget-root *):not(#chart-a11y-slot):not(#chart-a11y-slot *):not(#faq-a11y-slot):not(#faq-a11y-slot *) {
+  font-family: 'OpenDyslexic', 'Comic Sans MS', 'Verdana', sans-serif !important;
+}
+
+/* 5. High Contrast Mode */
+html[data-a11y-high-contrast] body,
+html[data-a11y-high-contrast] #root :is(main, section, header, footer, aside):not(#a11y-widget-root):not(#a11y-widget-root *),
+html[data-a11y-high-contrast] .hub-modern,
+html[data-a11y-high-contrast] .hub-modern > main,
+html[data-a11y-high-contrast] .hub-surface,
+html[data-a11y-high-contrast] .lp-card-inner {
+  background-color: #000000 !important;
+  background-image: none !important;
+  color: #ffffff !important;
+}
+html[data-a11y-high-contrast] #root :is(p, span, li, h1, h2, h3, h4, label, td, th):not(#a11y-widget-root):not(#a11y-widget-root *):not(#chart-a11y-slot):not(#chart-a11y-slot *):not(#faq-a11y-slot):not(#faq-a11y-slot *) {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+html[data-a11y-high-contrast] #root :is(a, button):not(#a11y-widget-root *):not(#chart-a11y-slot *):not(#faq-a11y-slot *),
+html[data-a11y-high-contrast] .hub-surface,
+html[data-a11y-high-contrast] .hub-metric {
+  border-color: #fde047 !important;
+}
+
+/* 7. Highlight Links & Interactive Controls */
+html[data-a11y-highlight-links] #root :is(a, button):not(#a11y-widget-root *):not(#chart-a11y-slot *):not(#faq-a11y-slot *) {
+  outline: 2px solid #fbbf24 !important;
+  outline-offset: 2px !important;
+  text-decoration: underline !important;
+  text-decoration-color: #fbbf24 !important;
+  text-underline-offset: 3px !important;
+}
+
+/* 8. Stop Animations / Pause Motion */
+html[data-a11y-stop-animations] *,
+html[data-a11y-stop-animations] *::before,
+html[data-a11y-stop-animations] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* 9. Big High-Contrast Cursor */
+html[data-a11y-big-cursor],
+html[data-a11y-big-cursor] * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Cpath d='M7 4L35 20L22 23L28 36L22 39L16 26L7 34Z' fill='%2310b981' stroke='%23ffffff' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E") 6 4, auto !important;
+}
+html[data-a11y-big-cursor] a,
+html[data-a11y-big-cursor] button,
+html[data-a11y-big-cursor] [role="button"] {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='14' fill='%23fbbf24' fill-opacity='0.35' stroke='%23fbbf24' stroke-width='3'/%3E%3Ccircle cx='22' cy='22' r='5' fill='%23ffffff' stroke='%23000000' stroke-width='2'/%3E%3C/svg%3E") 22 22, pointer !important;
+}
+
+
 

@@ -23,7 +23,7 @@ import { ChartReplayLogo } from './ChartReplayLogo';
 import { ForexTicker } from './LandingExtras';
 import { HomepageDemoVideo } from './HomepageDemoVideo';
 import { TRADERS_INSIGHT_ARTICLES } from '../services/tradersInsightData';
-import { applyPageSeo, buildHomeJsonLd, DEFAULT_DESCRIPTION, DEFAULT_TITLE } from '../services/seo';
+import { applyPageSeo, buildHomeJsonLd, DEFAULT_DESCRIPTION, DEFAULT_KEYWORDS, DEFAULT_TITLE } from '../services/seo';
 
 export type LandingLaunchAction =
   | 'default'
@@ -227,14 +227,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
       description: DEFAULT_DESCRIPTION,
       path: '/',
       type: 'website',
-      keywords: [
-        'Chart Replay',
-        'free FX Replay alternative',
-        'forex backtesting simulator',
-        'prop firm challenge simulator',
-        'XAUUSD bar replay',
-        'South Africa forex trading simulator',
-      ],
+      keywords: DEFAULT_KEYWORDS,
       jsonLd: buildHomeJsonLd(),
     });
   }, []);
@@ -708,7 +701,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                 search &amp; test
               </h2>
               <p className="mt-3 text-sm sm:text-base text-[#9ca3af] max-w-2xl">
-                Explore 10 comprehensive, ~1,150-word guides covering FTMO drawdown rules, XAUUSD Gold liquidity sweeps, ICT Silver Bullet backtesting, R-multiple math, and South African (SAST) session hours.
+                Explore {TRADERS_INSIGHT_ARTICLES.length} comprehensive, ~1,150-word guides covering FTMO drawdown rules, free FX Replay alternatives in South Africa &amp; Nigeria, XAUUSD Gold liquidity sweeps, ICT Silver Bullet backtesting, R-multiple math, and African (SAST / WAT / EAT / GMT) session hours.
               </p>
             </div>
             <a
@@ -716,7 +709,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
               onClick={(e) => handleInsightClick(e, null)}
               className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-emerald-400/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-sm font-bold text-emerald-300 transition shrink-0"
             >
-              <span>View All 10 Blogs</span>
+              <span>View All {TRADERS_INSIGHT_ARTICLES.length} Guides</span>
               <ArrowRight className="w-4 h-4" />
             </a>
           </div>

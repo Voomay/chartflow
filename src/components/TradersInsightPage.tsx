@@ -75,19 +75,24 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
     } else {
       applyPageSeo({
         title:
-          "Trader's Insight – Forex Backtesting, Prop Firm Rules, XAUUSD & SMC Blog | Chart Replay",
+          "Trader's Insight – Forex Backtesting Tools, Prop Firm Rules, XAUUSD & SMC Guides | Chart Replay",
         description:
-          'Explore 10 in-depth quantitative trading guides on passing FTMO prop firm challenges, free FX Replay alternatives, XAUUSD Gold liquidity sweeps, ICT Silver Bullet, R-multiples, and SAST session times.',
+          `Explore ${TRADERS_INSIGHT_ARTICLES.length} in-depth quantitative trading guides on passing FTMO prop firm challenges, free FX Replay alternatives in South Africa, Nigeria & Africa, XAUUSD Gold liquidity sweeps, ICT Silver Bullet, R-multiples, and SAST/WAT/EAT session times.`,
         path: '/traders-insight',
         image: '/blog/how-to-pass-prop-firm-challenge-ftmo-rules-guide.svg',
         type: 'website',
         keywords: [
           'forex trading blog',
+          'forex backtesting tools',
+          'prop firm backtesting tools',
+          'backtest your strategy',
+          'free backtesting strategies tools',
           'prop firm challenge guide',
           'XAUUSD trading strategy',
           'free FX Replay alternative',
           'ICT Silver Bullet backtesting',
           'forex trading hours South Africa SAST',
+          'forex backtesting tools Nigeria',
         ],
         jsonLd: buildBlogHubJsonLd(),
       });

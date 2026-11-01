@@ -320,7 +320,7 @@ export const SitemapPage: React.FC<SitemapPageProps> = ({
                     Research Hub Index
                   </span>
                   <h3 className="text-sm sm:text-base font-bold text-white group-hover:text-emerald-300 transition">
-                    Trader&apos;s Insight – All 10 Quantitative Forex &amp; Prop Firm Guides
+                    Trader&apos;s Insight – All {TRADERS_INSIGHT_ARTICLES.length} Quantitative Forex &amp; Prop Firm Guides
                   </h3>
                 </div>
                 <span className="text-xs font-mono text-slate-400 shrink-0">

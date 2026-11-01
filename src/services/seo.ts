@@ -7,9 +7,30 @@ import { FAQ_ITEMS } from './faq';
 export const SITE_ORIGIN = 'https://chartreplay.co.za';
 export const SITE_NAME = 'Chart Replay';
 export const DEFAULT_TITLE =
-  'Chart Replay – Free FX Replay Alternative | Prop Firm Strategy Tester & Bar Replay (Proudly South African)';
+  'Chart Replay – Free FX Replay Alternative | Forex & Prop Firm Backtesting Tools (South Africa, Nigeria & Africa)';
 export const DEFAULT_DESCRIPTION =
-  'Chart Replay is the best 100% free alternative to FX Replay: deterministic 1-minute historical bar replay, FTMO-style prop firm challenge simulator, XAUUSD & Forex backtesting, AI psychologist coach, on-chart sticky-note trading plan, and deep trade analytics. Proudly made in South Africa.';
+  'Chart Replay is the #1 free FX Replay alternative and forex backtesting tool for traders in South Africa, Nigeria, Kenya, Ghana & across Africa. Backtest your strategy with 1-minute bar replay, FTMO/FundedNext prop firm challenge rules, AI mindset coach, and R-multiple analytics for $0/month.';
+export const DEFAULT_KEYWORDS = [
+  'Chart Replay',
+  'FX Replay',
+  'free FX Replay alternative',
+  'forex backtesting tools',
+  'forex backtesting tools in South Africa',
+  'forex backtesting tools in Nigeria',
+  'forex backtesting tools in Africa',
+  'prop firm backtesting tools',
+  'backtest your strategy',
+  'free backtesting strategies tools',
+  'forex backtesting simulator free',
+  'prop firm challenge simulator',
+  'FTMO challenge simulator',
+  'FundedNext challenge simulator',
+  'XAUUSD gold backtesting',
+  'TradingView bar replay free alternative',
+  'South Africa forex trading simulator',
+  'Nigeria forex backtesting tool',
+  'Kenya forex strategy tester',
+];
 
 function upsertMeta(
   attrName: 'name' | 'property',
@@ -74,6 +95,20 @@ export function buildHomeJsonLd() {
           addressCountry: 'ZA',
           addressRegion: 'South Africa',
         },
+        areaServed: [
+          { '@type': 'Country', name: 'South Africa', identifier: 'ZA' },
+          { '@type': 'Country', name: 'Nigeria', identifier: 'NG' },
+          { '@type': 'Country', name: 'Kenya', identifier: 'KE' },
+          { '@type': 'Country', name: 'Ghana', identifier: 'GH' },
+          { '@type': 'Country', name: 'Botswana', identifier: 'BW' },
+          { '@type': 'Country', name: 'Namibia', identifier: 'NA' },
+          { '@type': 'Country', name: 'Zimbabwe', identifier: 'ZW' },
+          { '@type': 'Country', name: 'Uganda', identifier: 'UG' },
+          { '@type': 'Country', name: 'Tanzania', identifier: 'TZ' },
+          { '@type': 'Country', name: 'Zambia', identifier: 'ZM' },
+          { '@type': 'Place', name: 'Africa' },
+          { '@type': 'Place', name: 'Worldwide' },
+        ],
         contactPoint: {
           '@type': 'ContactPoint',
           email: 'info@chartreplay.co.za',

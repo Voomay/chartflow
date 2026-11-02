@@ -3,9 +3,17 @@ import {
   submitPlatformFeedbackToSupabase,
   fetchPlatformFeedbackFromSupabase,
   fetchFeedbackEmailLogsFromSupabase,
+  submitContactInquiryToSupabase,
+  fetchContactInquiriesFromSupabase,
   PlatformFeedbackItem,
   FeedbackEmailLogItem,
+  ContactInquiryCategory,
+  ContactInquiryItem,
 } from './supabaseClient';
+
+export const OFFICIAL_CONTACT_EMAIL = 'info@voomay.co.za';
+export const PERSONAL_CONTACT_EMAIL = 'cheslin@voomay.co.za';
+export type { ContactInquiryCategory, ContactInquiryItem };
 export interface AdminUser {id:string;name:string;email:string;joinedAt:string;loginCount:number|null;lastLoginAt:string|null;lastSeenAt?:string|null;sessionCount?:number|null;tradeCount?:number|null;hasTradingPlan?:boolean;tradingPlanName?:string|null;tradingPlanCount?:number|null;source:'server'|'browser';}
 export function localAdminProfiles():AdminUser[]{return getRegisteredUsers().filter(user=>user.id!=='user-demo-trader'&&user.authSource!=='server').map(user=>({id:user.id,name:user.name,email:user.email,joinedAt:user.joinedAt,loginCount:user.loginCount??null,lastLoginAt:user.lastLoginAt??null,source:'browser'}));}
 export async function platformRequest(action:string,body?:object){
@@ -137,6 +145,7 @@ export async function loadAdminFeedbackData(preview = false): Promise<{
   ok: boolean;
   feedback: PlatformFeedbackItem[];
   emailLogs: FeedbackEmailLogItem[];
+  contactInquiries: ContactInquiryItem[];
   resendConfigured: boolean;
 }> {
   if (preview) {
@@ -153,6 +162,7 @@ export async function loadAdminFeedbackData(preview = false): Promise<{
           ratingSmoothness: 4,
           overallRating: 4.67,
           improvementsText: 'Really love the on-chart sticky trading plan and bar replay speed. Adding keyboard shortcuts for stepping 1 bar forward would make it even faster!',
+          source: 'once_popup',
           createdAt: new Date(Date.now() - 3600000 * 3).toISOString(),
         },
         {
@@ -164,6 +174,7 @@ export async function loadAdminFeedbackData(preview = false): Promise<{
           ratingSmoothness: 5,
           overallRating: 4.67,
           improvementsText: 'Super smooth charts on XAUUSD and NAS100. Everything is very intuitive.',
+          source: 'email_link',
           createdAt: new Date(Date.now() - 3600000 * 18).toISOString(),
         },
       ],
@@ -177,13 +188,40 @@ export async function loadAdminFeedbackData(preview = false): Promise<{
           sentAt: new Date(Date.now() - 3600000 * 5).toISOString(),
         },
       ],
+      contactInquiries: [
+        {
+          id: 'preview-inq-1',
+          userEmail: 'academy@example.invalid',
+          userName: 'Apex Trading Academy',
+          category: 'partnership',
+          subject: 'Prop Firm & Academy Partnership Inquiry',
+          message: 'We train 450+ forex and gold traders in South Africa and would love to partner with Chart Replay for our student backtesting curriculum.',
+          recipientEmail: OFFICIAL_CONTACT_EMAIL,
+          emailSent: true,
+          source: 'contact_page',
+          createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+        },
+        {
+          id: 'preview-inq-2',
+          userEmail: 'trader1@example.invalid',
+          userName: 'Lerato Mokoena',
+          category: 'improvement',
+          subject: 'Custom session highlight colors',
+          message: 'Would be awesome if we could customize the Asian/London/NY session box opacity directly from the top bar.',
+          recipientEmail: OFFICIAL_CONTACT_EMAIL,
+          emailSent: true,
+          source: 'contact_page',
+          createdAt: new Date(Date.now() - 3600000 * 9).toISOString(),
+        },
+      ],
     };
   }
 
-  const [serverRes, directFeedback, directLogs] = await Promise.allSettled([
+  const [serverRes, directFeedback, directLogs, directInquiries] = await Promise.allSettled([
     platformRequest('feedback'),
     fetchPlatformFeedbackFromSupabase(),
     fetchFeedbackEmailLogsFromSupabase(),
+    fetchContactInquiriesFromSupabase(),
   ]);
 
   const srv = serverRes.status === 'fulfilled' && serverRes.value?.ok ? serverRes.value : null;
@@ -211,6 +249,18 @@ export async function loadAdminFeedbackData(preview = false): Promise<{
     }
   }
 
+  const inquiryMap = new Map<string, ContactInquiryItem>();
+  if (Array.isArray(srv?.contactInquiries)) {
+    for (const item of srv.contactInquiries as ContactInquiryItem[]) {
+      if (item && item.id) inquiryMap.set(item.id, item);
+    }
+  }
+  if (directInquiries.status === 'fulfilled' && Array.isArray(directInquiries.value)) {
+    for (const item of directInquiries.value) {
+      if (item && item.id && !inquiryMap.has(item.id)) inquiryMap.set(item.id, item);
+    }
+  }
+
   return {
     ok: true,
     feedback: Array.from(feedbackMap.values()).sort(
@@ -218,6 +268,9 @@ export async function loadAdminFeedbackData(preview = false): Promise<{
     ),
     emailLogs: Array.from(logMap.values()).sort(
       (a, b) => (Date.parse(b.sentAt || '') || 0) - (Date.parse(a.sentAt || '') || 0)
+    ),
+    contactInquiries: Array.from(inquiryMap.values()).sort(
+      (a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)
     ),
     resendConfigured: Boolean(srv?.resendConfigured),
   };
@@ -338,4 +391,92 @@ export async function submitTraderPlatformFeedback(input: {
     },
   };
 }
+
+export async function submitContactInquiry(input: {
+  name: string;
+  email: string;
+  userId?: string | null;
+  category: ContactInquiryCategory;
+  subject?: string;
+  message: string;
+  source?: string;
+}): Promise<{
+  ok: boolean;
+  inquiry?: ContactInquiryItem;
+  emailSent?: boolean;
+  recipientEmail: string;
+  error?: string;
+}> {
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now().toString(16)}-4000-8000-${Math.random().toString(16).slice(2, 14).padEnd(12, '0')}`;
+  const createdAt = new Date().toISOString();
+  const payload: ContactInquiryItem = {
+    id,
+    userId: input.userId || null,
+    userEmail: input.email.trim().toLowerCase(),
+    userName: input.name.trim() || 'Trader',
+    category: input.category || 'general_inquiry',
+    subject: (input.subject || '').trim(),
+    message: input.message.trim(),
+    recipientEmail: OFFICIAL_CONTACT_EMAIL,
+    emailSent: false,
+    source: input.source || 'contact_page',
+    createdAt,
+  };
+
+  if (!payload.userEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.userEmail)) {
+    return {
+      ok: false,
+      recipientEmail: OFFICIAL_CONTACT_EMAIL,
+      error: 'Please enter a valid email address so we can reply to you.',
+    };
+  }
+  if (!payload.message) {
+    return {
+      ok: false,
+      recipientEmail: OFFICIAL_CONTACT_EMAIL,
+      error: 'Please enter a message before sending.',
+    };
+  }
+
+  const [serverRes, supabaseDirectOk] = await Promise.allSettled([
+    platformRequest('submit-contact', {
+      id: payload.id,
+      userId: payload.userId,
+      name: payload.userName,
+      email: payload.userEmail,
+      category: payload.category,
+      subject: payload.subject,
+      message: payload.message,
+      source: payload.source,
+    }),
+    submitContactInquiryToSupabase(payload),
+  ]);
+
+  const srvOk = serverRes.status === 'fulfilled' && Boolean(serverRes.value?.ok);
+  const directOk = supabaseDirectOk.status === 'fulfilled' && Boolean(supabaseDirectOk.value);
+  const emailSent =
+    serverRes.status === 'fulfilled' && Boolean(serverRes.value?.emailSent);
+
+  if (!srvOk && !directOk) {
+    const errMsg =
+      serverRes.status === 'fulfilled' && serverRes.value?.error
+        ? String(serverRes.value.error)
+        : 'Unable to send your message right now. Please try again or email info@voomay.co.za directly.';
+    return { ok: false, recipientEmail: OFFICIAL_CONTACT_EMAIL, error: errMsg };
+  }
+
+  return {
+    ok: true,
+    inquiry: {
+      ...payload,
+      emailSent,
+    },
+    emailSent,
+    recipientEmail: OFFICIAL_CONTACT_EMAIL,
+  };
+}
+
 

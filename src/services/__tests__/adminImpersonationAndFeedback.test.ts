@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error Node server module has no .d.ts
 import { createAdminSession, createPlatformHandler, hashPassword } from '../../../server/platformAccounts.mjs';
 // @ts-expect-error Node server module has no .d.ts
-import { buildFirstTradeFeedbackEmail } from '../../../server/resendMail.mjs';
+import { buildFirstTradeFeedbackEmail, buildContactInquiryEmail, CONTACT_INQUIRY_RECIPIENT, PERSONAL_CONTACT_EMAIL } from '../../../server/resendMail.mjs';
+import {
+  hasSeenExperiencePopup,
+  markExperiencePopupSeen,
+} from '../../components/ExperienceReviewPopup';
 
 function createInMemoryTestStore(adminConfig: {
   email: string;
@@ -26,6 +30,7 @@ function createInMemoryTestStore(adminConfig: {
   ];
   const feedback: any[] = [];
   const emailLogs: any[] = [];
+  const contactInquiries: any[] = [];
 
   return {
     remote: true,
@@ -58,6 +63,13 @@ function createInMemoryTestStore(adminConfig: {
     },
     async recordFeedbackEmail(entry: any) {
       emailLogs.unshift(entry);
+      return entry;
+    },
+    async readContactInquiries() {
+      return contactInquiries;
+    },
+    async saveContactInquiry(entry: any) {
+      contactInquiries.unshift(entry);
       return entry;
     },
   };
@@ -231,5 +243,78 @@ describe('Administrator user impersonation & trader feedback system', () => {
     );
     expect(adminReadRes.data.emailLogs).toHaveLength(1);
     expect(adminReadRes.data.emailLogs[0].userEmail).toBe('sipho@example.com');
+  });
+
+  it('saves Contact Us inquiries across all 4 categories (general_inquiry, partnership, improvement, bug), routes email to info@voomay.co.za, and exposes them to the administrator backend', async () => {
+    expect(CONTACT_INQUIRY_RECIPIENT).toBe('info@voomay.co.za');
+    expect(PERSONAL_CONTACT_EMAIL).toBe('cheslin@voomay.co.za');
+
+    const adminConfig = {
+      email: 'admin@chartreplay.co.za',
+      passwordHash: await hashPassword('admin-secret-pass'),
+      sessionSecret: 'test-session-secret-key-123456',
+    };
+    const store = createInMemoryTestStore(adminConfig);
+    const handler = createPlatformHandler({ store });
+    const adminCookie = `chart_replay_admin=${createAdminSession(
+      adminConfig,
+      Date.now()
+    )}`;
+
+    const categories = [
+      'general_inquiry',
+      'partnership',
+      'improvement',
+      'bug',
+    ] as const;
+
+    for (const category of categories) {
+      const res = await callHandler(handler, {
+        method: 'POST',
+        action: 'submit-contact',
+        body: {
+          name: 'Thabo Nkosi',
+          email: 'thabo@example.com',
+          category,
+          subject: `Test ${category}`,
+          message: `Hello team, this is a ${category} message for Chart Replay.`,
+        },
+      });
+      expect(res.status).toBe(201);
+      expect(res.data.ok).toBe(true);
+      expect(res.data.recipientEmail).toBe('info@voomay.co.za');
+      expect(res.data.inquiry.category).toBe(category);
+      expect(res.data.inquiry.recipientEmail).toBe('info@voomay.co.za');
+    }
+
+    const builtEmail = buildContactInquiryEmail({
+      name: 'Thabo Nkosi',
+      email: 'thabo@example.com',
+      category: 'partnership',
+      subject: 'Academy Partnership',
+      message: 'We would love to partner with Chart Replay.',
+    });
+    expect(builtEmail.subject).toContain('Partnership Opportunity');
+    expect(builtEmail.html).toContain('info@voomay.co.za');
+    expect(builtEmail.html).toContain('thabo@example.com');
+
+    // Administrator sees all 4 inquiries in the backend
+    const adminReadRes = await callHandler(handler, {
+      method: 'GET',
+      action: 'feedback',
+      cookie: adminCookie,
+    });
+    expect(adminReadRes.status).toBe(200);
+    expect(adminReadRes.data.contactInquiries).toHaveLength(4);
+    expect(
+      adminReadRes.data.contactInquiries.map((i: any) => i.category)
+    ).toEqual(['bug', 'improvement', 'partnership', 'general_inquiry']);
+  });
+
+  it('tracks the one-time experience review popup so it triggers only once', () => {
+    expect(hasSeenExperiencePopup('sipho@example.com')).toBe(false);
+    markExperiencePopupSeen('sipho@example.com');
+    expect(hasSeenExperiencePopup('sipho@example.com')).toBe(true);
+    expect(hasSeenExperiencePopup()).toBe(true);
   });
 });

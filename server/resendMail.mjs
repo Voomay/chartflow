@@ -1,8 +1,10 @@
 const RESEND_API_URL = 'https://api.resend.com/emails';
 const DEFAULT_FROM_EMAIL = 'Chart Replay <noreply@chartreplay.co.za>';
-const DEFAULT_REPLY_TO = 'info@chartreplay.co.za';
+const DEFAULT_REPLY_TO = 'info@voomay.co.za';
 const DEFAULT_APP_URL = 'https://chartreplay.co.za';
 const WELCOME_BANNER_URL = 'https://chartreplay.co.za/email-welcome-banner.png';
+export const CONTACT_INQUIRY_RECIPIENT = 'info@voomay.co.za';
+export const PERSONAL_CONTACT_EMAIL = 'cheslin@voomay.co.za';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -53,7 +55,7 @@ export function resolvePublicAppUrl(_originHeader, env = process.env) {
 }
 
 export async function sendResendEmail(
-  { to, subject, html, text },
+  { to, subject, html, text, replyTo },
   { env = process.env, request = fetch } = {}
 ) {
   const cfg = resolveResendConfig(env);
@@ -67,6 +69,9 @@ export async function sendResendEmail(
     return { sent: false, reason: 'NO_RECIPIENT' };
   }
 
+  const effectiveReplyTo =
+    (typeof replyTo === 'string' && replyTo.trim()) || cfg.replyTo;
+
   try {
     const response = await request(RESEND_API_URL, {
       method: 'POST',
@@ -77,7 +82,7 @@ export async function sendResendEmail(
       body: JSON.stringify({
         from: cfg.fromEmail,
         to: recipients,
-        reply_to: cfg.replyTo,
+        reply_to: effectiveReplyTo,
         subject: String(subject || '').trim(),
         html: String(html || ''),
         text: String(text || ''),
@@ -651,4 +656,203 @@ export async function sendFirstTradeFeedbackEmail(
     { env, request }
   );
   return { ...result, feedbackUrl };
+}
+
+const CONTACT_CATEGORY_LABELS = {
+  general_inquiry: 'General Inquiry',
+  partnership: 'Partnership Opportunity',
+  improvement: 'Platform Improvement',
+  bug: 'Bug Report',
+};
+
+export function formatContactCategoryLabel(category) {
+  const key = String(category || 'general_inquiry').trim().toLowerCase();
+  return CONTACT_CATEGORY_LABELS[key] || 'General Inquiry';
+}
+
+export function buildContactInquiryEmail({
+  name,
+  email,
+  category = 'general_inquiry',
+  subject = '',
+  message = '',
+  createdAt = new Date().toISOString(),
+  appUrl = DEFAULT_APP_URL,
+}) {
+  const rawName = String(name || 'Trader').trim() || 'Trader';
+  const cleanName = escapeHtml(rawName);
+  const rawEmail = String(email || '').trim().toLowerCase();
+  const safeEmail = escapeHtml(rawEmail);
+  const categoryLabel = formatContactCategoryLabel(category);
+  const safeCategory = escapeHtml(categoryLabel);
+  const rawSubject =
+    String(subject || '').trim() || `${categoryLabel} from ${rawName}`;
+  const safeSubject = escapeHtml(rawSubject);
+  const safeMessage = escapeHtml(String(message || '').trim()).replace(
+    /\r?\n/g,
+    '<br/>'
+  );
+  const officialUrl = sanitizeOfficialAppUrl(appUrl);
+  const safeAdminUrl = escapeHtml(`${officialUrl}/admin`);
+  const emailSubject = `[Chart Replay · ${categoryLabel}] ${rawSubject}`;
+
+  const text = [
+    `New ${categoryLabel} received via Chart Replay Contact Us form:`,
+    '',
+    `Category: ${categoryLabel}`,
+    `From: ${rawName} <${rawEmail}>`,
+    `Subject: ${rawSubject}`,
+    `Submitted At: ${createdAt}`,
+    '',
+    'Message:',
+    String(message || '').trim(),
+    '',
+    `View in Administrator Dashboard: ${officialUrl}/admin`,
+  ].join('\n');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(emailSubject)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#050811;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e2e8f0;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#050811;padding:32px 14px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#0b111e;border:1px solid #1e293b;border-radius:20px;overflow:hidden;">
+          <tr>
+            <td style="padding:28px 32px 18px 32px;background:linear-gradient(180deg,#0f1829 0%,#0b111e 100%);border-bottom:1px solid #1e293b;">
+              <div style="display:inline-block;padding:5px 14px;border-radius:999px;background-color:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.35);color:#34d399;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">
+                Contact Us · ${safeCategory}
+              </div>
+              <h1 style="margin:14px 0 6px 0;font-size:22px;line-height:1.3;font-weight:800;color:#ffffff;">
+                ${safeSubject}
+              </h1>
+              <p style="margin:0;font-size:13px;color:#94a3b8;">
+                From <strong style="color:#ffffff;">${cleanName}</strong> (<a href="mailto:${safeEmail}" style="color:#38bdf8;text-decoration:underline;">${safeEmail}</a>)
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 32px;">
+              <div style="padding:18px 20px;background-color:#080d17;border:1px solid #1e293b;border-radius:14px;font-size:14px;line-height:1.65;color:#e2e8f0;">
+                ${safeMessage || '<em>No message text provided.</em>'}
+              </div>
+              <div style="margin-top:20px;text-align:center;">
+                <a href="${safeAdminUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 22px;border-radius:12px;background:linear-gradient(90deg,#10b981 0%,#0ea5e9 100%);color:#050811;font-size:13px;font-weight:800;text-decoration:none;">
+                  Open Administrator Dashboard →
+                </a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 32px;background-color:#070b14;border-top:1px solid #1e293b;font-size:11px;color:#64748b;text-align:center;">
+              Routed to <strong>${escapeHtml(CONTACT_INQUIRY_RECIPIENT)}</strong> · Hit Reply to respond directly to ${cleanName}.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return { subject: emailSubject, html, text };
+}
+
+export async function sendContactInquiryEmail(
+  { name, email, category, subject, message, createdAt, origin },
+  { env = process.env, request = fetch } = {}
+) {
+  const appUrl = resolvePublicAppUrl(origin, env);
+  const recipient =
+    String(env.CONTACT_RECIPIENT_EMAIL || CONTACT_INQUIRY_RECIPIENT)
+      .trim()
+      .toLowerCase() || CONTACT_INQUIRY_RECIPIENT;
+  const content = buildContactInquiryEmail({
+    name,
+    email,
+    category,
+    subject,
+    message,
+    createdAt,
+    appUrl,
+  });
+  const result = await sendResendEmail(
+    {
+      to: recipient,
+      replyTo: String(email || '').trim().toLowerCase() || recipient,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+    },
+    { env, request }
+  );
+  return { ...result, recipientEmail: recipient };
+}
+
+export async function sendFeedbackNotificationEmail(
+  {
+    name,
+    email,
+    ratingUserFriendliness,
+    ratingCharts,
+    ratingSmoothness,
+    overallRating,
+    improvementsText,
+    favoriteText,
+    source,
+    origin,
+  },
+  { env = process.env, request = fetch } = {}
+) {
+  const appUrl = resolvePublicAppUrl(origin, env);
+  const recipient =
+    String(env.CONTACT_RECIPIENT_EMAIL || CONTACT_INQUIRY_RECIPIENT)
+      .trim()
+      .toLowerCase() || CONTACT_INQUIRY_RECIPIENT;
+  const rawName = String(name || 'Trader').trim() || 'Trader';
+  const rawEmail = String(email || '').trim().toLowerCase();
+  const subject = `[Chart Replay · Trader Review ${overallRating}★] Feedback from ${rawName}`;
+  const text = [
+    `New Trader Experience Review (${overallRating} / 5.0 ★)`,
+    `From: ${rawName} <${rawEmail}>`,
+    `Source: ${source || 'platform'}`,
+    '',
+    `Ratings:`,
+    `- User Friendliness: ${ratingUserFriendliness}/5`,
+    `- Charts & Tools: ${ratingCharts}/5`,
+    `- Smoothness: ${ratingSmoothness}/5`,
+    '',
+    `How was your experience / How can we improve:`,
+    improvementsText || '(No written comment)',
+    favoriteText ? `\nFavorite part:\n${favoriteText}` : '',
+    '',
+    `View in Administrator Dashboard: ${appUrl}/admin`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const html = `<div style="font-family:sans-serif;background:#0b111e;color:#e2e8f0;padding:24px;border-radius:16px;border:1px solid #1e293b;max-width:580px;">
+    <h2 style="margin:0 0 8px 0;color:#34d399;">New Trader Experience Review (${escapeHtml(overallRating)} / 5.0 ★)</h2>
+    <p style="margin:0 0 16px 0;font-size:13px;color:#94a3b8;">From <strong style="color:#fff;">${escapeHtml(rawName)}</strong> (${escapeHtml(rawEmail)}) · Source: ${escapeHtml(source || 'platform')}</p>
+    <p style="font-size:13px;color:#fbbf24;">User Friendliness: <strong>${escapeHtml(ratingUserFriendliness)}★</strong> · Charts: <strong>${escapeHtml(ratingCharts)}★</strong> · Smoothness: <strong>${escapeHtml(ratingSmoothness)}★</strong></p>
+    <div style="padding:14px;background:#080d17;border:1px solid #1e293b;border-radius:12px;font-size:14px;line-height:1.6;color:#e2e8f0;">
+      <strong>How was your experience &amp; how we can improve:</strong><br/>
+      ${escapeHtml(improvementsText || 'No written comment provided.').replace(/\r?\n/g, '<br/>')}
+    </div>
+  </div>`;
+
+  return sendResendEmail(
+    {
+      to: recipient,
+      replyTo: rawEmail || recipient,
+      subject,
+      html,
+      text,
+    },
+    { env, request }
+  );
 }

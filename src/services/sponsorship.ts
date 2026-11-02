@@ -20,7 +20,7 @@ export interface SponsorshipConfig {
 }
 
 export const DEFAULT_SPONSORSHIP_CONFIG: SponsorshipConfig = {
-  enabled: true,
+  enabled: false,
   sponsorName: 'XM',
   badgeText: 'Official Session Partner',
   headlinePrefix: "Today's session is sponsored by",
@@ -90,7 +90,7 @@ export function normalizeSponsorshipConfig(
     : DEFAULT_SPONSORSHIP_CONFIG.logoDarkUrl;
 
   return {
-    enabled: typeof raw.enabled === 'boolean' ? raw.enabled : true,
+    enabled: typeof raw.enabled === 'boolean' ? raw.enabled : false,
     sponsorName: sanitizeText(
       raw.sponsorName,
       DEFAULT_SPONSORSHIP_CONFIG.sponsorName,
@@ -140,6 +140,20 @@ export function normalizeSponsorshipConfig(
 
 export function getCachedSponsorshipConfig(): SponsorshipConfig {
   if (memorySponsorship) return memorySponsorship;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(SPONSORSHIP_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          memorySponsorship = normalizeSponsorshipConfig(parsed);
+          return memorySponsorship;
+        }
+      }
+    }
+  } catch {
+    // ignore storage read errors
+  }
   return { ...DEFAULT_SPONSORSHIP_CONFIG };
 }
 
@@ -148,6 +162,13 @@ export function setCachedSponsorshipConfig(
 ): SponsorshipConfig {
   const normalized = normalizeSponsorshipConfig(config);
   memorySponsorship = normalized;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(SPONSORSHIP_CACHE_KEY, JSON.stringify(normalized));
+    }
+  } catch {
+    // ignore storage write errors
+  }
   listeners.forEach((listener) => listener(normalized));
   return normalized;
 }

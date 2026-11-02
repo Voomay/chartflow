@@ -9,6 +9,7 @@ import {
   Handshake,
   LayoutDashboard,
   LogIn,
+  Mail,
   ShieldCheck,
   TrendingUp,
   UserPlus,
@@ -91,6 +92,14 @@ export const SitemapPage: React.FC<SitemapPageProps> = ({
         'Sponsorship, educational collaboration, and community partnership opportunities supporting South African traders.',
       icon: Handshake,
       badge: 'Public · Partnerships',
+    },
+    {
+      path: '/contact',
+      title: 'Contact Us',
+      description:
+        'Send a general inquiry, partnership request, improvement suggestion, or bug report directly to info@voomay.co.za.',
+      icon: Mail,
+      badge: 'Public · Support & Contact',
     },
   ];
 

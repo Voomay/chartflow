@@ -22,6 +22,7 @@ import {
   X,
   Zap,
   Handshake,
+  Mail,
 } from 'lucide-react';
 import { ChartReplayLogo } from './ChartReplayLogo';
 import { ForexTicker } from './LandingExtras';
@@ -43,6 +44,8 @@ interface LandingPageProps {
   onOpenTradersInsight?:(slug?:string|null)=>void;
   onOpenLegal?:(page:LegalDocumentKey)=>void;
   onOpenSitemap?:()=>void;
+  onOpenContact?:()=>void;
+  onOpenPartners?:()=>void;
   onLaunchTerminal: (initialAction?: LandingLaunchAction) => void;
   onOpenLogin: (mode?: 'login' | 'signup') => void;
   currentUser: { name: string; email: string } | null;
@@ -633,8 +636,26 @@ const CompareMark: React.FC<{ v: CompareCell; strong?: boolean }> = ({ v, strong
   return <span className={`font-bold ${strong ? 'text-sm sm:text-base font-black text-emerald-300' : 'text-xs sm:text-sm text-[#cbd5e1]'}`}>{v}</span>;
 };
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal,onOpenSitemap,onOpenComingSoon,onOpenTradersInsight }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal,onOpenSitemap,onOpenContact,onOpenPartners,onOpenComingSoon,onOpenTradersInsight }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const handleContactClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    if (onOpenContact) {
+      e.preventDefault();
+      setMobileNavOpen(false);
+      onOpenContact();
+    }
+  };
+
+  const handlePartnerClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    if (onOpenPartners) {
+      e.preventDefault();
+      setMobileNavOpen(false);
+      onOpenPartners();
+    }
+  };
 
   useEffect(() => {
     applyPageSeo({
@@ -717,9 +738,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
               <BookOpen className="w-4 h-4 text-emerald-400" />
               <span>Trader&apos;s Insight</span>
             </a>
-            <a href="/partners" className="px-3 py-2 rounded-lg hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5">
+            <a
+              href="/partners"
+              onClick={handlePartnerClick}
+              className="px-3 py-2 rounded-lg hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5"
+            >
               <Handshake className="w-4 h-4 text-emerald-400" />
               Partner with Us
+            </a>
+            <a
+              href="/contact"
+              onClick={handleContactClick}
+              className="px-3 py-2 rounded-lg hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5"
+            >
+              <Mail className="w-4 h-4 text-sky-400" />
+              Contact Us
             </a>
           </nav>
 
@@ -779,9 +812,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
                 <BookOpen className="w-4 h-4 text-emerald-400" />
                 <span>Trader&apos;s Insight (10 Blogs)</span>
               </a>
-              <a href="/partners" onClick={() => setMobileNavOpen(false)} className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition">
+              <a href="/partners" onClick={handlePartnerClick} className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition">
                 <Handshake className="w-4 h-4 text-emerald-400" />
                 Partner with Us
+              </a>
+              <a href="/contact" onClick={handleContactClick} className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition">
+                <Mail className="w-4 h-4 text-sky-400" />
+                Contact Us
               </a>
               <div className="grid grid-cols-2 gap-2 pt-2 pb-1">
                 <a
@@ -1220,7 +1257,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
           <span className="flex items-center gap-3"><ChartReplayLogo size={28} /><span className="hidden sm:inline">© Historical Trading Simulator</span></span>
           <span className="inline-flex items-center gap-2 font-semibold text-gray-400"><SAFlag className="w-5 h-[14px]" />Proudly made in South Africa</span>
           <div className="flex flex-wrap items-center justify-center gap-2 font-semibold">
-            <a href="/partners" className="px-3 min-h-[44px] inline-flex items-center hover:text-white transition">Partner with Us</a>
+            <a href="/partners" onClick={handlePartnerClick} className="px-3 min-h-[44px] inline-flex items-center hover:text-white transition">Partner with Us</a>
+            <a href="/contact" onClick={handleContactClick} className="px-3 min-h-[44px] inline-flex items-center hover:text-white transition">Contact Us</a>
             <a
               href="/login"
               onClick={(e) => {

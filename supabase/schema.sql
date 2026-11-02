@@ -238,6 +238,27 @@ CREATE INDEX IF NOT EXISTS idx_feedback_email_logs_user_email ON public.feedback
 CREATE INDEX IF NOT EXISTS idx_feedback_email_logs_sent_at ON public.feedback_email_logs (sent_at DESC);
 
 -- -----------------------------------------------------------------------------
+-- 11. Contact Us Inquiries & Messages (Routed to info@voomay.co.za)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.contact_inquiries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.platform_users(id) ON DELETE SET NULL,
+  user_email TEXT NOT NULL,
+  user_name TEXT NOT NULL DEFAULT 'Trader',
+  category TEXT NOT NULL DEFAULT 'general_inquiry' CHECK (category IN ('general_inquiry', 'partnership', 'improvement', 'bug')),
+  subject TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  recipient_email TEXT NOT NULL DEFAULT 'info@voomay.co.za',
+  email_sent BOOLEAN NOT NULL DEFAULT FALSE,
+  source TEXT NOT NULL DEFAULT 'contact_page',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_inquiries_user_email ON public.contact_inquiries (lower(user_email));
+CREATE INDEX IF NOT EXISTS idx_contact_inquiries_category ON public.contact_inquiries (category);
+CREATE INDEX IF NOT EXISTS idx_contact_inquiries_created_at ON public.contact_inquiries (created_at DESC);
+
+-- -----------------------------------------------------------------------------
 -- Row Level Security (RLS) & Table Grants (Configured for Custom Auth / Anon Key)
 -- -----------------------------------------------------------------------------
 ALTER TABLE public.platform_users ENABLE ROW LEVEL SECURITY;
@@ -250,6 +271,7 @@ ALTER TABLE public.custom_rule_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.platform_sponsorship ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.platform_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.feedback_email_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contact_inquiries ENABLE ROW LEVEL SECURITY;
 
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
@@ -332,6 +354,14 @@ CREATE POLICY "platform_feedback_api_access"
 DROP POLICY IF EXISTS "feedback_email_logs_api_access" ON public.feedback_email_logs;
 CREATE POLICY "feedback_email_logs_api_access"
   ON public.feedback_email_logs
+  FOR ALL
+  TO anon, authenticated, service_role
+  USING (true)
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "contact_inquiries_api_access" ON public.contact_inquiries;
+CREATE POLICY "contact_inquiries_api_access"
+  ON public.contact_inquiries
   FOR ALL
   TO anon, authenticated, service_role
   USING (true)

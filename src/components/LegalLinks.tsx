@@ -1,6 +1,6 @@
 import React from 'react';
 export type LegalDocumentKey='terms'|'privacy'|'popia';
-export const LegalLinks:React.FC<{onOpen?:(page:LegalDocumentKey)=>void;onOpenSitemap?:()=>void;className?:string}>=({onOpen,onOpenSitemap,className=''})=>(
+export const LegalLinks:React.FC<{onOpen?:(page:LegalDocumentKey)=>void;onOpenSitemap?:()=>void;onOpenContact?:()=>void;className?:string}>=({onOpen,onOpenSitemap,onOpenContact,className=''})=>(
   <nav aria-label="Legal and site information" className={`flex flex-wrap gap-x-3 gap-y-2 text-[10px] ${className}`}>
     {([{id:'terms',label:'Terms & Conditions'},{id:'privacy',label:'Privacy Policy'},{id:'popia',label:'POPIA'}] as const).map(page=>(
       <a
@@ -12,6 +12,13 @@ export const LegalLinks:React.FC<{onOpen?:(page:LegalDocumentKey)=>void;onOpenSi
         {page.label}
       </a>
     ))}
+    <a
+      href="/contact"
+      onClick={onOpenContact?event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey||event.button!==0)return;event.preventDefault();onOpenContact();}:undefined}
+      className="opacity-65 hover:opacity-100 hover:text-emerald-400 transition-colors"
+    >
+      Contact Us
+    </a>
     <a
       href="/sitemap"
       onClick={onOpenSitemap?event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey||event.button!==0)return;event.preventDefault();onOpenSitemap();}:undefined}

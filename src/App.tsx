@@ -5,10 +5,8 @@ import {BalanceBadge} from './components/BalanceBadge';
 import {LegalDocumentKey} from './components/LegalLinks';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MotivationWelcome } from './components/MotivationWelcome';
-import { ChartSponsorLoader } from './components/ChartSponsorLoader';
 import { WorkspaceGhostLoader } from './components/WorkspaceGhostLoader';
 import { ConfettiCelebration } from './components/ConfettiCelebration';
-import { getCachedSponsorshipConfig, loadSponsorshipConfig } from './services/sponsorship';
 import { resetMotivationVisit, setMotivationEnabled } from './services/motivation';
 import { getReplayWeekdayTarget, getHistoricalCandles, hasHistoricalArchive, getHistoricalReplayAvailability, getLoadedHistorical1mRangeForClock, isWeekendClosedTimestamp, isFixedMarketHolidayDate } from './services/goldDataService';
 import { hydrateHistoricalArchive, hydrateLiveHistoricalArchive } from './services/historicalFeed';
@@ -93,9 +91,15 @@ import {
   AdminImpersonationInfo,
   AdminUser,
   clearAdminImpersonationState,
+  ContactInquiryCategory,
   getAdminImpersonationState,
   platformRequest,
 } from './services/platformAccounts';
+import {
+  ExperienceReviewPopup,
+  hasSeenExperiencePopup,
+  markExperiencePopupSeen,
+} from './components/ExperienceReviewPopup';
 import {
   fetchCustomRuleProfilesFromSupabase,
   fetchUserPreferencesFromSupabase,
@@ -155,6 +159,9 @@ const LegalPage = React.lazy(() =>
 );
 const PlatformFeedbackPage = React.lazy(() =>
   import('./components/PlatformFeedbackPage').then((m) => ({ default: m.PlatformFeedbackPage }))
+);
+const ContactPage = React.lazy(() =>
+  import('./components/ContactPage').then((m) => ({ default: m.ContactPage }))
 );
 const TopNavigation = React.lazy(() =>
   import('./components/TopNavigation').then((m) => ({ default: m.TopNavigation }))
@@ -244,7 +251,29 @@ export function App() {
       return { active: false, name: null, email: null };
     }
   };
+  const readContactRoute = (): {
+    active: boolean;
+    category: ContactInquiryCategory;
+  } => {
+    try {
+      const p = normalizePath();
+      const sp = new URLSearchParams(window.location.search);
+      const isContact =
+        p === '/contact' || p === '/contact-us' || sp.get('contact') === '1';
+      const rawCat = (sp.get('category') || '').toLowerCase();
+      const category: ContactInquiryCategory =
+        rawCat === 'partnership' ||
+        rawCat === 'improvement' ||
+        rawCat === 'bug'
+          ? rawCat
+          : 'general_inquiry';
+      return { active: isContact, category };
+    } catch {
+      return { active: false, category: 'general_inquiry' };
+    }
+  };
   const [partnerPage,setPartnerPage]=useState(()=>normalizePath()==='/partners'||normalizePath()==='/partner');
+  const [contactRoute,setContactRoute]=useState<{active:boolean;category:ContactInquiryCategory}>(readContactRoute);
   const [sitemapPage,setSitemapPage]=useState(()=>normalizePath()==='/sitemap');
   const [adminPage,setAdminPage]=useState(()=>normalizePath()==='/admin');
   const [comingSoon,setComingSoon]=useState(()=>normalizePath()==='/coming-soon');
@@ -252,6 +281,11 @@ export function App() {
   const [adminImpersonation,setAdminImpersonation]=useState<AdminImpersonationInfo|null>(getAdminImpersonationState);
   const [insightRoute,setInsightRoute]=useState<{active:boolean;slug:string|null}>(readInsightRoute);
   const [legalPage,setLegalPage]=useState<LegalDocumentKey|null>(readLegalPage);
+  const [experiencePopupState,setExperiencePopupState]=useState<{
+    isOpen:boolean;
+    reason:'logout'|'navigate';
+    userSnapshot:{id?:string|null;name:string;email:string}|null;
+  }>({isOpen:false,reason:'navigate',userSnapshot:null});
   const [balanceHidden,setBalanceHidden]=useState(false);
   const toggleBalance=()=>setBalanceHidden(previous=>!previous);
 
@@ -464,6 +498,7 @@ export function App() {
     const handlePopState = () => {
       const p = normalizePath();
       setPartnerPage(p === '/partners' || p === '/partner');
+      setContactRoute(readContactRoute());
       setSitemapPage(p === '/sitemap');
       setLegalPage(readLegalPage());
       setComingSoon(p === '/coming-soon');
@@ -1074,17 +1109,7 @@ export function App() {
   // Guided product tour (spotlight coach-marks)
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
   const [motivationOpen, setMotivationOpen] = useState(false);
-  const [chartSponsorLoading, setChartSponsorLoading] = useState<boolean>(
-    () => activeView === 'terminal' && getCachedSponsorshipConfig().enabled
-  );
-  useEffect(() => {
-    if (activeView !== 'terminal' && !adminPage) return;
-    void loadSponsorshipConfig().then((cfg) => {
-      if (!cfg.enabled) {
-        setChartSponsorLoading(false);
-      }
-    });
-  }, [activeView, adminPage]);
+  const chartSponsorLoading = false;
 
   // Background idle prefetching so subsequent route transitions feel instantaneous
   useEffect(() => {
@@ -1099,15 +1124,6 @@ export function App() {
       }
     }, 1200);
     return () => window.clearTimeout(timer);
-  }, [activeView]);
-  const prevActiveViewRef = useRef(activeView);
-  useEffect(() => {
-    if (prevActiveViewRef.current !== 'terminal' && activeView === 'terminal') {
-      setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
-    } else if (activeView !== 'terminal') {
-      setChartSponsorLoading(false);
-    }
-    prevActiveViewRef.current = activeView;
   }, [activeView]);
   const [mindsetOpen,setMindsetOpen]=useState(false);
   const [planToggleCount, setPlanToggleCount] = useState(0);
@@ -2082,8 +2098,6 @@ export function App() {
       setIsCreateSessionModalOpen(false);
       if (openTerminalView) {
         setActiveView('terminal');
-      } else {
-        setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
       }
     },
     [resetChartIndicatorsOff]
@@ -2151,17 +2165,79 @@ export function App() {
     }
   }, []);
 
-  const openLegal=(page:LegalDocumentKey)=>{window.history.pushState({},'',`/${page}`);setSitemapPage(false);setLegalPage(page);};
+  const triggerOnceExperiencePopup = useCallback(
+    (reason: 'logout' | 'navigate', explicitUser?: ChartFlowUser | null) => {
+      const targetUser = explicitUser ?? currentUser;
+      if (adminImpersonation) return;
+      if (hasSeenExperiencePopup(targetUser?.email)) return;
+      markExperiencePopupSeen(targetUser?.email);
+      setExperiencePopupState({
+        isOpen: true,
+        reason,
+        userSnapshot: targetUser
+          ? {
+              id: targetUser.id,
+              name: targetUser.name,
+              email: targetUser.email,
+            }
+          : null,
+      });
+    },
+    [adminImpersonation, currentUser]
+  );
+
+  const openContactPage = useCallback(
+    (category: ContactInquiryCategory = 'general_inquiry') => {
+      const url =
+        category && category !== 'general_inquiry'
+          ? `/contact?category=${encodeURIComponent(category)}`
+          : '/contact';
+      window.history.pushState({}, '', url);
+      setLegalPage(null);
+      setSitemapPage(false);
+      setPartnerPage(false);
+      setComingSoon(false);
+      setAdminPage(false);
+      setInsightRoute({ active: false, slug: null });
+      setContactRoute({ active: true, category });
+    },
+    []
+  );
+
+  const closeContactPage = useCallback(() => {
+    const target = currentUser ? '/dashboard' : '/';
+    window.history.pushState({}, '', target);
+    setContactRoute({ active: false, category: 'general_inquiry' });
+    setActiveView(currentUser ? 'dashboard' : 'landing');
+  }, [currentUser]);
+
+  const openPartnerPage = useCallback(() => {
+    window.history.pushState({}, '', '/partners');
+    setLegalPage(null);
+    setSitemapPage(false);
+    setContactRoute({ active: false, category: 'general_inquiry' });
+    setComingSoon(false);
+    setAdminPage(false);
+    setInsightRoute({ active: false, slug: null });
+    setPartnerPage(true);
+  }, []);
+
+  const openLegal=(page:LegalDocumentKey)=>{window.history.pushState({},'',`/${page}`);setSitemapPage(false);setContactRoute({active:false,category:'general_inquiry'});setLegalPage(page);};
   const closeLegal=()=>{const target=currentUser?'/dashboard':'/';window.history.pushState({},'',target);setLegalPage(null);};
-  const openSitemap=()=>{window.history.pushState({},'','/sitemap');setLegalPage(null);setSitemapPage(true);};
+  const openSitemap=()=>{window.history.pushState({},'','/sitemap');setLegalPage(null);setContactRoute({active:false,category:'general_inquiry'});setSitemapPage(true);};
   const closeSitemap=()=>{const target=currentUser?'/dashboard':'/';window.history.pushState({},'',target);setSitemapPage(false);setActiveView(currentUser?'dashboard':'landing');};
   const navigateFromSitemap=(path:string)=>{
     setSitemapPage(false);
     setLegalPage(null);
     setPartnerPage(false);
+    setContactRoute({active:false,category:'general_inquiry'});
     setComingSoon(false);
     setAdminPage(false);
     setInsightRoute({active:false,slug:null});
+    if(path==='/contact'||path==='/contact-us'){
+      openContactPage('general_inquiry');
+      return;
+    }
     if(path==='/partners'){
       window.history.pushState({},'','/partners');
       setPartnerPage(true);
@@ -2198,7 +2274,19 @@ export function App() {
     }
     setActiveView('landing');
   };
-  const signOut=()=>{clearAdminImpersonationState();setAdminImpersonation(null);purgeBrowserSensitiveStorage();setActiveLoggedInUser(null);setCurrentUser(null);setIsTourOpen(false);setIsPlaying(false);setActiveView('landing');};
+  const signOut=()=>{
+    if (currentUser && !adminImpersonation) {
+      triggerOnceExperiencePopup('logout', currentUser);
+    }
+    clearAdminImpersonationState();
+    setAdminImpersonation(null);
+    purgeBrowserSensitiveStorage();
+    setActiveLoggedInUser(null);
+    setCurrentUser(null);
+    setIsTourOpen(false);
+    setIsPlaying(false);
+    setActiveView('landing');
+  };
   const handleAdminLoginAsUser=useCallback(async(targetUser:AdminUser,previewMode=false)=>{
     const res=await adminImpersonateUser({id:targetUser.id,email:targetUser.email,name:targetUser.name},previewMode);
     if(!res.ok||!res.user){
@@ -2253,6 +2341,65 @@ export function App() {
     setActiveView(currentUser?'dashboard':'landing');
   };
 
+  // Trigger the one-time 5-second experience popup when a logged-in user switches pages (e.g., from Chart Workspace to Dashboard/Analytics/Landing, or from Dashboard to Analytics/Landing)
+  const previousViewForPopupRef = useRef(activeView);
+  useEffect(() => {
+    const prev = previousViewForPopupRef.current;
+    previousViewForPopupRef.current = activeView;
+    if (
+      isRestoringSession ||
+      !currentUser ||
+      adminImpersonation ||
+      isCreateSessionModalOpen ||
+      isTourOpen ||
+      motivationOpen
+    ) {
+      return;
+    }
+    const switchedFromWorkspacePage =
+      (prev === 'terminal' &&
+        (activeView === 'dashboard' ||
+          activeView === 'analytics_page' ||
+          activeView === 'landing')) ||
+      (prev === 'dashboard' &&
+        (activeView === 'analytics_page' || activeView === 'landing')) ||
+      (prev === 'analytics_page' &&
+        (activeView === 'dashboard' || activeView === 'landing'));
+    if (switchedFromWorkspacePage) {
+      triggerOnceExperiencePopup('navigate', currentUser);
+    }
+  }, [
+    activeView,
+    currentUser,
+    adminImpersonation,
+    isRestoringSession,
+    isCreateSessionModalOpen,
+    isTourOpen,
+    motivationOpen,
+    triggerOnceExperiencePopup,
+  ]);
+
+  const experiencePopupOverlay = (
+    <ExperienceReviewPopup
+      isOpen={experiencePopupState.isOpen}
+      triggerReason={experiencePopupState.reason}
+      userName={experiencePopupState.userSnapshot?.name || currentUser?.name || ''}
+      userEmail={experiencePopupState.userSnapshot?.email || currentUser?.email || ''}
+      userId={experiencePopupState.userSnapshot?.id || currentUser?.id || null}
+      onDismissAndContinue={() =>
+        setExperiencePopupState((prev) => ({ ...prev, isOpen: false }))
+      }
+      onOpenPartners={() => {
+        setExperiencePopupState((prev) => ({ ...prev, isOpen: false }));
+        openPartnerPage();
+      }}
+      onOpenContactUs={() => {
+        setExperiencePopupState((prev) => ({ ...prev, isOpen: false }));
+        openContactPage('general_inquiry');
+      }}
+    />
+  );
+
   useEffect(() => {
     if (
       isRestoringSession ||
@@ -2260,6 +2407,7 @@ export function App() {
       sitemapPage ||
       insightRoute.active ||
       partnerPage ||
+      contactRoute.active ||
       adminPage ||
       comingSoon ||
       feedbackRoute.active
@@ -2321,6 +2469,7 @@ export function App() {
     sitemapPage,
     insightRoute.active,
     partnerPage,
+    contactRoute.active,
     adminPage,
     comingSoon,
     feedbackRoute.active,
@@ -2330,6 +2479,18 @@ export function App() {
 
   if(legalPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><LegalPage page={legalPage} onNavigate={openLegal} onOpenSitemap={openSitemap} onBack={closeLegal}/></Suspense>;
   if(sitemapPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><SitemapPage onBack={closeSitemap} onNavigateRoute={navigateFromSitemap} onOpenLegal={openLegal}/></Suspense>;
+  if(contactRoute.active)return (
+    <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}>
+      <ContactPage
+        initialName={currentUser?.name||''}
+        initialEmail={currentUser?.email||''}
+        userId={currentUser?.id||null}
+        initialCategory={contactRoute.category}
+        onBackToPlatform={closeContactPage}
+        onOpenPartners={openPartnerPage}
+      />
+    </Suspense>
+  );
   if(feedbackRoute.active)return (
     <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}>
       <PlatformFeedbackPage
@@ -2374,45 +2535,54 @@ export function App() {
       />
     </Suspense>
   );
-  if(partnerPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><PartnerPage onBack={()=>{window.history.pushState({},'','/');setPartnerPage(false);setActiveView('landing');}} onOpenLegal={openLegal} onOpenSitemap={openSitemap}/></Suspense>;
+  if(partnerPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><PartnerPage onBack={()=>{const target=currentUser?'/dashboard':'/';window.history.pushState({},'',target);setPartnerPage(false);setActiveView(currentUser?'dashboard':'landing');}} onOpenLegal={openLegal} onOpenSitemap={openSitemap} onOpenContactUs={()=>{setPartnerPage(false);openContactPage('partnership');}}/></Suspense>;
   if(adminPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><AdminDashboard onBack={()=>{window.history.pushState({},'','/');setAdminPage(false);setActiveView('landing');}} onLoginAsUser={handleAdminLoginAsUser}/></Suspense>;
   if(comingSoon)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><ComingSoonPage onBack={closeComingSoon} onOpenLegal={openLegal} onOpenSitemap={openSitemap}/></Suspense>;
 
   // VIEW 1: LANDING PAGE (HOMEPAGE)
   if (activeView === 'landing') {
     return (
-      <LandingPage onOpenComingSoon={openComingSoon} onOpenTradersInsight={openTradersInsight} onOpenLegal={openLegal} onOpenSitemap={openSitemap}
-        onLaunchTerminal={(action) => {
-          if (action === 'prop_firm') {
-            setCreateSessionModalMode('PROP_FIRM');
-            setIsCreateSessionModalOpen(true);
+      <>
+        {experiencePopupOverlay}
+        <LandingPage
+          onOpenComingSoon={openComingSoon}
+          onOpenTradersInsight={openTradersInsight}
+          onOpenLegal={openLegal}
+          onOpenSitemap={openSitemap}
+          onOpenContact={() => openContactPage('general_inquiry')}
+          onOpenPartners={openPartnerPage}
+          onLaunchTerminal={(action) => {
+            if (action === 'prop_firm') {
+              setCreateSessionModalMode('PROP_FIRM');
+              setIsCreateSessionModalOpen(true);
+              setActiveView('terminal');
+              return;
+            }
+            if (action === 'new_backtest') {
+              setCreateSessionModalMode('BACKTESTING');
+              setIsCreateSessionModalOpen(true);
+              setActiveView('terminal');
+              return;
+            }
+            if (action === 'analytics') {
+              setHubInitialSection('analytics');
+              setActiveView('analytics_page');
+              return;
+            }
+            if (action === 'dashboard') {
+              setHubInitialSection('dashboard');
+              setActiveView('dashboard');
+              return;
+            }
             setActiveView('terminal');
-            return;
-          }
-          if (action === 'new_backtest') {
-            setCreateSessionModalMode('BACKTESTING');
-            setIsCreateSessionModalOpen(true);
-            setActiveView('terminal');
-            return;
-          }
-          if (action === 'analytics') {
-            setHubInitialSection('analytics');
-            setActiveView('analytics_page');
-            return;
-          }
-          if (action === 'dashboard') {
-            setHubInitialSection('dashboard');
-            setActiveView('dashboard');
-            return;
-          }
-          setActiveView('terminal');
-        }}
-        onOpenLogin={(mode) => {
-          setLoginInitialMode(mode || 'login');
-          setActiveView('login');
-        }}
-        currentUser={currentUser}
-      />
+          }}
+          onOpenLogin={(mode) => {
+            setLoginInitialMode(mode || 'login');
+            setActiveView('login');
+          }}
+          currentUser={currentUser}
+        />
+      </>
     );
   }
 
@@ -2581,6 +2751,7 @@ export function App() {
           />
         }
       >
+        {experiencePopupOverlay}
         {adminImpersonationBanner}
         <AnalyticsDashboardPage
           activeSession={activeSession}
@@ -2647,6 +2818,9 @@ export function App() {
             activeView === 'analytics_page' ? 'analytics' : hubInitialSection
           }
           onSectionChange={(nextSection) => {
+            if (nextSection !== hubInitialSection) {
+              triggerOnceExperiencePopup('navigate', currentUser);
+            }
             setHubInitialSection(nextSection);
             if (nextSection === 'analytics') {
               setActiveView('analytics_page');
@@ -2664,6 +2838,8 @@ export function App() {
           }}
           onOpenLanding={() => setActiveView('landing')}
           onOpenTradersInsight={() => openTradersInsight()}
+          onOpenContact={() => openContactPage('general_inquiry')}
+          onOpenPartners={openPartnerPage}
         />
 
         {isCreateSessionModalOpen && (
@@ -2746,6 +2922,7 @@ export function App() {
           : 'bg-[#0d0f13] text-[#d1d4dc]'
       }`}
     >
+      {experiencePopupOverlay}
       {adminImpersonationBanner}
       {/* Top Toolbar */}
       <TopNavigation
@@ -3418,7 +3595,6 @@ export function App() {
             setActiveSessionId(sessId);
             setViewportFocusVersion((v) => v + 1);
             setIsCreateSessionModalOpen(false);
-            setChartSponsorLoading(getCachedSponsorshipConfig().enabled);
           }}
           onDeleteSession={handleDeleteSession}
           savedStrategies={allStrategyNames}
@@ -3447,15 +3623,6 @@ export function App() {
           }}
         />
       )}
-
-      <ChartSponsorLoader
-        open={chartSponsorLoading && !isCreateSessionModalOpen}
-        symbol={symbol}
-        timeframe={timeframe}
-        sessionName={activeSession?.name}
-        theme={theme}
-        onComplete={() => setChartSponsorLoading(false)}
-      />
 
       <MotivationWelcome
         userKey={currentUser.email}

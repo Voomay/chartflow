@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Bug,
   Check,
   CheckCircle2,
   Copy,
   ExternalLink,
+  Handshake,
+  HelpCircle,
+  Inbox,
   LogIn,
   Mail,
   MessageSquareHeart,
@@ -15,6 +19,10 @@ import {
 } from 'lucide-react';
 import {
   AdminUser,
+  ContactInquiryCategory,
+  ContactInquiryItem,
+  OFFICIAL_CONTACT_EMAIL,
+  PERSONAL_CONTACT_EMAIL,
   loadAdminFeedbackData,
   sendAdminFeedbackEmails,
 } from '../services/platformAccounts';
@@ -80,6 +88,11 @@ export const AdminFeedback: React.FC<AdminFeedbackProps> = ({
 }) => {
   const [feedbackList, setFeedbackList] = useState<PlatformFeedbackItem[]>([]);
   const [emailLogs, setEmailLogs] = useState<FeedbackEmailLogItem[]>([]);
+  const [contactInquiries, setContactInquiries] = useState<ContactInquiryItem[]>([]);
+  const [inquiryCategoryFilter, setInquiryCategoryFilter] = useState<
+    'all' | ContactInquiryCategory
+  >('all');
+  const [inquirySearch, setInquirySearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [userSearch, setUserSearch] = useState('');
@@ -100,6 +113,7 @@ export const AdminFeedback: React.FC<AdminFeedbackProps> = ({
       const res = await loadAdminFeedbackData(preview);
       setFeedbackList(res.feedback);
       setEmailLogs(res.emailLogs);
+      setContactInquiries(res.contactInquiries || []);
     } finally {
       setLoading(false);
     }
@@ -596,16 +610,255 @@ export const AdminFeedback: React.FC<AdminFeedbackProps> = ({
         </div>
       </section>
 
+      {/* Contact Us Inquiries & Emails Section (info@voomay.co.za) */}
+      <section className={`${card} p-5 sm:p-6`}>
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/5 pb-4">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-cyan-400/10 border border-cyan-400/30 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+              <Inbox size={12} />
+              Contact Us Inbox • {OFFICIAL_CONTACT_EMAIL}
+            </div>
+            <h2 className="mt-2 text-lg font-semibold text-white">
+              Contact Us Inquiries &amp; Messages ({contactInquiries.length})
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Every message sent via the Contact Us page (General Inquiry,
+              Partnership, Improvement, or Bug) is emailed to{' '}
+              <span className="font-mono text-cyan-300">
+                {OFFICIAL_CONTACT_EMAIL}
+              </span>{' '}
+              (personal contact:{' '}
+              <span className="font-mono text-emerald-300">
+                {PERSONAL_CONTACT_EMAIL}
+              </span>
+              ) and logged here.
+            </p>
+          </div>
+          <a
+            href="/contact"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-3.5 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20 transition"
+          >
+            Open Contact Us Page <ExternalLink size={13} />
+          </a>
+        </div>
+
+        {/* Category Filter Pills & Search */}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                ['all', `All (${contactInquiries.length})`],
+                [
+                  'general_inquiry',
+                  `General Inquiry (${
+                    contactInquiries.filter((i) => i.category === 'general_inquiry').length
+                  })`,
+                ],
+                [
+                  'partnership',
+                  `Partnership (${
+                    contactInquiries.filter((i) => i.category === 'partnership').length
+                  })`,
+                ],
+                [
+                  'improvement',
+                  `Improvement (${
+                    contactInquiries.filter((i) => i.category === 'improvement').length
+                  })`,
+                ],
+                [
+                  'bug',
+                  `Bug (${
+                    contactInquiries.filter((i) => i.category === 'bug').length
+                  })`,
+                ],
+              ] as const
+            ).map(([catId, label]) => (
+              <button
+                key={catId}
+                type="button"
+                onClick={() => setInquiryCategoryFilter(catId)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  inquiryCategoryFilter === catId
+                    ? 'bg-cyan-400/20 border border-cyan-400/40 text-cyan-200'
+                    : 'bg-white/5 border border-white/10 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+            <Search size={14} className="text-slate-500" />
+            <input
+              type="text"
+              value={inquirySearch}
+              onChange={(e) => setInquirySearch(e.target.value)}
+              placeholder="Search inquiries or sender…"
+              className="w-44 sm:w-56 bg-transparent text-xs text-white outline-none placeholder:text-slate-600"
+            />
+          </label>
+        </div>
+
+        {(() => {
+          const filteredInquiries = contactInquiries.filter((item) => {
+            if (
+              inquiryCategoryFilter !== 'all' &&
+              item.category !== inquiryCategoryFilter
+            ) {
+              return false;
+            }
+            const q = inquirySearch.trim().toLowerCase();
+            if (
+              q &&
+              !`${item.userName} ${item.userEmail} ${item.subject || ''} ${item.message}`
+                .toLowerCase()
+                .includes(q)
+            ) {
+              return false;
+            }
+            return true;
+          });
+
+          if (filteredInquiries.length === 0) {
+            return (
+              <div className="py-10 text-center">
+                <Inbox size={28} className="mx-auto text-slate-600 mb-2.5" />
+                <p className="text-sm font-semibold text-slate-300">
+                  No Contact Us inquiries match this filter yet.
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Messages submitted on /contact are routed to{' '}
+                  {OFFICIAL_CONTACT_EMAIL} and appear here automatically.
+                </p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {filteredInquiries.map((inq) => {
+                const matchedUser = users.find(
+                  (u) => u.email.toLowerCase() === inq.userEmail.toLowerCase()
+                );
+                const categoryMeta =
+                  inq.category === 'partnership'
+                    ? {
+                        label: 'Partnership',
+                        icon: <Handshake size={12} />,
+                        cls: 'border-indigo-400/30 bg-indigo-500/15 text-indigo-200',
+                      }
+                    : inq.category === 'improvement'
+                    ? {
+                        label: 'Improvement',
+                        icon: <Sparkles size={12} />,
+                        cls: 'border-emerald-400/30 bg-emerald-500/15 text-emerald-200',
+                      }
+                    : inq.category === 'bug'
+                    ? {
+                        label: 'Bug Report',
+                        icon: <Bug size={12} />,
+                        cls: 'border-rose-400/30 bg-rose-500/15 text-rose-200',
+                      }
+                    : {
+                        label: 'General Inquiry',
+                        icon: <HelpCircle size={12} />,
+                        cls: 'border-blue-400/30 bg-blue-500/15 text-blue-200',
+                      };
+
+                return (
+                  <article
+                    key={inq.id}
+                    className="rounded-2xl border border-white/[0.08] bg-[#0a121e] p-5 flex flex-col justify-between gap-4"
+                  >
+                    <div>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <h3 className="font-bold text-white text-sm">
+                            {inq.userName}
+                          </h3>
+                          <p className="text-xs text-slate-400">
+                            {inq.userEmail}
+                          </p>
+                          <p className="mt-0.5 text-[10px] text-slate-500">
+                            Received {formatSaDate(inq.createdAt)} • Routed to{' '}
+                            {inq.recipientEmail || OFFICIAL_CONTACT_EMAIL}
+                          </p>
+                        </div>
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold ${categoryMeta.cls}`}
+                        >
+                          {categoryMeta.icon}
+                          {categoryMeta.label}
+                        </span>
+                      </div>
+
+                      {inq.subject && (
+                        <p className="mt-3 text-xs font-bold text-white">
+                          Subject: {inq.subject}
+                        </p>
+                      )}
+
+                      <div className="mt-3 rounded-xl border border-white/5 bg-black/30 p-3.5">
+                        <p className="text-xs leading-relaxed text-slate-200 whitespace-pre-wrap">
+                          {inq.message}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5">
+                      <a
+                        href={`mailto:${inq.userEmail}?subject=${encodeURIComponent(
+                          `Re: ${inq.subject || 'Your Chart Replay Inquiry'}`
+                        )}`}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-200 hover:bg-emerald-400/20 transition"
+                      >
+                        <Mail size={12} />
+                        Reply to {inq.userName.split(' ')[0]}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onImpersonateUser(
+                            matchedUser || {
+                              id: inq.userId || `inq-${inq.id}`,
+                              name: inq.userName,
+                              email: inq.userEmail,
+                              joinedAt: inq.createdAt,
+                              loginCount: 1,
+                              lastLoginAt: inq.createdAt,
+                              source: 'server',
+                            }
+                          )
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20 transition"
+                      >
+                        <LogIn size={13} />
+                        Log into {inq.userName.split(' ')[0]}&apos;s Account
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </section>
+
       {/* Submitted Trader Feedback List */}
       <section className={`${card} p-5 sm:p-6`}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-4">
           <div>
             <h2 className="text-lg font-semibold text-white">
-              Submitted Trader Feedback &amp; Star Ratings ({feedbackList.length})
+              Submitted Trader Feedback &amp; Experience Reviews ({feedbackList.length})
             </h2>
             <p className="mt-0.5 text-xs text-slate-400">
-              All ratings and improvement suggestions submitted by traders are
-              stored in Supabase and displayed below.
+              All ratings and improvement suggestions submitted via the one-time
+              5-second experience pop-up or feedback link are stored in Supabase
+              and emailed to {OFFICIAL_CONTACT_EMAIL}.
             </p>
           </div>
         </div>
@@ -638,9 +891,16 @@ export const AdminFeedback: React.FC<AdminFeedbackProps> = ({
                   <div>
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-bold text-white text-sm">
-                          {item.userName}
-                        </h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-bold text-white text-sm">
+                            {item.userName}
+                          </h3>
+                          <span className="rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-[10px] text-slate-300">
+                            {item.source === 'once_popup'
+                              ? '5-Sec Experience Popup'
+                              : 'Feedback Form'}
+                          </span>
+                        </div>
                         <p className="text-xs text-slate-400">
                           {item.userEmail}
                         </p>

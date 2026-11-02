@@ -601,6 +601,7 @@ const FEEDBACK_FALLBACK_PROFILE_ID = '__platform_feedback_v1__';
 const FEEDBACK_EMAIL_LOGS_FALLBACK_ID = '__feedback_email_logs_v1__';
 
 export async function fetchSponsorshipFromSupabase(): Promise<Partial<SponsorshipConfig> | null> {
+  let primaryConfig: Partial<SponsorshipConfig> | null = null;
   const rows = await supabaseFetch<
     Array<{
       id: string;
@@ -620,8 +621,8 @@ export async function fetchSponsorshipFromSupabase(): Promise<Partial<Sponsorshi
   >('platform_sponsorship?id=eq.active&select=*&limit=1');
   if (Array.isArray(rows) && rows.length > 0 && rows[0]) {
     const row = rows[0];
-    return {
-      enabled: typeof row.enabled === 'boolean' ? row.enabled : true,
+    primaryConfig = {
+      enabled: typeof row.enabled === 'boolean' ? row.enabled : false,
       sponsorName: row.sponsor_name,
       badgeText: row.badge_text,
       headlinePrefix: row.headline_prefix,
@@ -636,7 +637,7 @@ export async function fetchSponsorshipFromSupabase(): Promise<Partial<Sponsorshi
     };
   }
 
-  // Fallback to custom_rule_profiles when platform_sponsorship table is not yet created
+  let fallbackConfig: Partial<SponsorshipConfig> | null = null;
   const fallbackRows = await supabaseFetch<
     Array<{ rules_data: Partial<SponsorshipConfig>; updated_at?: string }>
   >(
@@ -646,13 +647,19 @@ export async function fetchSponsorshipFromSupabase(): Promise<Partial<Sponsorshi
   );
   if (Array.isArray(fallbackRows) && fallbackRows.length > 0 && fallbackRows[0]?.rules_data) {
     const d = fallbackRows[0].rules_data;
-    return {
+    fallbackConfig = {
       ...d,
-      enabled: typeof d.enabled === 'boolean' ? d.enabled : true,
+      enabled: typeof d.enabled === 'boolean' ? d.enabled : false,
       updatedAt: d.updatedAt || fallbackRows[0].updated_at || undefined,
     };
   }
-  return null;
+
+  if (fallbackConfig && primaryConfig) {
+    const fbTime = Date.parse(fallbackConfig.updatedAt || '') || 0;
+    const prTime = Date.parse(primaryConfig.updatedAt || '') || 0;
+    return fbTime >= prTime ? fallbackConfig : primaryConfig;
+  }
+  return fallbackConfig || primaryConfig || null;
 }
 
 export async function syncSponsorshipToSupabase(
@@ -988,4 +995,217 @@ export async function fetchFeedbackEmailLogsFromSupabase(): Promise<FeedbackEmai
     (a, b) => (Date.parse(b.sentAt || '') || 0) - (Date.parse(a.sentAt || '') || 0)
   );
 }
+
+export type ContactInquiryCategory =
+  | 'general_inquiry'
+  | 'partnership'
+  | 'improvement'
+  | 'bug';
+
+export interface ContactInquiryItem {
+  id: string;
+  userId?: string | null;
+  userEmail: string;
+  userName: string;
+  category: ContactInquiryCategory;
+  subject: string;
+  message: string;
+  recipientEmail: string;
+  emailSent?: boolean;
+  source?: string;
+  createdAt: string;
+}
+
+const CONTACT_INQUIRIES_FALLBACK_ID = '__contact_inquiries_v1__';
+
+function normalizeContactCategoryClient(raw?: string | null): ContactInquiryCategory {
+  const clean = String(raw || 'general_inquiry').trim().toLowerCase();
+  if (clean === 'inquiry' || clean === 'general') return 'general_inquiry';
+  if (clean === 'partner') return 'partnership';
+  if (
+    clean === 'general_inquiry' ||
+    clean === 'partnership' ||
+    clean === 'improvement' ||
+    clean === 'bug'
+  ) {
+    return clean;
+  }
+  return 'general_inquiry';
+}
+
+export async function fetchContactInquiriesFromSupabase(): Promise<ContactInquiryItem[]> {
+  const combined: ContactInquiryItem[] = [];
+  const rows = await supabaseFetch<
+    Array<{
+      id: string;
+      user_id?: string | null;
+      user_email: string;
+      user_name?: string;
+      category?: string;
+      subject?: string;
+      message?: string;
+      recipient_email?: string;
+      email_sent?: boolean;
+      source?: string;
+      created_at?: string;
+    }>
+  >('contact_inquiries?select=*&order=created_at.desc&limit=500');
+
+  if (Array.isArray(rows)) {
+    for (const r of rows) {
+      if (!r || !r.id) continue;
+      combined.push({
+        id: r.id,
+        userId: r.user_id || null,
+        userEmail: String(r.user_email || '').toLowerCase(),
+        userName: r.user_name || 'Trader',
+        category: normalizeContactCategoryClient(r.category),
+        subject: r.subject || '',
+        message: r.message || '',
+        recipientEmail: (r.recipient_email || 'info@voomay.co.za').toLowerCase(),
+        emailSent: Boolean(r.email_sent),
+        source: r.source || 'contact_page',
+        createdAt: r.created_at || new Date().toISOString(),
+      });
+    }
+  }
+
+  const fallbackRows = await supabaseFetch<
+    Array<{ rules_data?: { items?: ContactInquiryItem[] } }>
+  >(
+    `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+      SPONSORSHIP_FALLBACK_EMAIL
+    )}&id=eq.${CONTACT_INQUIRIES_FALLBACK_ID}&select=rules_data&limit=1`
+  );
+  const fallbackItems = fallbackRows?.[0]?.rules_data?.items;
+  if (Array.isArray(fallbackItems)) {
+    for (const item of fallbackItems) {
+      if (item && item.id) {
+        combined.push({
+          ...item,
+          userEmail: String(item.userEmail || '').toLowerCase(),
+          userName: item.userName || 'Trader',
+          category: normalizeContactCategoryClient(item.category),
+          subject: item.subject || '',
+          message: item.message || '',
+          recipientEmail: (item.recipientEmail || 'info@voomay.co.za').toLowerCase(),
+          emailSent: Boolean(item.emailSent),
+          source: item.source || 'contact_page',
+          createdAt: item.createdAt || new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  const byId = new Map<string, ContactInquiryItem>();
+  for (const item of combined) {
+    if (!byId.has(item.id)) byId.set(item.id, item);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)
+  );
+}
+
+export async function submitContactInquiryToSupabase(
+  entry: ContactInquiryItem
+): Promise<boolean> {
+  const cfg = getSupabaseClientConfig();
+  if (!cfg.enabled) return false;
+
+  const createdAt = entry.createdAt || new Date().toISOString();
+  const normalized: ContactInquiryItem = {
+    id: entry.id,
+    userId: isValidUuid(entry.userId || undefined) ? entry.userId : null,
+    userEmail: String(entry.userEmail || '').trim().toLowerCase(),
+    userName: String(entry.userName || 'Trader').trim() || 'Trader',
+    category: normalizeContactCategoryClient(entry.category),
+    subject: String(entry.subject || '').trim(),
+    message: String(entry.message || '').trim(),
+    recipientEmail: (entry.recipientEmail || 'info@voomay.co.za').toLowerCase(),
+    emailSent: Boolean(entry.emailSent),
+    source: entry.source || 'contact_page',
+    createdAt,
+  };
+
+  let primaryOk = false;
+  try {
+    const res = await fetch(`${cfg.restUrl}contact_inquiries?on_conflict=id`, {
+      method: 'POST',
+      headers: {
+        apikey: cfg.anonKey,
+        Authorization: `Bearer ${cfg.anonKey}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify({
+        id: normalized.id,
+        user_id: normalized.userId,
+        user_email: normalized.userEmail,
+        user_name: normalized.userName,
+        category: normalized.category,
+        subject: normalized.subject,
+        message: normalized.message,
+        recipient_email: normalized.recipientEmail,
+        email_sent: normalized.emailSent,
+        source: normalized.source,
+        created_at: normalized.createdAt,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    primaryOk = res.ok;
+  } catch {
+    primaryOk = false;
+  }
+
+  let fallbackOk = false;
+  try {
+    const existingRows = await supabaseFetch<
+      Array<{ rules_data?: { items?: ContactInquiryItem[] } }>
+    >(
+      `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+        SPONSORSHIP_FALLBACK_EMAIL
+      )}&id=eq.${CONTACT_INQUIRIES_FALLBACK_ID}&select=rules_data&limit=1`
+    );
+    const existingItems = Array.isArray(existingRows?.[0]?.rules_data?.items)
+      ? existingRows[0].rules_data!.items!
+      : [];
+    const mergedItems = [
+      normalized,
+      ...existingItems.filter((it) => it && it.id !== normalized.id),
+    ].slice(0, 500);
+    const fallbackRes = await fetch(
+      `${cfg.restUrl}custom_rule_profiles?on_conflict=user_email,id`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: cfg.anonKey,
+          Authorization: `Bearer ${cfg.anonKey}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        },
+        body: JSON.stringify({
+          id: CONTACT_INQUIRIES_FALLBACK_ID,
+          user_email: SPONSORSHIP_FALLBACK_EMAIL,
+          name: CONTACT_INQUIRIES_FALLBACK_ID,
+          description: 'Platform contact us inquiries and messages',
+          rules_data: {
+            id: CONTACT_INQUIRIES_FALLBACK_ID,
+            items: mergedItems,
+            updatedAt: createdAt,
+          },
+          created_at: createdAt,
+        }),
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+    fallbackOk = fallbackRes.ok;
+  } catch {
+    fallbackOk = false;
+  }
+
+  return primaryOk || fallbackOk;
+}
+
 

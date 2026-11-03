@@ -54,8 +54,15 @@ export function resolvePublicAppUrl(_originHeader, env = process.env) {
   return sanitizeOfficialAppUrl(cfg?.appUrl || env.PUBLIC_APP_URL || env.APP_URL || DEFAULT_APP_URL);
 }
 
+export function buildUnsubscribeUrl(email, appUrl = DEFAULT_APP_URL) {
+  const officialUrl = sanitizeOfficialAppUrl(appUrl);
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail) return `${officialUrl}/?unsubscribe=1`;
+  return `${officialUrl}/?unsubscribe=1&email=${encodeURIComponent(cleanEmail)}`;
+}
+
 export async function sendResendEmail(
-  { to, subject, html, text, replyTo },
+  { to, subject, html, text, replyTo, unsubscribeUrl },
   { env = process.env, request = fetch } = {}
 ) {
   const cfg = resolveResendConfig(env);
@@ -71,22 +78,35 @@ export async function sendResendEmail(
 
   const effectiveReplyTo =
     (typeof replyTo === 'string' && replyTo.trim()) || cfg.replyTo;
+  const cleanUnsubUrl =
+    typeof unsubscribeUrl === 'string' && unsubscribeUrl.trim()
+      ? unsubscribeUrl.trim()
+      : '';
 
   try {
+    const payload = {
+      from: cfg.fromEmail,
+      to: recipients,
+      reply_to: effectiveReplyTo,
+      subject: String(subject || '').trim(),
+      html: String(html || ''),
+      text: String(text || ''),
+      ...(cleanUnsubUrl
+        ? {
+            headers: {
+              'List-Unsubscribe': `<${cleanUnsubUrl}>, <mailto:${effectiveReplyTo}?subject=Unsubscribe>`,
+              'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            },
+          }
+        : {}),
+    };
     const response = await request(RESEND_API_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${cfg.apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: cfg.fromEmail,
-        to: recipients,
-        reply_to: effectiveReplyTo,
-        subject: String(subject || '').trim(),
-        html: String(html || ''),
-        text: String(text || ''),
-      }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(10000),
     });
 
@@ -119,11 +139,15 @@ export async function sendResendEmail(
   }
 }
 
-export function buildWelcomeEmail({ name, email, appUrl = DEFAULT_APP_URL }) {
+export function buildWelcomeEmail({ name, email, appUrl = DEFAULT_APP_URL, unsubscribeUrl }) {
   const cleanName = escapeHtml(String(name || 'Trader').trim() || 'Trader');
   const officialUrl = sanitizeOfficialAppUrl(appUrl);
   const safeAppUrl = escapeHtml(officialUrl);
-  const safeEmail = escapeHtml(String(email || '').trim().toLowerCase());
+  const cleanEmailRaw = String(email || '').trim().toLowerCase();
+  const safeEmail = escapeHtml(cleanEmailRaw);
+  const targetUnsubscribeUrl =
+    String(unsubscribeUrl || '').trim() || buildUnsubscribeUrl(cleanEmailRaw, officialUrl);
+  const safeUnsubscribeUrl = escapeHtml(targetUnsubscribeUrl);
   const subject = 'Welcome to Chart Replay — Your Trading Practice Starts Here';
 
   const text = [
@@ -140,10 +164,11 @@ export function buildWelcomeEmail({ name, email, appUrl = DEFAULT_APP_URL }) {
     '',
     `Open Your Trading Workspace: ${officialUrl}`,
     '',
-    `Registered email: ${String(email || '').trim().toLowerCase()}`,
+    `Registered email: ${cleanEmailRaw}`,
     '',
     'Chart Replay · https://chartreplay.co.za · Simulated money only.',
     'Questions or feedback? Contact info@chartreplay.co.za.',
+    `Unsubscribe from emails: ${targetUnsubscribeUrl}`,
   ].join('\n');
 
   const html = `<!DOCTYPE html>
@@ -309,7 +334,8 @@ export function buildWelcomeEmail({ name, email, appUrl = DEFAULT_APP_URL }) {
           <tr>
             <td style="padding:22px 34px;background-color:#070b14;border-top:1px solid #1e293b;font-size:11px;line-height:1.7;color:#64748b;text-align:center;">
               <strong style="color:#94a3b8;">Chart Replay</strong> · Built in South Africa for deliberate trader development · Simulated capital only.<br/>
-              Need help? Reply to this email or contact <a href="mailto:info@chartreplay.co.za" style="color:#34d399;text-decoration:underline;">info@chartreplay.co.za</a> · <a href="${safeAppUrl}" style="color:#38bdf8;text-decoration:underline;">chartreplay.co.za</a>
+              Need help? Reply to this email or contact <a href="mailto:info@chartreplay.co.za" style="color:#34d399;text-decoration:underline;">info@chartreplay.co.za</a> · <a href="${safeAppUrl}" style="color:#38bdf8;text-decoration:underline;">chartreplay.co.za</a><br/>
+              <span style="color:#475569;">Don't want to receive these emails?</span> <a href="${safeUnsubscribeUrl}" target="_blank" rel="noopener noreferrer" style="color:#94a3b8;text-decoration:underline;font-weight:600;">Unsubscribe</a>
             </td>
           </tr>
         </table>
@@ -319,7 +345,7 @@ export function buildWelcomeEmail({ name, email, appUrl = DEFAULT_APP_URL }) {
 </body>
 </html>`;
 
-  return { subject, html, text };
+  return { subject, html, text, unsubscribeUrl: targetUnsubscribeUrl };
 }
 
 export function buildPasswordResetEmail({ name, email, resetUrl, expiresMinutes = 30 }) {
@@ -451,6 +477,7 @@ export async function sendWelcomeEmail(
       subject: content.subject,
       html: content.html,
       text: content.text,
+      unsubscribeUrl: content.unsubscribeUrl,
     },
     { env, request }
   );
@@ -485,19 +512,24 @@ export function buildFirstTradeFeedbackEmail({
   name,
   email,
   feedbackUrl,
+  unsubscribeUrl,
   appUrl = DEFAULT_APP_URL,
 }) {
   const rawName = String(name || 'Trader').trim() || 'Trader';
   const cleanName = escapeHtml(rawName);
   const officialUrl = sanitizeOfficialAppUrl(appUrl);
   const safeAppUrl = escapeHtml(officialUrl);
-  const safeEmail = escapeHtml(String(email || '').trim().toLowerCase());
+  const cleanEmailRaw = String(email || '').trim().toLowerCase();
+  const safeEmail = escapeHtml(cleanEmailRaw);
   const targetFeedbackUrl =
     String(feedbackUrl || '').trim() ||
     `${officialUrl}/?feedback=1&email=${encodeURIComponent(
-      String(email || '').trim().toLowerCase()
+      cleanEmailRaw
     )}&name=${encodeURIComponent(rawName)}`;
   const safeFeedbackUrl = escapeHtml(targetFeedbackUrl);
+  const targetUnsubscribeUrl =
+    String(unsubscribeUrl || '').trim() || buildUnsubscribeUrl(cleanEmailRaw, officialUrl);
+  const safeUnsubscribeUrl = escapeHtml(targetUnsubscribeUrl);
   const subject = `Hi ${rawName} — We saw you placed your first trade! How did you find our platform?`;
 
   const text = [
@@ -512,6 +544,7 @@ export function buildFirstTradeFeedbackEmail({
     '',
     'Thank you for practicing with us!',
     'Chart Replay · https://chartreplay.co.za · info@chartreplay.co.za',
+    `Unsubscribe from emails: ${targetUnsubscribeUrl}`,
   ].join('\n');
 
   const html = `<!DOCTYPE html>
@@ -617,7 +650,8 @@ export function buildFirstTradeFeedbackEmail({
           <tr>
             <td style="padding:22px 34px;background-color:#070b14;border-top:1px solid #1e293b;font-size:11px;line-height:1.7;color:#64748b;text-align:center;">
               <strong style="color:#94a3b8;">Chart Replay</strong> · Sent to <span style="color:#94a3b8;">${safeEmail}</span><br/>
-              Need assistance? Reply to this email or contact <a href="mailto:info@chartreplay.co.za" style="color:#34d399;text-decoration:underline;">info@chartreplay.co.za</a> · <a href="${safeAppUrl}" style="color:#38bdf8;text-decoration:underline;">chartreplay.co.za</a>
+              Need assistance? Reply to this email or contact <a href="mailto:info@chartreplay.co.za" style="color:#34d399;text-decoration:underline;">info@chartreplay.co.za</a> · <a href="${safeAppUrl}" style="color:#38bdf8;text-decoration:underline;">chartreplay.co.za</a><br/>
+              <span style="color:#475569;">Don't want to receive these emails?</span> <a href="${safeUnsubscribeUrl}" target="_blank" rel="noopener noreferrer" style="color:#94a3b8;text-decoration:underline;font-weight:600;">Unsubscribe</a>
             </td>
           </tr>
         </table>
@@ -627,7 +661,7 @@ export function buildFirstTradeFeedbackEmail({
 </body>
 </html>`;
 
-  return { subject, html, text, feedbackUrl: targetFeedbackUrl };
+  return { subject, html, text, feedbackUrl: targetFeedbackUrl, unsubscribeUrl: targetUnsubscribeUrl };
 }
 
 export async function sendFirstTradeFeedbackEmail(
@@ -652,6 +686,7 @@ export async function sendFirstTradeFeedbackEmail(
       subject: content.subject,
       html: content.html,
       text: content.text,
+      unsubscribeUrl: content.unsubscribeUrl,
     },
     { env, request }
   );
@@ -856,3 +891,465 @@ export async function sendFeedbackNotificationEmail(
     { env, request }
   );
 }
+
+export const DEFAULT_NEWSLETTER_TEMPLATES = [
+  {
+    id: 'newsletter-day-1',
+    dayNumber: 1,
+    cadence: 'daily',
+    phaseLabel: 'Beginning · Daily Habit (Day 1)',
+    badgeText: 'Day 1 · Daily Trader Motivation',
+    subject: 'Hi {{firstName}} — Welcome to the 1% Club: Process Over Profits Today',
+    headline: 'Hi {{firstName}}, every professional trader started with one disciplined routine.',
+    bodyText:
+      'Most retail traders wake up looking for quick money. Professional traders wake up looking for clean execution of their edge.\n\nOn Chart Replay, your goal today is not to predict every candle — it is to follow {{tradingPlanName}} with 100% discipline. You currently have {{sessionCount}} practice sessions and {{tradeCount}} logged trades on the platform. Every bar you step through builds the pattern recognition that separates calm professionals from emotional gamblers.',
+    actionTip:
+      'Open one replay session today, pin your trading plan on the chart, and take only 1 to 2 A+ setups where every single rule on your checklist is met.',
+    ctaText: 'Start Today’s Replay Session →',
+    status: 'pending_approval',
+    approved: false,
+    approvedBy: null,
+    approvedAt: null,
+    scheduledFor: null,
+    targetAudience: 'all',
+    selectedRecipients: [],
+    sentAt: null,
+    sentCount: 0,
+  },
+  {
+    id: 'newsletter-day-2',
+    dayNumber: 2,
+    cadence: 'daily',
+    phaseLabel: 'Beginning · Daily Habit (Day 2)',
+    badgeText: 'Day 2 · Daily Trader Motivation',
+    subject: '{{firstName}}, your Trading Plan is your business plan — never trade without it',
+    headline: 'Treat your trading like a high-performance business, {{firstName}}.',
+    bodyText:
+      'Amateur traders improvise while price is moving. Professional traders decide what they will do before the session even opens.\n\nWhen you have {{tradingPlanName}} visible right on your chart, hesitation disappears. Either price gives you your exact setup at your key level, or you protect your capital by staying flat. Both are winning decisions.',
+    actionTip:
+      'Before clicking Buy or Sell today, read your sticky trading plan out loud. If the candle does not match your rules, step forward one bar and wait.',
+    ctaText: 'Review My Trading Plan & Practice →',
+    status: 'pending_approval',
+    approved: false,
+    approvedBy: null,
+    approvedAt: null,
+    scheduledFor: null,
+    targetAudience: 'all',
+    selectedRecipients: [],
+    sentAt: null,
+    sentCount: 0,
+  },
+  {
+    id: 'newsletter-day-3',
+    dayNumber: 3,
+    cadence: 'daily',
+    phaseLabel: 'Beginning · Daily Habit (Day 3)',
+    badgeText: 'Day 3 · Daily Trader Motivation',
+    subject: 'Patience is a position, {{firstName}} — waiting for the A+ setup',
+    headline: 'Hi {{firstName}}, sitting on your hands is how institutions make their edge.',
+    bodyText:
+      'One of the hardest transitions in becoming a consistently profitable trader is realizing that 80% of market noise is not meant for you.\n\nYou have been on Chart Replay for {{daysOnPlatform}} and logged {{tradeCount}} trades across {{sessionCount}} sessions. Use the bar-by-bar fast-forward tool to skip choppy consolidation and train your eyes to strike only when liquidity and structure align.',
+    actionTip:
+      'Practice skipping at least 20 candles of sideways chop in your replay session today until a clean London or New York session setup forms.',
+    ctaText: 'Practice Patience on the Chart →',
+    status: 'pending_approval',
+    approved: false,
+    approvedBy: null,
+    approvedAt: null,
+    scheduledFor: null,
+    targetAudience: 'all',
+    selectedRecipients: [],
+    sentAt: null,
+    sentCount: 0,
+  },
+  {
+    id: 'newsletter-day-4',
+    dayNumber: 4,
+    cadence: 'daily',
+    phaseLabel: 'Beginning · Daily Habit (Day 4)',
+    badgeText: 'Day 4 · Daily Trader Motivation',
+    subject: '{{firstName}}, protect your drawdown first — profits take care of themselves',
+    headline: 'Risk management is the oxygen of a professional trader, {{firstName}}.',
+    bodyText:
+      'Any trader can hit a lucky winning streak, but only professionals keep their gains when the market shifts. Whether you are trading a Prop Firm evaluation or building your personal track record, surviving a losing trade with a controlled 0.5% to 1% risk keeps you in control.\n\nWhen your stop-loss is respected without emotion, no single trade can ever shake your confidence.',
+    actionTip:
+      'Use the Order Ticket calculator on Chart Replay to size your position strictly by risk percentage before entering your next trade.',
+    ctaText: 'Practice Strict Risk Sizing →',
+    status: 'pending_approval',
+    approved: false,
+    approvedBy: null,
+    approvedAt: null,
+    scheduledFor: null,
+    targetAudience: 'all',
+    selectedRecipients: [],
+    sentAt: null,
+    sentCount: 0,
+  },
+  {
+    id: 'newsletter-day-5',
+    dayNumber: 5,
+    cadence: 'daily',
+    phaseLabel: 'Beginning · Daily Habit (Day 5)',
+    badgeText: 'Day 5 · Daily Trader Motivation',
+    subject: 'Hi {{firstName}} — Stop trading money, start trading R-Multiples',
+    headline: 'Detach from the currency value and master execution quality, {{firstName}}.',
+    bodyText:
+      'When you stare at dollar or rand fluctuations while a trade is open, fear makes you close winners too early and hope makes you hold losers too long.\n\nProfessional traders measure everything in R-Multiples (Risk Units). A well-executed 1:2.5 R trade on {{tradingPlanName}} is the exact same skill whether you are risking $50 or $5,000.',
+    actionTip:
+      'Set your stop-loss and take-profit before entering, then let the bars play out to either +R or -1R without moving your stop-loss.',
+    ctaText: 'Build R-Multiple Consistency →',
+    status: 'pending_approval',
+    approved: false,
+    approvedBy: null,
+    approvedAt: null,
+    scheduledFor: null,
+    targetAudience: 'all',
+    selectedRecipients: [],
+    sentAt: null,
+    sentCount: 0,
+  },
+  {
+    id: 'newsletter-day-7',
+    dayNumber: 7,
+    cadence: 'every_second_day',
+    phaseLabel: 'Every 2nd Day · Pro Progression (Day 7)',
+    badgeText: 'Day 7 · Every 2nd Day Coaching',
+    subject: '{{firstName}}, how to compress 6 months of market experience into one week',
+    headline: 'Deliberate practice is your unfair advantage, {{firstName}}.',
+    bodyText:
+      'Waiting for live candles takes months to see 50 examples of your setup. On Chart Replay, you can step through 50 setups in a single weekend.\n\nWith {{sessionCount}} sessions and {{tradeCount}} trades under your belt so far, every session you complete sharpens your intuition on Gold (XAU/USD), NAS100, and Forex majors.',
+    actionTip:
+      'Run a focused 15-minute replay session on your favorite pair today and log a short note on why you entered each trade.',
+    ctaText: 'Launch a Backtest Session →',
+    status: 'pending_approval',
+    approved: false,
+    approvedBy: null,
+    approvedAt: null,
+    scheduledFor: null,
+    targetAudience: 'all',
+    selectedRecipients: [],
+    sentAt: null,
+    sentCount: 0,
+  },
+  {
+    id: 'newsletter-day-9',
+    dayNumber: 9,
+    cadence: 'every_second_day',
+    phaseLabel: 'Every 2nd Day · Pro Progression (Day 9)',
+    badgeText: 'Day 9 · Every 2nd Day Coaching',
+    subject: 'Hi {{firstName}} — Eliminating revenge trading before the next candle closes',
+    headline: 'Your response to a red trade defines your career, {{firstName}}.',
+    bodyText:
+      'A loss that followed {{tradingPlanName}} is a good trade — it is simply the cost of doing business in probability. The danger is never the first loss; it is the impulsive revenge trade taken two minutes later to "make it back."\n\nUse Coach Michael and your mindset check-ins on Chart Replay to pause after any loss.',
+    actionTip:
+      'Make a personal rule today: after any losing trade, pause the replay for 30 seconds, take a breath, and verify market structure before looking for another entry.',
+    ctaText: 'Practice Emotional Discipline →',
+    status: 'pending_approval',
+    approved: false,
+    approvedBy: null,
+    approvedAt: null,
+    scheduledFor: null,
+    targetAudience: 'all',
+    selectedRecipients: [],
+    sentAt: null,
+    sentCount: 0,
+  },
+  {
+    id: 'newsletter-day-11',
+    dayNumber: 11,
+    cadence: 'every_second_day',
+    phaseLabel: 'Every 2nd Day · Pro Progression (Day 11)',
+    badgeText: 'Day 11 · Every 2nd Day Coaching',
+    subject: '{{firstName}}, the secret to passing Prop Firm Challenges without stress',
+    headline: 'Consistency beats home runs in every prop evaluation, {{firstName}}.',
+    bodyText:
+      'Traders fail prop firm challenges because they try to pass in two days. Funded professionals pass because they aim for steady base hits while keeping their daily drawdown untouched.\n\nBy practicing inside the Chart Replay Prop Firm Simulator, you train yourself to respect daily loss limits automatically.',
+    actionTip:
+      'Open or continue a Prop Firm Challenge session on Chart Replay and aim for 3 textbook trades with zero drawdown rule violations.',
+    ctaText: 'Open Prop Firm Simulator →',
+    status: 'pending_approval',
+    approved: false,
+    approvedBy: null,
+    approvedAt: null,
+    scheduledFor: null,
+    targetAudience: 'all',
+    selectedRecipients: [],
+    sentAt: null,
+    sentCount: 0,
+  },
+];
+
+export function formatDaysOnPlatformLabel(joinedAt, nowMs = Date.now()) {
+  if (!joinedAt) return '1 day';
+  const parsed = Date.parse(String(joinedAt));
+  if (!Number.isFinite(parsed)) return '1 day';
+  const days = Math.max(1, Math.floor(Math.max(0, nowMs - parsed) / 86400000) + 1);
+  return `${days} ${days === 1 ? 'day' : 'days'}`;
+}
+
+export function personalizeNewsletterText(templateText, recipient = {}, nowMs = Date.now()) {
+  const rawName = String(recipient?.name || 'Trader').trim() || 'Trader';
+  const firstName = rawName.split(/\s+/)[0] || 'Trader';
+  const email = String(recipient?.email || 'trader@chartreplay.co.za').trim().toLowerCase();
+  const sessionCount = Number(recipient?.sessionCount ?? 0);
+  const tradeCount = Number(recipient?.tradeCount ?? 0);
+  const rawPlan =
+    typeof recipient?.tradingPlanName === 'string' && recipient.tradingPlanName.trim()
+      ? `"${recipient.tradingPlanName.trim()}"`
+      : recipient?.hasTradingPlan
+      ? 'your personal Trading Plan'
+      : 'your on-chart Sticky Trading Plan';
+  const daysOnPlatform = formatDaysOnPlatformLabel(recipient?.joinedAt, nowMs);
+
+  return String(templateText ?? '')
+    .replace(/\{\{\s*firstName\s*\}\}/gi, firstName)
+    .replace(/\{\{\s*name\s*\}\}/gi, rawName)
+    .replace(/\{\{\s*email\s*\}\}/gi, email)
+    .replace(/\{\{\s*tradingPlanName\s*\}\}/gi, rawPlan)
+    .replace(/\{\{\s*sessionCount\s*\}\}/gi, String(sessionCount))
+    .replace(/\{\{\s*tradeCount\s*\}\}/gi, String(tradeCount))
+    .replace(/\{\{\s*daysOnPlatform\s*\}\}/gi, daysOnPlatform);
+}
+
+export function buildPersonalizedNewsletterEmail({
+  newsletter = {},
+  recipient = {},
+  unsubscribeUrl,
+  appUrl = DEFAULT_APP_URL,
+  nowMs = Date.now(),
+}) {
+  const officialUrl = sanitizeOfficialAppUrl(appUrl);
+  const safeAppUrl = escapeHtml(officialUrl);
+  const rawName = String(recipient?.name || 'Trader').trim() || 'Trader';
+  const firstName = rawName.split(/\s+/)[0] || 'Trader';
+  const rawEmail = String(recipient?.email || 'trader@chartreplay.co.za').trim().toLowerCase();
+  const safeEmail = escapeHtml(rawEmail);
+  const targetUnsubscribeUrl =
+    String(unsubscribeUrl || '').trim() || buildUnsubscribeUrl(rawEmail, officialUrl);
+  const safeUnsubscribeUrl = escapeHtml(targetUnsubscribeUrl);
+  const sessionCount = Number(recipient?.sessionCount ?? 0);
+  const tradeCount = Number(recipient?.tradeCount ?? 0);
+  const planDisplay =
+    typeof recipient?.tradingPlanName === 'string' && recipient.tradingPlanName.trim()
+      ? recipient.tradingPlanName.trim()
+      : recipient?.hasTradingPlan
+      ? 'Active Trading Plan'
+      : 'Pin your plan on chart';
+  const daysLabel = formatDaysOnPlatformLabel(recipient?.joinedAt, nowMs);
+
+  const badgeText = personalizeNewsletterText(
+    newsletter.badgeText || 'Daily Trader Motivation · Chart Replay',
+    recipient,
+    nowMs
+  );
+  const subject = personalizeNewsletterText(
+    newsletter.subject || `Hi ${firstName} — Stay Disciplined & Build Your Trading Edge`,
+    recipient,
+    nowMs
+  );
+  const headline = personalizeNewsletterText(
+    newsletter.headline || `Hi ${firstName}, keep building your professional edge.`,
+    recipient,
+    nowMs
+  );
+  const bodyText = personalizeNewsletterText(
+    newsletter.bodyText ||
+      'Every disciplined session on Chart Replay brings you closer to professional consistency.',
+    recipient,
+    nowMs
+  );
+  const actionTip = personalizeNewsletterText(
+    newsletter.actionTip ||
+      'Open Chart Replay today, review your sticky trading plan, and execute 1–2 high-probability setups.',
+    recipient,
+    nowMs
+  );
+  const ctaText = personalizeNewsletterText(
+    newsletter.ctaText || 'Open Your Trading Workspace →',
+    recipient,
+    nowMs
+  );
+
+  const paragraphsHtml = bodyText
+    .split(/\r?\n\r?\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map(
+      (p) =>
+        `<p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#cbd5e1;">${escapeHtml(
+          p
+        ).replace(/\r?\n/g, '<br/>')}</p>`
+    )
+    .join('');
+
+  const text = [
+    subject,
+    '',
+    headline,
+    '',
+    bodyText,
+    '',
+    `--- Your Chart Replay Progress (${rawName}) ---`,
+    `• Trading Plan: ${planDisplay}`,
+    `• Practice Sessions: ${sessionCount}`,
+    `• Trades Logged: ${tradeCount}`,
+    `• Time on Platform: ${daysLabel}`,
+    '',
+    `Today's Pro-Trader Focus:`,
+    actionTip,
+    '',
+    `${ctaText}: ${officialUrl}`,
+    '',
+    `Chart Replay · https://chartreplay.co.za · Sent to ${rawEmail}`,
+    `Unsubscribe from emails: ${targetUnsubscribeUrl}`,
+  ].join('\n');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#050811;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e2e8f0;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#050811;padding:34px 14px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#0b111e;border:1px solid #1e293b;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,0.65);">
+          <!-- Top Brand Banner -->
+          <tr>
+            <td style="padding:0;background-color:#080d18;border-bottom:1px solid #1e293b;">
+              <a href="${safeAppUrl}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;">
+                <img src="${WELCOME_BANNER_URL}" alt="Chart Replay — Professional Trader Development" width="600" style="width:100%;max-width:600px;height:auto;display:block;border:0;" />
+              </a>
+            </td>
+          </tr>
+
+          <!-- Badge & Personalized Headline -->
+          <tr>
+            <td style="padding:30px 34px 16px 34px;background:linear-gradient(180deg,#0f1829 0%,#0b111e 100%);">
+              <div style="display:inline-block;padding:5px 14px;border-radius:999px;background-color:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.35);color:#34d399;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">
+                ${escapeHtml(badgeText)}
+              </div>
+              <h1 style="margin:16px 0 12px 0;font-size:24px;line-height:1.3;font-weight:800;color:#ffffff;letter-spacing:-0.02em;">
+                ${escapeHtml(headline)}
+              </h1>
+              ${paragraphsHtml}
+            </td>
+          </tr>
+
+          <!-- Personalized Trader Snapshot Card -->
+          <tr>
+            <td style="padding:0 34px 22px 34px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#080d17;border:1px solid #1e293b;border-radius:16px;overflow:hidden;">
+                <tr>
+                  <td colspan="4" style="padding:12px 18px;border-bottom:1px solid #162032;font-size:11px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#38bdf8;">
+                    Personal Trader Snapshot · ${escapeHtml(rawName)}
+                  </td>
+                </tr>
+                <tr>
+                  <td width="25%" style="padding:14px 12px;border-right:1px solid #162032;text-align:center;">
+                    <div style="font-size:10px;color:#64748b;text-transform:uppercase;">Sessions</div>
+                    <div style="margin-top:4px;font-size:16px;font-weight:800;color:#34d399;">${sessionCount}</div>
+                  </td>
+                  <td width="25%" style="padding:14px 12px;border-right:1px solid #162032;text-align:center;">
+                    <div style="font-size:10px;color:#64748b;text-transform:uppercase;">Trades</div>
+                    <div style="margin-top:4px;font-size:16px;font-weight:800;color:#38bdf8;">${tradeCount}</div>
+                  </td>
+                  <td width="25%" style="padding:14px 12px;border-right:1px solid #162032;text-align:center;">
+                    <div style="font-size:10px;color:#64748b;text-transform:uppercase;">Journey</div>
+                    <div style="margin-top:4px;font-size:13px;font-weight:700;color:#a78bfa;">${escapeHtml(daysLabel)}</div>
+                  </td>
+                  <td width="25%" style="padding:14px 12px;text-align:center;">
+                    <div style="font-size:10px;color:#64748b;text-transform:uppercase;">Trading Plan</div>
+                    <div style="margin-top:4px;font-size:11px;font-weight:700;color:#fbbf24;">${escapeHtml(planDisplay)}</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Pro-Trader Daily Action Focus -->
+          <tr>
+            <td style="padding:0 34px 24px 34px;">
+              <div style="padding:18px 20px;background:linear-gradient(135deg,rgba(16,185,129,0.10) 0%,rgba(56,189,248,0.08) 100%);border:1px solid rgba(16,185,129,0.32);border-radius:16px;">
+                <div style="font-size:11px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#34d399;margin-bottom:6px;">
+                  ✓ Today’s Professional Habit Focus
+                </div>
+                <div style="font-size:14px;line-height:1.65;color:#f1f5f9;">
+                  ${escapeHtml(actionTip)}
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Primary CTA Button -->
+          <tr>
+            <td style="padding:0 34px 30px 34px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="border-radius:14px;background:linear-gradient(90deg,#10b981 0%,#0ea5e9 55%,#2563eb 100%);box-shadow:0 10px 25px rgba(16,185,129,0.28);">
+                    <a href="${safeAppUrl}" target="_blank" rel="noopener noreferrer" style="display:block;padding:16px 28px;font-size:15px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:0.01em;border-radius:14px;">
+                      ${escapeHtml(ctaText)}
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:22px 34px;background-color:#070b14;border-top:1px solid #1e293b;font-size:11px;line-height:1.7;color:#64748b;text-align:center;">
+              <strong style="color:#94a3b8;">Chart Replay Trader Newsletter</strong> · Personalized for <span style="color:#cbd5e1;">${escapeHtml(rawName)} (${safeEmail})</span><br/>
+              Built for deliberate trader development · Questions? Reply or email <a href="mailto:info@voomay.co.za" style="color:#34d399;text-decoration:underline;">info@voomay.co.za</a> · <a href="${safeAppUrl}" style="color:#38bdf8;text-decoration:underline;">chartreplay.co.za</a><br/>
+              <span style="color:#475569;">Don't want to receive these emails?</span> <a href="${safeUnsubscribeUrl}" target="_blank" rel="noopener noreferrer" style="color:#94a3b8;text-decoration:underline;font-weight:600;">Unsubscribe</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return {
+    subject,
+    headline,
+    badgeText,
+    bodyText,
+    actionTip,
+    ctaText,
+    html,
+    text,
+    unsubscribeUrl: targetUnsubscribeUrl,
+  };
+}
+
+export async function sendPersonalizedNewsletterEmail(
+  { newsletter, recipient, origin, nowMs = Date.now() },
+  { env = process.env, request = fetch } = {}
+) {
+  const appUrl = resolvePublicAppUrl(origin, env);
+  const content = buildPersonalizedNewsletterEmail({
+    newsletter,
+    recipient,
+    appUrl,
+    nowMs,
+  });
+  const result = await sendResendEmail(
+    {
+      to: recipient.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      unsubscribeUrl: content.unsubscribeUrl,
+    },
+    { env, request }
+  );
+  return {
+    ...result,
+    subject: content.subject,
+  };
+}
+

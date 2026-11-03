@@ -1373,15 +1373,25 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               </div>
               </details>
               {/* Session Trading Account Balance Banner */}
-              <div className={`pt-3 border-t border-gray-500/15 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs`}>
-                <div className={`p-3 rounded-xl border ${subCardBg}`}>
-                  <div className="text-[10px] font-bold uppercase opacity-60">
-                    Trading Account Balance
+              <div className="pt-4 border-t border-gray-500/15 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                <div
+                  className={`relative overflow-hidden p-4 rounded-2xl border transition-all ${
+                    isLight
+                      ? 'bg-gradient-to-br from-white via-slate-50/90 to-blue-50/40 border-slate-200/90 shadow-sm'
+                      : 'bg-gradient-to-br from-[#111726]/95 via-[#0f1420]/95 to-blue-950/20 border-blue-500/20 shadow-[0_12px_30px_-16px_rgba(37,99,235,0.35)]'
+                  }`}
+                >
+                  <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-blue-500 via-cyan-400 to-transparent opacity-80" />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider opacity-60">
+                      Trading Account Balance
+                    </span>
+                    <span className="w-2 h-2 rounded-full bg-blue-400/80 shadow-[0_0_8px_rgba(96,165,250,0.8)]" />
                   </div>
-                  <div className="text-sm sm:text-base font-mono font-bold text-blue-400 mt-0.5 tabular-nums whitespace-nowrap">
+                  <div className="text-base sm:text-lg font-mono font-extrabold text-blue-400 mt-1.5 tabular-nums whitespace-nowrap">
                     {formatMoney(report.startingBalance, report.accountCurrency)}
                   </div>
-                  <div className="text-[10px] opacity-60 truncate">
+                  <div className="text-[11px] opacity-65 truncate mt-1">
                     {filters.sessionId === 'ALL'
                       ? `All filtered sessions (${report.accountCurrency})`
                       : `${selectedAnalyticsSession.name} (${
@@ -1391,38 +1401,95 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                         })`}
                   </div>
                 </div>
-                <div className={`p-3 rounded-xl border ${subCardBg}`}>
-                  <div className="text-[10px] font-bold uppercase opacity-60">
-                    Current Account Balance
+
+                <div
+                  className={`relative overflow-hidden p-4 rounded-2xl border transition-all ${
+                    isLight
+                      ? 'bg-gradient-to-br from-white via-slate-50/90 to-indigo-50/35 border-slate-200/90 shadow-sm'
+                      : 'bg-gradient-to-br from-[#111726]/95 via-[#0f1420]/95 to-indigo-950/20 border-white/10 shadow-[0_12px_30px_-16px_rgba(15,23,42,0.6)]'
+                  }`}
+                >
+                  <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-cyan-400 via-indigo-400 to-transparent opacity-75" />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider opacity-60">
+                      Current Account Balance
+                    </span>
+                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-white/5 border border-white/10 opacity-75">
+                      Closed
+                    </span>
                   </div>
-                  <div className="text-sm sm:text-base font-mono font-bold mt-0.5 tabular-nums whitespace-nowrap">
+                  <div className="text-base sm:text-lg font-mono font-extrabold mt-1.5 tabular-nums whitespace-nowrap">
                     {formatMoney(report.currentBalance, report.accountCurrency)}
                   </div>
-                  <div className="text-[10px] font-mono opacity-60 truncate">
+                  <div className="text-[11px] font-mono opacity-65 truncate mt-1">
                     Start {formatMoney(report.startingBalance, report.accountCurrency)}{' '}
-                    {report.netPnl >= 0 ? '+' : '-'}{' '}
-                    {formatMoney(Math.abs(report.netPnl), report.accountCurrency)}
+                    <span className={report.netPnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
+                      {report.netPnl >= 0 ? '+' : '-'}{' '}
+                      {formatMoney(Math.abs(report.netPnl), report.accountCurrency)}
+                    </span>
                   </div>
                 </div>
-                <div className={`p-3 rounded-xl border ${subCardBg}`}>
-                  <div className="text-[10px] font-bold uppercase opacity-60">
-                    Current Account Equity
+
+                <div
+                  className={`relative overflow-hidden p-4 rounded-2xl border transition-all ${
+                    isLight
+                      ? 'bg-gradient-to-br from-white via-slate-50/90 to-cyan-50/35 border-slate-200/90 shadow-sm'
+                      : 'bg-gradient-to-br from-[#111726]/95 via-[#0f1420]/95 to-cyan-950/20 border-white/10 shadow-[0_12px_30px_-16px_rgba(15,23,42,0.6)]'
+                  }`}
+                >
+                  <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-teal-400 via-cyan-400 to-transparent opacity-75" />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider opacity-60">
+                      Current Account Equity
+                    </span>
+                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                      Live
+                    </span>
                   </div>
-                  <div className="text-sm sm:text-base font-mono font-bold mt-0.5 tabular-nums whitespace-nowrap">
+                  <div className="text-base sm:text-lg font-mono font-extrabold mt-1.5 tabular-nums whitespace-nowrap">
                     {formatMoney(report.currentEquity, report.accountCurrency)}
                   </div>
-                  <div className="text-[10px] font-mono opacity-60 truncate">
+                  <div className="text-[11px] font-mono opacity-65 truncate mt-1">
                     {report.filteredOpenTrades.length > 0
                       ? `${report.filteredOpenTrades.length} open position(s)`
                       : 'No open floating trades'}
                   </div>
                 </div>
-                <div className={`p-3 rounded-xl border ${subCardBg}`}>
-                  <div className="text-[10px] font-bold uppercase opacity-60">
-                    Account Return
+
+                <div
+                  className={`relative overflow-hidden p-4 rounded-2xl border transition-all ${
+                    report.netPnl >= 0
+                      ? isLight
+                        ? 'bg-gradient-to-br from-white via-emerald-50/40 to-teal-50/40 border-emerald-300/70 shadow-sm'
+                        : 'bg-gradient-to-br from-[#101c1a]/95 via-[#0f151e]/95 to-emerald-950/30 border-emerald-500/25 shadow-[0_12px_30px_-16px_rgba(16,185,129,0.3)]'
+                      : isLight
+                      ? 'bg-gradient-to-br from-white via-rose-50/40 to-orange-50/30 border-rose-300/70 shadow-sm'
+                      : 'bg-gradient-to-br from-[#1d1218]/95 via-[#0f151e]/95 to-rose-950/30 border-rose-500/25 shadow-[0_12px_30px_-16px_rgba(244,63,94,0.3)]'
+                  }`}
+                >
+                  <div
+                    className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${
+                      report.netPnl >= 0
+                        ? 'from-emerald-400 via-teal-400 to-transparent'
+                        : 'from-rose-500 via-orange-400 to-transparent'
+                    }`}
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider opacity-60">
+                      Account Return
+                    </span>
+                    <span
+                      className={`text-[10px] font-mono font-extrabold px-1.5 py-0.5 rounded-md border ${
+                        report.netPnl >= 0
+                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                          : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                      }`}
+                    >
+                      {report.netPnl >= 0 ? 'PROFIT' : 'DRAWDOWN'}
+                    </span>
                   </div>
                   <div
-                    className={`text-sm sm:text-base font-mono font-bold mt-0.5 tabular-nums whitespace-nowrap ${
+                    className={`text-base sm:text-lg font-mono font-extrabold mt-1.5 tabular-nums whitespace-nowrap ${
                       report.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
                     }`}
                   >
@@ -1430,7 +1497,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                       ? `${report.returnPct >= 0 ? '+' : ''}${report.returnPct.toFixed(2)}%`
                       : '0.00%'}
                   </div>
-                  <div className="text-[10px] font-mono opacity-60 truncate">
+                  <div className="text-[11px] font-mono opacity-70 truncate mt-1">
                     Net P&amp;L: {formatMoney(report.netPnl, report.accountCurrency, true)}
                   </div>
                 </div>
@@ -1438,21 +1505,30 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             </div>
 
             {report.propChallengeSummary && (
-              <div className={`p-4 sm:p-5 rounded-2xl border space-y-4 ${cardBg}`}>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-amber-400">
+              <div
+                className={`relative overflow-hidden p-5 sm:p-6 rounded-3xl border space-y-5 ${
+                  isLight
+                    ? 'bg-gradient-to-br from-white via-slate-50/95 to-emerald-50/30 border-slate-200/90 shadow-lg'
+                    : 'bg-gradient-to-br from-[#0e1420]/95 via-[#0b101a]/98 to-[#0d1922]/90 border-white/10 shadow-[0_20px_50px_-24px_rgba(0,0,0,0.85)]'
+                }`}
+              >
+                <div className="pointer-events-none absolute -top-24 -right-24 w-72 h-72 rounded-full bg-emerald-500/10 blur-3xl" />
+                <div className="pointer-events-none absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-cyan-500/10 blur-3xl" />
+
+                <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-3 border-b border-gray-500/15">
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[10px] font-mono font-extrabold uppercase tracking-widest bg-amber-500/15 text-amber-400 border border-amber-500/30">
                       <Trophy className="w-3.5 h-3.5" />
                       <span>2-Step Prop Firm Evaluation Progression</span>
                     </div>
-                    <h3 className="text-sm sm:text-base font-extrabold mt-0.5">
+                    <h3 className="text-base sm:text-lg font-extrabold tracking-tight pt-0.5">
                       Challenge 1 (Phase 1) &amp; Challenge 2 (Phase 2) Breakdown
                     </h3>
-                    <p className="text-[11px] opacity-65">
-                      Inspect each evaluation step individually or view your combined challenge performance across all charts and trade records below.
+                    <p className="text-xs opacity-65 max-w-2xl">
+                      Inspect each evaluation phase individually or view your combined challenge performance across all analytics charts and trade records below.
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="inline-flex flex-wrap items-center gap-1.5 p-1 rounded-2xl border border-gray-500/20 bg-black/20">
                     {(
                       [
                         { id: 'ALL', label: 'All Phases (Combined)' },
@@ -1479,10 +1555,10 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                               challengePhaseFilter: tab.id,
                             }))
                           }
-                          className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border transition ${
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all ${
                             isSelected
-                              ? 'bg-emerald-600 text-white border-emerald-600 shadow'
-                              : `${subCardBg} opacity-75 hover:opacity-100`
+                              ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.35)]'
+                              : 'opacity-75 hover:opacity-100 hover:bg-white/5'
                           }`}
                         >
                           {tab.label}
@@ -1492,7 +1568,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="relative grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
                   {[
                     report.propChallengeSummary.phase1,
                     report.propChallengeSummary.phase2,
@@ -1515,34 +1591,60 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                             )
                           )
                         : 0;
+                    const isPhasePassed =
+                      phase.status === 'PASSED' || progressPct >= 100;
+                    const effectiveStatus =
+                      phase.status === 'FAILED'
+                        ? 'FAILED'
+                        : isPhasePassed
+                        ? 'PASSED'
+                        : phase.status;
                     const badgeCls =
-                      phase.status === 'PASSED'
-                        ? 'bg-emerald-500 text-white keep-white'
-                        : phase.status === 'FAILED'
-                        ? 'bg-rose-500 text-white keep-white'
-                        : phase.status === 'ACTIVE'
-                        ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                      effectiveStatus === 'PASSED'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+                        : effectiveStatus === 'FAILED'
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-400/40 shadow-[0_0_15px_rgba(244,63,94,0.25)]'
+                        : effectiveStatus === 'ACTIVE'
+                        ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-400/35'
                         : 'bg-gray-500/15 text-gray-400 border border-gray-500/25';
                     return (
                       <div
                         key={phase.phaseId}
-                        className={`p-4 rounded-xl border space-y-3 transition ${
+                        className={`relative overflow-hidden p-5 rounded-2xl border space-y-4 transition-all ${
                           isFocused
-                            ? 'border-emerald-500 ring-1 ring-emerald-500/40'
-                            : phase.status === 'PASSED'
+                            ? 'border-emerald-400/80 ring-1 ring-emerald-400/30'
+                            : effectiveStatus === 'PASSED'
                             ? 'border-emerald-500/40'
-                            : phase.status === 'FAILED'
+                            : effectiveStatus === 'FAILED'
                             ? 'border-rose-500/40'
-                            : ''
-                        } ${subCardBg}`}
+                            : isLight
+                            ? 'border-slate-200/90'
+                            : 'border-white/10'
+                        } ${
+                          isLight
+                            ? 'bg-white/90 shadow-sm'
+                            : 'bg-[#121826]/90 shadow-inner'
+                        }`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
+                        <div
+                          className={`absolute inset-x-0 top-0 h-1 ${
+                            effectiveStatus === 'PASSED'
+                              ? 'bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400'
+                              : effectiveStatus === 'FAILED'
+                              ? 'bg-gradient-to-r from-rose-500 via-orange-400 to-rose-400'
+                              : effectiveStatus === 'ACTIVE'
+                              ? 'bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500'
+                              : 'bg-gray-500/25'
+                          }`}
+                        />
+
+                        <div className="flex items-start justify-between gap-3 pt-0.5">
+                          <div className="space-y-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs sm:text-sm font-extrabold">
+                              <span className="text-sm sm:text-base font-extrabold tracking-tight">
                                 {phase.label}
                               </span>
-                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                              <span className="text-[10px] font-mono font-extrabold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
                                 {phase.targetPct}% Target (
                                 {formatMoney(
                                   phase.targetAmount,
@@ -1551,27 +1653,31 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                                 )
                               </span>
                             </div>
-                            <div className="text-[10px] opacity-65 font-mono mt-0.5">
+                            <div className="text-[11px] opacity-65 font-mono">
                               Max Daily Loss: {phase.maxDailyDrawdownPct}% · Max
                               Overall Loss: {phase.maxOverallDrawdownPct}%
                             </div>
                           </div>
                           <span
-                            className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded uppercase ${badgeCls}`}
+                            className={`text-[10px] font-mono font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider shrink-0 ${badgeCls}`}
                           >
-                            {phase.status === 'PENDING'
-                              ? 'UNLOCKS AFTER PHASE 1'
-                              : phase.status}
+                            {effectiveStatus === 'PENDING'
+                              ? 'Unlocks After Phase 1'
+                              : effectiveStatus === 'PASSED'
+                              ? '✓ PASSED'
+                              : effectiveStatus === 'FAILED'
+                              ? '✕ FAILED'
+                              : '● ACTIVE'}
                           </span>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+                        <div className="grid grid-cols-3 gap-2.5 p-3 rounded-xl border border-gray-500/15 bg-black/20 text-xs font-mono">
                           <div>
-                            <div className="text-[9px] uppercase opacity-60">
+                            <div className="text-[9px] uppercase tracking-wider opacity-60">
                               Net P&amp;L / Return
                             </div>
                             <div
-                              className={`font-extrabold ${
+                              className={`font-extrabold mt-0.5 ${
                                 phase.netPnl >= 0
                                   ? 'text-emerald-400'
                                   : 'text-rose-400'
@@ -1582,26 +1688,28 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                                 report.accountCurrency,
                                 true
                               )}{' '}
-                              ({phase.returnPct >= 0 ? '+' : ''}
-                              {phase.returnPct.toFixed(2)}%)
+                              <span className="opacity-85">
+                                ({phase.returnPct >= 0 ? '+' : ''}
+                                {phase.returnPct.toFixed(2)}%)
+                              </span>
                             </div>
                           </div>
-                          <div>
-                            <div className="text-[9px] uppercase opacity-60">
+                          <div className="border-l border-gray-500/15 pl-2.5">
+                            <div className="text-[9px] uppercase tracking-wider opacity-60">
                               Balance
                             </div>
-                            <div className="font-bold">
+                            <div className="font-extrabold mt-0.5">
                               {formatMoney(
                                 phase.finalBalance,
                                 report.accountCurrency
                               )}
                             </div>
                           </div>
-                          <div>
-                            <div className="text-[9px] uppercase opacity-60">
+                          <div className="border-l border-gray-500/15 pl-2.5">
+                            <div className="text-[9px] uppercase tracking-wider opacity-60">
                               Trades &amp; Win Rate
                             </div>
-                            <div className="font-bold">
+                            <div className="font-extrabold mt-0.5">
                               {phase.tradesCount}T ·{' '}
                               {phase.winRatePct !== null
                                 ? `${phase.winRatePct}% WR`
@@ -1610,24 +1718,33 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                           </div>
                         </div>
 
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between text-[10px] font-mono">
-                            <span className="opacity-70">
-                              Target Progress ({progressPct}%)
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-[11px] font-mono">
+                            <span className="font-bold opacity-85">
+                              Target Progress:{' '}
+                              <span
+                                className={
+                                  effectiveStatus === 'PASSED'
+                                    ? 'text-emerald-400'
+                                    : 'text-cyan-400'
+                                }
+                              >
+                                {progressPct}%
+                              </span>
                             </span>
                             <span className="opacity-70">
                               Trading Days: {phase.tradingDaysCompleted}/
                               {phase.minTradingDaysRequired}
                             </span>
                           </div>
-                          <div className="h-2 rounded-full bg-gray-500/20 overflow-hidden">
+                          <div className="h-2.5 rounded-full bg-gray-500/20 overflow-hidden p-0.5">
                             <div
-                              className={`h-full rounded-full transition-all ${
-                                phase.status === 'PASSED'
-                                  ? 'bg-emerald-500'
-                                  : phase.status === 'FAILED'
-                                  ? 'bg-rose-500'
-                                  : 'bg-blue-500'
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                effectiveStatus === 'PASSED'
+                                  ? 'bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-300 shadow-[0_0_12px_rgba(16,185,129,0.6)]'
+                                  : effectiveStatus === 'FAILED'
+                                  ? 'bg-gradient-to-r from-rose-600 to-orange-400'
+                                  : 'bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400'
                               }`}
                               style={{ width: `${progressPct}%` }}
                             />
@@ -1645,18 +1762,37 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                                   : phase.phaseId,
                               }))
                             }
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition ${
+                            className={`px-3.5 py-1.5 rounded-xl text-[11px] font-extrabold border transition-all ${
                               isFocused
-                                ? 'bg-emerald-600 text-white border-emerald-600'
-                                : 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10'
+                                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow'
+                                : 'border-emerald-500/35 text-emerald-400 hover:bg-emerald-500/10'
                             }`}
                           >
                             {isFocused
-                              ? `Showing ${phase.label} Only (Click for All)`
+                              ? `Showing ${phase.label} Only (Show All)`
                               : `Filter by ${phase.label}`}
                           </button>
 
-                          {phase.status === 'FAILED' &&
+                          {phase.phaseId === 'PHASE_1' &&
+                            effectiveStatus === 'PASSED' &&
+                            report.propChallengeSummary?.currentPhase === 'PHASE_1' &&
+                            onStartNewChallengeAttempt && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onStartNewChallengeAttempt(
+                                    selectedAnalyticsSession.id,
+                                    'PHASE_2'
+                                  )
+                                }
+                                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:brightness-110 text-slate-950 text-[11px] font-extrabold inline-flex items-center gap-1.5 shadow-lg transition"
+                              >
+                                <Trophy className="w-3.5 h-3.5" />
+                                <span>Move to Phase 2 →</span>
+                              </button>
+                            )}
+
+                          {effectiveStatus === 'FAILED' &&
                             onStartNewChallengeAttempt && (
                               <button
                                 type="button"
@@ -1666,9 +1802,9 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                                     phase.phaseId
                                   )
                                 }
-                                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-extrabold inline-flex items-center gap-1 transition"
+                                className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-extrabold inline-flex items-center gap-1.5 shadow transition"
                               >
-                                <RotateCcw className="w-3 h-3" />
+                                <RotateCcw className="w-3.5 h-3.5" />
                                 <span>
                                   Redo{' '}
                                   {phase.phaseId === 'PHASE_2'

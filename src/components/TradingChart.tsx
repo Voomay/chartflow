@@ -2,6 +2,7 @@ import {MomentumStudy} from './MomentumStudy';
 import {computeMomentumPullback,MOMENTUM_DEFAULTS,MomentumOptions} from '../services/momentumPullback';
 import {computeEngulfingVolumeMomentum,EngulfingFilter} from '../services/engulfingVolumeMomentum';
 import {computeHistoricalOrderFlow,OrderFlowSignalFilter} from '../services/orderFlowIndicator';
+import {computeCRTOverlay} from '../services/crtOverlayIndicator';
 import {interpolateRevealedCandle,revealedHistorySamplesMatch} from '../services/replayPresentation';
 import {
   clipExtendedLine,
@@ -478,6 +479,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const [engulfingFilter, setEngulfingFilter] = useState<EngulfingFilter>('ALL');
   const [localOrderFlow, setLocalOrderFlow] = useState<boolean>(false);
   const [orderFlowFilter, setOrderFlowFilter] = useState<OrderFlowSignalFilter>('ALL');
+  const [localCRTOverlay, setLocalCRTOverlay] = useState<boolean>(false);
   const [localBOLL, setLocalBOLL] = useState(false);
   const [localVOL, setLocalVOL] = useState(false);
   const [localMACD, setLocalMACD] = useState(false);
@@ -542,6 +544,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     indicators && indicators.showOrderFlow !== undefined
       ? indicators.showOrderFlow
       : localOrderFlow;
+  const showCRTOverlay =
+    indicators && indicators.showCRTOverlay !== undefined
+      ? indicators.showCRTOverlay
+      : localCRTOverlay;
 
   const handleHideOrRemoveIndicator = useCallback(
     (indId: string) => {
@@ -596,6 +602,9 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         case 'showOrderFlow':
           setLocalOrderFlow(false);
           break;
+        case 'showCRTOverlay':
+          setLocalCRTOverlay(false);
+          break;
       }
     },
     [handleUpdateIndicatorConfigs, indicators, onToggleIndicator]
@@ -616,6 +625,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const closeOrderFlow = () => {
     if (onToggleIndicator && showOrderFlow) onToggleIndicator('showOrderFlow');
     else setLocalOrderFlow(false);
+  };
+  const closeCRTOverlay = () => {
+    if (onToggleIndicator && showCRTOverlay) onToggleIndicator('showCRTOverlay');
+    else setLocalCRTOverlay(false);
   };
 
   const momentum = useMemo(() => showMomentum ? computeMomentumPullback(candles, TIMEFRAME_CONFIG[timeframe]?.seconds || 900, momentumOptions) : null, [showMomentum, candles, timeframe, momentumOptions]);
@@ -643,6 +656,31 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       effectiveIndicatorConfigs.orderFlow?.lookbackBars,
       effectiveIndicatorConfigs.orderFlow?.profileBuckets,
       effectiveIndicatorConfigs.orderFlow?.minAbsorptionRvol,
+    ]
+  );
+  const crtStudy = useMemo(
+    () =>
+      showCRTOverlay
+        ? computeCRTOverlay(candles, {
+            timezone: effectiveIndicatorConfigs.crtOverlay?.timezone ?? 'America/New_York',
+            candleStart: effectiveIndicatorConfigs.crtOverlay?.candleStart ?? 5,
+            purgeDurationMinutes: effectiveIndicatorConfigs.crtOverlay?.purgeDurationMinutes ?? 90,
+            fvgLength: effectiveIndicatorConfigs.crtOverlay?.fvgLength ?? 40,
+            fvgFinder: effectiveIndicatorConfigs.crtOverlay?.fvgFinder ?? 300,
+            removeOldFvg: effectiveIndicatorConfigs.crtOverlay?.removeOldFvg ?? true,
+            showFvg50: effectiveIndicatorConfigs.crtOverlay?.showFvg50 ?? true,
+          })
+        : null,
+    [
+      showCRTOverlay,
+      candles,
+      effectiveIndicatorConfigs.crtOverlay?.timezone,
+      effectiveIndicatorConfigs.crtOverlay?.candleStart,
+      effectiveIndicatorConfigs.crtOverlay?.purgeDurationMinutes,
+      effectiveIndicatorConfigs.crtOverlay?.fvgLength,
+      effectiveIndicatorConfigs.crtOverlay?.fvgFinder,
+      effectiveIndicatorConfigs.crtOverlay?.removeOldFvg,
+      effectiveIndicatorConfigs.crtOverlay?.showFvg50,
     ]
   );
   // Forecaster: uses only revealed candles (the replay-sliced candles prop), deterministic per input
@@ -924,6 +962,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     momentum,
     engulfingStudy,
     orderFlowStudy,
+    crtStudy,
     forecast,
     onAddDrawing,
     onUpdateDrawing,
@@ -979,6 +1018,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     momentum,
     engulfingStudy,
     orderFlowStudy,
+    crtStudy,
     forecast,
     onAddDrawing,
     onUpdateDrawing,
@@ -1320,6 +1360,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       momentum: currMomentum,
       engulfingStudy: currEngulfing,
       orderFlowStudy: currOrderFlow,
+      crtStudy: currCRT,
       forecast: currForecast,
     } = stateRef.current;
 
@@ -1927,6 +1968,222 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             lastOfBadgeRightX = tx + tw + 6;
           }
           ctx.restore();
+        }
+      }
+    }
+
+    // 0a-3. CRT overlay Pro+ (4H Candle Range Theory, Purge Box, High/Low/50% Mid Lines, CSD Sweep Lines, FVGs)
+    if (currCRT && currCandles.length > 2) {
+      const crtCfg = currIndicatorConfigs.crtOverlay || {
+        timezone: 'America/New_York',
+        purgeColor: '#3b82f6',
+        candleStart: 5,
+        purgeDurationMinutes: 90,
+        highLineColor: '#ffffff',
+        lowLineColor: '#ffffff',
+        midLineColor: '#22c55e',
+        csdHighSweepColor: '#ef4444',
+        csdLowSweepColor: '#22c55e',
+        fvgLength: 40,
+        fvgFinder: 300,
+        bullFvgColor: '#3b82f6',
+        bearFvgColor: '#b48a5a',
+        removeOldFvg: true,
+        showFvg50: true,
+      };
+
+      const highLineCol =
+        currTheme === 'light' && crtCfg.highLineColor.toLowerCase() === '#ffffff'
+          ? '#0f172a'
+          : crtCfg.highLineColor;
+      const lowLineCol =
+        currTheme === 'light' && crtCfg.lowLineColor.toLowerCase() === '#ffffff'
+          ? '#0f172a'
+          : crtCfg.lowLineColor;
+      const midLineCol = crtCfg.midLineColor || '#22c55e';
+      const purgeCol = crtCfg.purgeColor || '#3b82f6';
+
+      // 1) CRT Fair Value Gaps (FVG Finder + FVG Length + 50% Midline)
+      for (const fvg of currCRT.fairValueGaps) {
+        const xStart = resolveTimeToX(fvg.startTime, currCandles, chart);
+        const xEnd = resolveTimeToX(fvg.endTime, currCandles, chart);
+        const yTop = priceToY(fvg.top, chart);
+        const yBottom = priceToY(fvg.bottom, chart);
+        if (yTop === null || yBottom === null || xStart === null) continue;
+        const x1 = Math.max(0, xStart);
+        const x2 = Math.min(chartPlotWidth - 4, Math.max(x1 + 18, xEnd ?? chartPlotWidth - 20));
+        if (x2 < 0 || x1 > chartPlotWidth) continue;
+
+        const topY = Math.min(yTop, yBottom);
+        const boxH = Math.max(3, Math.abs(yBottom - yTop));
+        const midY = topY + boxH / 2;
+        const fvgHex = fvg.direction === 'BULL' ? crtCfg.bullFvgColor : crtCfg.bearFvgColor;
+
+        ctx.save();
+        ctx.fillStyle = hexToRgba(fvgHex, currTheme === 'light' ? 0.22 : 0.18);
+        ctx.fillRect(x1, topY, x2 - x1, boxH);
+
+        ctx.strokeStyle = hexToRgba(fvgHex, 0.55);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x1, topY, x2 - x1, boxH);
+
+        if (crtCfg.showFvg50) {
+          ctx.strokeStyle = hexToRgba(fvgHex, 0.85);
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x1, midY);
+          ctx.lineTo(x2, midY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        ctx.restore();
+      }
+
+      // 2) CRT 4H Reference Ranges + Purge Window + High/Low/Mid Lines + CSD Sweep Lines
+      for (const rng of currCRT.ranges) {
+        const xC1Start = resolveTimeToX(rng.c1StartTime, currCandles, chart);
+        const xC1End = resolveTimeToX(rng.c1EndTime, currCandles, chart);
+        const xPurgeEnd = resolveTimeToX(rng.purgeEndTime, currCandles, chart);
+        const xLineEnd = resolveTimeToX(rng.lineEndTime, currCandles, chart);
+        const yHigh = priceToY(rng.high, chart);
+        const yLow = priceToY(rng.low, chart);
+        const yMid = priceToY(rng.mid, chart);
+        if (yHigh === null || yLow === null || yMid === null) continue;
+
+        const topY = Math.min(yHigh, yLow);
+        const bottomY = Math.max(yHigh, yLow);
+        const boxH = Math.max(4, bottomY - topY);
+
+        // C1 Reference Range subtle box
+        if (xC1Start !== null && xC1End !== null && xC1End > 0 && xC1Start < chartPlotWidth) {
+          const cx1 = Math.max(0, xC1Start);
+          const cx2 = Math.min(chartPlotWidth, Math.max(cx1 + 4, xC1End));
+          ctx.save();
+          ctx.fillStyle =
+            currTheme === 'light' ? 'rgba(15, 23, 42, 0.04)' : 'rgba(255, 255, 255, 0.035)';
+          ctx.fillRect(cx1, topY, cx2 - cx1, boxH);
+          ctx.strokeStyle =
+            currTheme === 'light' ? 'rgba(15, 23, 42, 0.22)' : 'rgba(255, 255, 255, 0.18)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 2]);
+          ctx.strokeRect(cx1, topY, cx2 - cx1, boxH);
+          ctx.setLineDash([]);
+          ctx.restore();
+        }
+
+        // CRT Purge Window Box (Manipulation / Turtle Soup window after C1 closes)
+        if (xC1End !== null && xPurgeEnd !== null && xPurgeEnd > 0 && xC1End < chartPlotWidth) {
+          const px1 = Math.max(0, xC1End);
+          const px2 = Math.min(chartPlotWidth, Math.max(px1 + 6, xPurgeEnd));
+          ctx.save();
+          ctx.fillStyle = hexToRgba(purgeCol, currTheme === 'light' ? 0.16 : 0.15);
+          ctx.fillRect(px1, topY, px2 - px1, boxH);
+          ctx.strokeStyle = hexToRgba(purgeCol, 0.65);
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px1, topY, px2 - px1, boxH);
+
+          if (px2 - px1 >= 34 && topY > 14) {
+            ctx.font = 'bold 8.5px JetBrains Mono, monospace';
+            ctx.fillStyle = purgeCol;
+            ctx.textAlign = 'left';
+            ctx.fillText(
+              `${rng.label} · PURGE (${crtCfg.purgeDurationMinutes}m)`,
+              px1 + 4,
+              topY - 4
+            );
+          }
+          ctx.restore();
+        }
+
+        // High, Low, and Mid (50% Equilibrium) Lines extending from C1 Start to Line End
+        const lx1 = Math.max(0, xC1Start ?? xC1End ?? 0);
+        const lx2 = Math.min(
+          chartPlotWidth - 4,
+          Math.max(lx1 + 24, xLineEnd ?? xPurgeEnd ?? lx1 + 60)
+        );
+        if (lx2 > 0 && lx1 < chartPlotWidth) {
+          ctx.save();
+          // High Line
+          ctx.strokeStyle = highLineCol;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(lx1, yHigh);
+          ctx.lineTo(lx2, yHigh);
+          ctx.stroke();
+
+          // Low Line
+          ctx.strokeStyle = lowLineCol;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(lx1, yLow);
+          ctx.lineTo(lx2, yLow);
+          ctx.stroke();
+
+          // Mid (50% Equilibrium) Line
+          ctx.strokeStyle = midLineCol;
+          ctx.lineWidth = 1.25;
+          ctx.setLineDash([5, 4]);
+          ctx.beginPath();
+          ctx.moveTo(lx1, yMid);
+          ctx.lineTo(lx2, yMid);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          if (lx2 - lx1 >= 48) {
+            ctx.font = 'bold 8px JetBrains Mono, monospace';
+            ctx.textAlign = 'right';
+            ctx.fillStyle = highLineCol;
+            ctx.fillText(`CRT H ${rng.high.toFixed(decimals)}`, lx2 - 3, yHigh - 3);
+            ctx.fillStyle = lowLineCol;
+            ctx.fillText(`CRT L ${rng.low.toFixed(decimals)}`, lx2 - 3, yLow + 10);
+            ctx.fillStyle = midLineCol;
+            ctx.fillText('50%', lx2 - 3, yMid - 3);
+          }
+          ctx.restore();
+        }
+
+        // CSD Line (Change in State of Delivery on High Sweep or Low Sweep)
+        if (rng.csdBreak) {
+          const csd = rng.csdBreak;
+          const xSweep = resolveTimeToX(csd.sweepTime, currCandles, chart);
+          const xBreak = resolveTimeToX(csd.breakTime, currCandles, chart);
+          const yCsd = priceToY(csd.csdLevel, chart);
+          const ySweep = priceToY(csd.sweepPrice, chart);
+          if (xSweep !== null && xBreak !== null && yCsd !== null) {
+            const isHighSweep = csd.direction === 'HIGH_SWEEP';
+            const csdCol = isHighSweep ? crtCfg.csdHighSweepColor : crtCfg.csdLowSweepColor;
+            const cx1 = Math.max(0, xSweep);
+            const cx2 = Math.min(chartPlotWidth - 4, Math.max(cx1 + 14, xBreak));
+
+            ctx.save();
+            ctx.strokeStyle = csdCol;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(cx1, yCsd);
+            ctx.lineTo(cx2, yCsd);
+            ctx.stroke();
+
+            // Sweep marker at extreme wick
+            if (ySweep !== null) {
+              ctx.fillStyle = csdCol;
+              ctx.beginPath();
+              ctx.arc(cx1, ySweep, 3.2, 0, Math.PI * 2);
+              ctx.fill();
+            }
+
+            // CSD Label badge
+            const csdTag = isHighSweep ? 'CSD ▼ (High Sweep)' : 'CSD ▲ (Low Sweep)';
+            ctx.font = 'bold 8.5px JetBrains Mono, monospace';
+            ctx.fillStyle = csdCol;
+            ctx.textAlign = 'left';
+            ctx.fillText(
+              csdTag,
+              cx1 + 4,
+              isHighSweep ? yCsd + 10 : yCsd - 4
+            );
+            ctx.restore();
+          }
         }
       }
     }
@@ -4239,7 +4496,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         const previous=patternDraftRef.current?.tool===type?patternDraftRef.current.points:[];
         const points=[...previous,{time:clickedTime,price:clickedPrice}];
         const drawing:ChartDrawing={id:'draft',type,time1:points[0].time,price1:points[0].price,time2:clickedTime,price2:clickedPrice,points,label:'',color:currState.drawingColor,lineWidth:currState.drawingLineWidth,lineStyle:currState.drawingLineStyle};
-        if(points.length===4){const completed={...drawing,id:`${type}-${Date.now()}`};currState.onAddDrawing(completed);setSelectedId(completed.id);patternDraftRef.current=null;setDraftDrawing(null);if(!currState.stayInDrawingMode)currState.onSelectTool('cursor');}
+        const targetPointCount=PATTERN_LABELS[type]?.length??4;
+        if(points.length>=targetPointCount){const completed={...drawing,id:`${type}-${Date.now()}`};currState.onAddDrawing(completed);setSelectedId(completed.id);patternDraftRef.current=null;setDraftDrawing(null);if(!currState.stayInDrawingMode)currState.onSelectTool('cursor');}
         else{patternDraftRef.current={tool:type,points};setDraftDrawing(drawing);}
         drawOverlay();return;
       }
@@ -5445,6 +5703,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     momentum,
     engulfingStudy,
     orderFlowStudy,
+    crtStudy,
     forecast,
     drawOverlay,
   ]);
@@ -5915,6 +6174,134 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 onClick={closeOrderFlow}
                 className="p-0.5 rounded hover:bg-slate-500/20 opacity-65 hover:opacity-100"
                 title="Hide Historical Order Flow indicator (re-enable anytime in Indicators menu)"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
+          {/* Row 2c: CRT overlay Pro+ HUD Pill */}
+          {crtStudy && (
+            <div
+              role="region"
+              aria-label="CRT overlay Pro+ Indicator"
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              className={`inline-flex flex-wrap items-center gap-1.5 px-2.5 py-1 rounded-lg border backdrop-blur-md shadow-sm pointer-events-auto w-fit text-[10px] ${
+                isLight
+                  ? 'bg-white/95 border-blue-300 text-slate-800'
+                  : 'bg-[#131722]/92 border-blue-500/35 text-slate-200'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setEffectiveActiveIndicatorSettingsId('showCRTOverlay')}
+                title="Configure CRT overlay Pro+ (Timezone, 1AM/5AM/9AM Start, Purge Duration, Line Colors, CSD & FVG)"
+                className="font-extrabold tracking-tight flex items-center gap-1 hover:text-blue-400 transition"
+              >
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{
+                    backgroundColor:
+                      effectiveIndicatorConfigs.crtOverlay?.purgeColor || '#3b82f6',
+                  }}
+                />
+                <span>CRT overlay Pro+</span>
+                <Settings2 className="w-2.5 h-2.5 opacity-70" />
+              </button>
+
+              {/* Quick 1 AM / 5 AM / 9 AM / ALL Switcher */}
+              <div className="flex items-center gap-0.5 border-l border-slate-500/25 pl-1.5">
+                {([1, 5, 9, 'ALL'] as const).map((hr) => {
+                  const active =
+                    (effectiveIndicatorConfigs.crtOverlay?.candleStart ?? 5) === hr;
+                  return (
+                    <button
+                      key={String(hr)}
+                      type="button"
+                      onClick={() =>
+                        handleUpdateIndicatorConfigs((prev) => ({
+                          ...prev,
+                          crtOverlay: {
+                            ...(prev.crtOverlay || {
+                              timezone: 'America/New_York',
+                              purgeColor: '#3b82f6',
+                              candleStart: 5,
+                              purgeDurationMinutes: 90,
+                              highLineColor: '#ffffff',
+                              lowLineColor: '#ffffff',
+                              midLineColor: '#22c55e',
+                              csdHighSweepColor: '#ef4444',
+                              csdLowSweepColor: '#22c55e',
+                              fvgLength: 40,
+                              fvgFinder: 300,
+                              bullFvgColor: '#3b82f6',
+                              bearFvgColor: '#b48a5a',
+                              removeOldFvg: true,
+                              showFvg50: true,
+                            }),
+                            candleStart: hr,
+                          },
+                        }))
+                      }
+                      className={`px-1.5 py-0.5 rounded font-mono font-bold transition ${
+                        active
+                          ? 'bg-blue-600 text-white'
+                          : 'opacity-65 hover:opacity-100'
+                      }`}
+                      title={
+                        hr === 'ALL'
+                          ? 'Show 1 AM, 5 AM, and 9 AM 4H CRT ranges'
+                          : `Show ${hr} AM 4H CRT range`
+                      }
+                    >
+                      {hr === 'ALL' ? 'All' : `${hr}AM`}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {crtStudy.summary.activeRange && (
+                <span className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-mono font-bold">
+                  H {crtStudy.summary.activeRange.high.toFixed(instConfig.decimals)} · 50%{' '}
+                  {crtStudy.summary.activeRange.mid.toFixed(instConfig.decimals)} · L{' '}
+                  {crtStudy.summary.activeRange.low.toFixed(instConfig.decimals)}
+                </span>
+              )}
+
+              {crtStudy.summary.latestCsd && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const csd = crtStudy.summary.latestCsd;
+                    if (csd && chartRef.current) {
+                      chartRef.current.scrollToTimestamp(csd.breakTime * 1000, 220);
+                      drawOverlay();
+                    }
+                  }}
+                  title="Jump to latest confirmed CSD (Change in State of Delivery) sweep break"
+                  className={`px-1.5 py-0.5 rounded border font-mono font-bold transition ${
+                    crtStudy.summary.latestCsd.direction === 'LOW_SWEEP'
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                      : 'border-rose-500/40 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'
+                  }`}
+                >
+                  {crtStudy.summary.latestCsd.direction === 'LOW_SWEEP'
+                    ? 'CSD ▲ Low Sweep'
+                    : 'CSD ▼ High Sweep'}
+                </button>
+              )}
+
+              <span className="px-1.5 py-0.5 rounded bg-slate-500/15 font-mono font-bold opacity-80">
+                FVG: {crtStudy.summary.activeBullFvgs}▲ / {crtStudy.summary.activeBearFvgs}▼
+              </span>
+
+              <button
+                type="button"
+                aria-label="Hide CRT overlay Pro+ indicator"
+                onClick={closeCRTOverlay}
+                className="p-0.5 rounded hover:bg-slate-500/20 opacity-65 hover:opacity-100"
+                title="Hide CRT overlay Pro+ indicator"
               >
                 <X className="w-3 h-3" />
               </button>

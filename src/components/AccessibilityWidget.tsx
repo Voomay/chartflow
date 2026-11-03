@@ -312,10 +312,10 @@ export function AccessibilityWidget() {
       {/* 1) On the Charts or Home Page (underneath Bot Floaty or "Ask us" Button): Portal the Chair Icon */}
       {activeSlot ? createPortal(triggerControl, activeSlot) : null}
 
-      {/* 2) On the Dashboard / Standalone Views: Render on the left side, elevated above the desktop login/account footer */}
+      {/* 2) On the Dashboard / Standalone Views: Render in the bottom-right corner so it never overlaps the left sidebar navigation (Partner with Us / Contact Us) */}
       <div id="a11y-widget-root">
         {!activeSlot && triggerControl && (
-          <div className="fixed left-3 sm:left-5 bottom-24 sm:bottom-28 z-[130]">
+          <div className="fixed right-4 sm:right-6 bottom-5 sm:bottom-6 z-[130]">
             {triggerControl}
           </div>
         )}
@@ -344,7 +344,7 @@ export function AccessibilityWidget() {
                 ? 'sm:inset-x-auto sm:bottom-16'
                 : isOnFaq
                 ? 'sm:inset-x-auto sm:right-36 sm:bottom-6'
-                : 'sm:left-5 sm:right-auto sm:bottom-44'
+                : 'sm:inset-x-auto sm:right-6 sm:bottom-20'
             }`}
           >
             {/* Header */}

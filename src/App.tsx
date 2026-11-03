@@ -16,6 +16,7 @@ import {createLivePaperSession} from './services/livePaperTrading';
 import React, { Suspense, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   BacktestSessionMode,
+  BreachEventRecord,
   CandleColorStyle,
   ChartDrawing,
   ChartIndicatorConfigs,
@@ -24,6 +25,7 @@ import {
   DrawingTool,
   InstrumentSymbol,
   LineStyleType,
+  PassedEventRecord,
   SessionConfig,
   SessionId,
   StrategyRecord,
@@ -45,6 +47,7 @@ import {
 } from './services/goldDataService';
 import {
   evaluateSessionAt1mTimestamp,
+  evaluateChallengeRulesAtStep,
   advanceOrRewindSessionToTimestamp,
   closeOrCancelPosition,
   computeLiveSessionMetrics,
@@ -1034,6 +1037,8 @@ export function App() {
     title: string;
     explanation: string;
     advancedToPhase2?: boolean;
+    passedEvent?: PassedEventRecord;
+    breachEvent?: BreachEventRecord;
   } | null>(null);
   const [confettiBurstKey, setConfettiBurstKey] = useState<number>(0);
   const triggerConfetti = useCallback(() => {
@@ -1052,6 +1057,93 @@ export function App() {
     },
     []
   );
+
+  // Reconcile active Prop Firm Challenge sessions that already met their profit target or drawdown breach on closed balance
+  useEffect(() => {
+    if (
+      activeSession.mode !== 'PROP_FIRM' ||
+      activeSession.status === 'FAILED' ||
+      activeSession.status === 'PASSED' ||
+      activeSession.challengeState?.status === 'FAILED' ||
+      activeSession.challengeState?.status === 'PASSED'
+    ) {
+      return;
+    }
+    const ts =
+      activeSession.replayTimestamp ||
+      activeSession.startTimestamp ||
+      Math.floor(Date.now() / 1000);
+    const evalRes = evaluateChallengeRulesAtStep(activeSession, ts);
+    if (!evalRes.breachedNow && !evalRes.passedNow) return;
+    setTradingSessions((prev) =>
+      prev.map((s) => (s.id === activeSession.id ? evalRes.updatedSession : s))
+    );
+    if (evalRes.breachedNow) {
+      setIsPlaying(false);
+      const breachedPhase =
+        evalRes.updatedSession.frozenConfig?.propFirmRules?.challengePhase ||
+        evalRes.updatedSession.propFirmRules?.challengePhase ||
+        'PHASE_1';
+      setChallengeAlertModal({
+        status: 'FAILED',
+        title: breachedPhase === 'PHASE_2' ? 'Phase 2 Failed' : 'Phase 1 Failed',
+        explanation: evalRes.breachedNow.explanation,
+        breachEvent: evalRes.breachedNow,
+      });
+    } else if (evalRes.passedNow) {
+      setIsPlaying(false);
+      setChallengeAlertModal({
+        status: 'PASSED',
+        title: evalRes.passedNow.advancedToPhase2
+          ? 'Phase 1 Passed'
+          : 'Challenge Passed',
+        explanation: evalRes.passedNow.explanation,
+        advancedToPhase2: evalRes.passedNow.advancedToPhase2,
+        passedEvent: evalRes.passedNow,
+      });
+    }
+  }, [
+    activeSession.id,
+    activeSession.mode,
+    activeSession.status,
+    activeSession.challengeState?.status,
+    activeSession.realizedPnL,
+    activeSession.positions?.length,
+  ]);
+
+  // Handle ?unsubscribe=1&email=... links from user emails
+  const [unsubscribeModal, setUnsubscribeModal] = useState<{
+    email: string;
+    status: 'processing' | 'unsubscribed' | 'resubscribed' | 'error';
+  } | null>(null);
+
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const isUnsub =
+        sp.get('unsubscribe') === '1' ||
+        window.location.pathname.replace(/\/+$/, '') === '/unsubscribe';
+      const rawEmail = (sp.get('email') || '').trim().toLowerCase();
+      if (!isUnsub || !rawEmail) return;
+      setUnsubscribeModal({ email: rawEmail, status: 'processing' });
+      const url = new URL(window.location.href);
+      url.searchParams.delete('unsubscribe');
+      url.searchParams.delete('email');
+      if (url.pathname.replace(/\/+$/, '') === '/unsubscribe') {
+        url.pathname = '/';
+      }
+      window.history.replaceState({}, '', url.toString());
+      void platformRequest('unsubscribe', { email: rawEmail })
+        .then(() => {
+          setUnsubscribeModal({ email: rawEmail, status: 'unsubscribed' });
+        })
+        .catch(() => {
+          setUnsubscribeModal({ email: rawEmail, status: 'unsubscribed' });
+        });
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -1142,6 +1234,7 @@ export function App() {
     showForecast: false,
     showEngulfing: false,
     showOrderFlow: false,
+    showCRTOverlay: false,
   }));
   const resetChartIndicatorsOff = useCallback(() => {
     setChartIndicators({
@@ -1158,6 +1251,7 @@ export function App() {
       showForecast: false,
       showEngulfing: false,
       showOrderFlow: false,
+      showCRTOverlay: false,
     });
     setIndicatorConfigs((prev) => {
       if (!prev.customMAs?.some((ma) => ma.enabled)) return prev;
@@ -1501,21 +1595,20 @@ export function App() {
           'PHASE_1';
         setChallengeAlertModal({
           status: 'FAILED',
-          title:
-            breachedPhase === 'PHASE_2'
-              ? 'Phase 2 (Challenge 2) Failed — Would You Like to Redo?'
-              : 'Phase 1 (Challenge 1) Failed — Would You Like to Redo?',
+          title: breachedPhase === 'PHASE_2' ? 'Phase 2 Failed' : 'Phase 1 Failed',
           explanation: outcome.breachedNow.explanation,
+          breachEvent: outcome.breachedNow,
         });
       } else if (outcome.passedNow) {
         setIsPlaying(false);
         setChallengeAlertModal({
           status: 'PASSED',
           title: outcome.passedNow.advancedToPhase2
-            ? 'Phase 1 Passed! Ready to Start Phase 2'
-            : 'Congratulations! Prop Firm Challenge Passed!',
+            ? 'Phase 1 Passed'
+            : 'Challenge Passed',
           explanation: outcome.passedNow.explanation,
           advancedToPhase2: outcome.passedNow.advancedToPhase2,
+          passedEvent: outcome.passedNow,
         });
       }
 
@@ -1748,12 +1841,16 @@ export function App() {
           return;
         }
         let simSession = activeSession;
+        let lastBreach = null as ReturnType<typeof advanceOrRewindSessionToTimestamp>['breachedNow'];
+        let lastPassed = null as ReturnType<typeof advanceOrRewindSessionToTimestamp>['passedNow'];
         const maxEnd = simSession.endTimestamp || currTs + 86400 * 5;
         for (let i = 0; i < 1440; i++) {
           const nextTs = (simSession.replayTimestamp || currTs) + 60;
           if (nextTs > maxEnd) break;
           const stepRes = advanceOrRewindSessionToTimestamp(simSession, nextTs);
           simSession = stepRes.session;
+          if (stepRes.breachedNow) lastBreach = stepRes.breachedNow;
+          if (stepRes.passedNow) lastPassed = stepRes.passedNow;
           if (
             stepRes.closedTrades.length > 0 ||
             stepRes.breachedNow ||
@@ -1765,6 +1862,30 @@ export function App() {
         setTradingSessions((prevList) =>
           prevList.map((s) => (s.id === activeSession.id ? simSession : s))
         );
+        if (lastBreach) {
+          setIsPlaying(false);
+          const breachedPhase =
+            simSession.frozenConfig?.propFirmRules?.challengePhase ||
+            simSession.propFirmRules?.challengePhase ||
+            'PHASE_1';
+          setChallengeAlertModal({
+            status: 'FAILED',
+            title: breachedPhase === 'PHASE_2' ? 'Phase 2 Failed' : 'Phase 1 Failed',
+            explanation: lastBreach.explanation,
+            breachEvent: lastBreach,
+          });
+        } else if (lastPassed) {
+          setIsPlaying(false);
+          setChallengeAlertModal({
+            status: 'PASSED',
+            title: lastPassed.advancedToPhase2
+              ? 'Phase 1 Passed'
+              : 'Challenge Passed',
+            explanation: lastPassed.explanation,
+            advancedToPhase2: lastPassed.advancedToPhase2,
+            passedEvent: lastPassed,
+          });
+        }
         return;
       }
 
@@ -1881,21 +2002,20 @@ export function App() {
           'PHASE_1';
         setChallengeAlertModal({
           status: 'FAILED',
-          title:
-            breachedPhase === 'PHASE_2'
-              ? 'Phase 2 (Challenge 2) Failed — Would You Like to Redo?'
-              : 'Phase 1 (Challenge 1) Failed — Would You Like to Redo?',
+          title: breachedPhase === 'PHASE_2' ? 'Phase 2 Failed' : 'Phase 1 Failed',
           explanation: res.breachedNow.explanation,
+          breachEvent: res.breachedNow,
         });
       } else if (res.passedNow) {
         setIsPlaying(false);
         setChallengeAlertModal({
           status: 'PASSED',
           title: res.passedNow.advancedToPhase2
-            ? 'Phase 1 Passed! Ready to Start Phase 2'
-            : 'Congratulations! Prop Firm Challenge Passed!',
+            ? 'Phase 1 Passed'
+            : 'Challenge Passed',
           explanation: res.passedNow.explanation,
           advancedToPhase2: res.passedNow.advancedToPhase2,
+          passedEvent: res.passedNow,
         });
       }
       return { ok: true };
@@ -1965,21 +2085,20 @@ export function App() {
           'PHASE_1';
         setChallengeAlertModal({
           status: 'FAILED',
-          title:
-            breachedPhase === 'PHASE_2'
-              ? 'Phase 2 (Challenge 2) Failed — Would You Like to Redo?'
-              : 'Phase 1 (Challenge 1) Failed — Would You Like to Redo?',
+          title: breachedPhase === 'PHASE_2' ? 'Phase 2 Failed' : 'Phase 1 Failed',
           explanation: res.breachedNow.explanation,
+          breachEvent: res.breachedNow,
         });
       } else if (res.passedNow) {
         setIsPlaying(false);
         setChallengeAlertModal({
           status: 'PASSED',
           title: res.passedNow.advancedToPhase2
-            ? 'Phase 1 Passed! Ready to Start Phase 2'
-            : 'Congratulations! Prop Firm Challenge Passed!',
+            ? 'Phase 1 Passed'
+            : 'Challenge Passed',
           explanation: res.passedNow.explanation,
           advancedToPhase2: res.passedNow.advancedToPhase2,
+          passedEvent: res.passedNow,
         });
       }
     },
@@ -2379,25 +2498,334 @@ export function App() {
     triggerOnceExperiencePopup,
   ]);
 
+  const unsubscribeOverlay = unsubscribeModal ? (
+    <div className="dark-modal fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-md rounded-2xl border p-6 space-y-4 bg-[#14171c] border-[#262a34] text-white shadow-2xl">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-extrabold">
+            {unsubscribeModal.status === 'resubscribed'
+              ? 'Email Subscription Restored'
+              : 'Unsubscribed from Emails'}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setUnsubscribeModal(null)}
+            className="p-1 rounded hover:bg-gray-500/20"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <p className="text-xs leading-relaxed opacity-90">
+          {unsubscribeModal.status === 'processing'
+            ? `Updating email preferences for ${unsubscribeModal.email}…`
+            : unsubscribeModal.status === 'resubscribed'
+            ? `${unsubscribeModal.email} has been re-subscribed to Chart Replay updates.`
+            : `${unsubscribeModal.email} has been unsubscribed from Chart Replay marketing and update emails.`}
+        </p>
+        <div className="flex items-center justify-end gap-2 pt-2">
+          {unsubscribeModal.status === 'unsubscribed' && (
+            <button
+              type="button"
+              onClick={() => {
+                void platformRequest('resubscribe', {
+                  email: unsubscribeModal.email,
+                }).finally(() => {
+                  setUnsubscribeModal({
+                    email: unsubscribeModal.email,
+                    status: 'resubscribed',
+                  });
+                });
+              }}
+              className="px-3.5 py-2 rounded-xl bg-[#22262f] hover:bg-[#2c313d] border border-[#323744] text-white text-xs font-extrabold"
+            >
+              Resubscribe
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setUnsubscribeModal(null)}
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const challengeResultOverlay = (
+    <>
+      <ConfettiCelebration burstKey={confettiBurstKey} />
+      {challengeAlertModal && (
+        <div
+          className="dark-modal fixed inset-0 z-50 flex items-center justify-center bg-[#040810]/80 backdrop-blur-md p-4 animate-in fade-in duration-200"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-md rounded-3xl border border-white/[0.08] bg-gradient-to-b from-[#0d1626] to-[#09101b] text-slate-200 shadow-2xl overflow-hidden">
+            <div
+              className={`h-1 w-full bg-gradient-to-r ${
+                challengeAlertModal.status === 'FAILED'
+                  ? 'from-rose-500 via-red-400 to-amber-400'
+                  : 'from-emerald-400 via-teal-400 to-cyan-400'
+              }`}
+            />
+
+            <div className="p-6 space-y-4">
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
+                      challengeAlertModal.status === 'FAILED'
+                        ? 'border-rose-500/30 bg-rose-500/15 text-rose-400'
+                        : 'border-emerald-400/30 bg-emerald-400/15 text-emerald-300'
+                    }`}
+                  >
+                    {challengeAlertModal.status === 'FAILED' ? (
+                      <XCircle className="w-5 h-5" />
+                    ) : (
+                      <Trophy className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-extrabold tracking-tight text-white">
+                        {challengeAlertModal.title}
+                      </h3>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                          challengeAlertModal.status === 'FAILED'
+                            ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                            : 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
+                        }`}
+                      >
+                        {challengeAlertModal.status === 'FAILED'
+                          ? 'Rule Breach'
+                          : 'Saved'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {challengeAlertModal.advancedToPhase2
+                        ? 'Challenge 1 recorded in Analytics. Ready for Phase 2.'
+                        : challengeAlertModal.status === 'PASSED'
+                        ? 'All evaluation objectives met and saved to Analytics.'
+                        : 'Drawdown limit reached. Your history is saved.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setChallengeAlertModal(null)}
+                  className="rounded-xl border border-white/10 bg-white/[0.03] p-1.5 text-slate-400 hover:bg-white/[0.08] hover:text-white transition shrink-0"
+                  title="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Clean Metrics or Concise Summary */}
+              {challengeAlertModal.status === 'PASSED' &&
+              challengeAlertModal.passedEvent ? (
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Closed Balance
+                      </div>
+                      <div className="mt-1 text-sm font-mono font-extrabold text-white tabular-nums">
+                        {formatMoney(
+                          challengeAlertModal.passedEvent.finalBalance,
+                          activeSession.frozenConfig?.accountCurrency ||
+                            activeSession.accountCurrency ||
+                            'USD'
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.04] p-3">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/80">
+                        Net Profit
+                      </div>
+                      <div className="mt-1 text-sm font-mono font-extrabold text-emerald-400 tabular-nums">
+                        {formatMoney(
+                          challengeAlertModal.passedEvent.netPnl,
+                          activeSession.frozenConfig?.accountCurrency ||
+                            activeSession.accountCurrency ||
+                            'USD',
+                          true
+                        )}{' '}
+                        <span className="text-xs font-bold opacity-85">
+                          (+{challengeAlertModal.passedEvent.returnPct}%)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {challengeAlertModal.advancedToPhase2 && (
+                    <div className="flex items-center justify-between rounded-2xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-2.5 text-xs">
+                      <span className="font-semibold text-slate-300">
+                        Next: Phase 2 Verification
+                      </span>
+                      <span className="font-mono font-bold text-cyan-300">
+                        {challengeAlertModal.passedEvent.nextPhaseTargetPct ?? 5}% Target ·{' '}
+                        {formatMoney(
+                          activeSession.frozenConfig?.startingBalance ??
+                            activeSession.startingBalance,
+                          activeSession.frozenConfig?.accountCurrency ||
+                            activeSession.accountCurrency ||
+                            'USD'
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : challengeAlertModal.status === 'FAILED' &&
+                challengeAlertModal.breachEvent ? (
+                <div className="rounded-2xl border border-rose-500/20 bg-rose-500/[0.05] p-3.5 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-rose-300">
+                      {challengeAlertModal.breachEvent.ruleLabel}
+                    </span>
+                    <span className="font-mono font-bold text-rose-400">
+                      {formatMoney(
+                        challengeAlertModal.breachEvent.measuredValue,
+                        activeSession.frozenConfig?.accountCurrency ||
+                          activeSession.accountCurrency ||
+                          'USD'
+                      )}
+                    </span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-slate-300">
+                    {challengeAlertModal.explanation}
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3.5 text-xs leading-relaxed text-slate-300">
+                  {challengeAlertModal.explanation}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (challengeAlertModal.status === 'PASSED') {
+                      triggerConfetti();
+                    }
+                    setChallengeAlertModal(null);
+                    setHubInitialSection('analytics');
+                    setActiveView('analytics_page');
+                  }}
+                  className="flex-1 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] px-3.5 py-2.5 text-xs font-bold text-slate-200 hover:text-white transition flex items-center justify-center gap-1.5"
+                >
+                  <BarChart3 className="w-4 h-4 text-slate-400" />
+                  <span>View Analytics</span>
+                </button>
+
+                {challengeAlertModal.advancedToPhase2 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerConfetti();
+                      setChallengeAlertModal(null);
+                      showToast('Phase 2 is now active.', 'up');
+                    }}
+                    className="flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-lg transition hover:brightness-110 flex items-center justify-center gap-1.5"
+                  >
+                    <Trophy className="w-4 h-4" />
+                    <span>Start Phase 2</span>
+                  </button>
+                ) : challengeAlertModal.status === 'PASSED' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerConfetti();
+                      setChallengeAlertModal(null);
+                      showToast('Challenge passed and saved to Analytics.', 'up');
+                    }}
+                    className="flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-lg transition hover:brightness-110 flex items-center justify-center gap-1.5"
+                  >
+                    <Trophy className="w-4 h-4" />
+                    <span>Continue</span>
+                  </button>
+                ) : (activeSession.frozenConfig?.propFirmRules?.challengePhase ||
+                    activeSession.propFirmRules?.challengePhase) === 'PHASE_2' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleStartNewChallengeAttempt(undefined, 'PHASE_1')
+                      }
+                      className="rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] px-3 py-2.5 text-xs font-bold text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Phase 1</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleStartNewChallengeAttempt(undefined, 'PHASE_2')
+                      }
+                      className="flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-lg transition hover:brightness-110 flex items-center justify-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Redo Phase 2</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleStartNewChallengeAttempt(undefined, 'PHASE_1')
+                      }
+                      className="flex-1 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-lg transition hover:brightness-110 flex items-center justify-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Redo Phase 1</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleStartNewChallengeAttempt(undefined, 'PHASE_2')
+                      }
+                      className="rounded-xl border border-amber-400/30 bg-amber-400/10 hover:bg-amber-400/20 px-3 py-2.5 text-xs font-bold text-amber-300 transition flex items-center justify-center gap-1.5"
+                    >
+                      <span>Phase 2</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   const experiencePopupOverlay = (
-    <ExperienceReviewPopup
-      isOpen={experiencePopupState.isOpen}
-      triggerReason={experiencePopupState.reason}
-      userName={experiencePopupState.userSnapshot?.name || currentUser?.name || ''}
-      userEmail={experiencePopupState.userSnapshot?.email || currentUser?.email || ''}
-      userId={experiencePopupState.userSnapshot?.id || currentUser?.id || null}
-      onDismissAndContinue={() =>
-        setExperiencePopupState((prev) => ({ ...prev, isOpen: false }))
-      }
-      onOpenPartners={() => {
-        setExperiencePopupState((prev) => ({ ...prev, isOpen: false }));
-        openPartnerPage();
-      }}
-      onOpenContactUs={() => {
-        setExperiencePopupState((prev) => ({ ...prev, isOpen: false }));
-        openContactPage('general_inquiry');
-      }}
-    />
+    <>
+      {unsubscribeOverlay}
+      <ExperienceReviewPopup
+        isOpen={experiencePopupState.isOpen}
+        triggerReason={experiencePopupState.reason}
+        userName={experiencePopupState.userSnapshot?.name || currentUser?.name || ''}
+        userEmail={experiencePopupState.userSnapshot?.email || currentUser?.email || ''}
+        userId={experiencePopupState.userSnapshot?.id || currentUser?.id || null}
+        onDismissAndContinue={() =>
+          setExperiencePopupState((prev) => ({ ...prev, isOpen: false }))
+        }
+        onOpenPartners={() => {
+          setExperiencePopupState((prev) => ({ ...prev, isOpen: false }));
+          openPartnerPage();
+        }}
+        onOpenContactUs={() => {
+          setExperiencePopupState((prev) => ({ ...prev, isOpen: false }));
+          openContactPage('general_inquiry');
+        }}
+      />
+    </>
   );
 
   useEffect(() => {
@@ -2752,6 +3180,7 @@ export function App() {
         }
       >
         {experiencePopupOverlay}
+        {challengeResultOverlay}
         {adminImpersonationBanner}
         <AnalyticsDashboardPage
           activeSession={activeSession}
@@ -3058,7 +3487,6 @@ export function App() {
             activeTool={activeTool}
             onSelectTool={(t) => {
               setActiveTool(t);
-              if (isMobile) setShowMobileTools(false);
             }}
             drawingColor={drawingColor}
             onSelectDrawingColor={setDrawingColor}
@@ -3642,159 +4070,9 @@ export function App() {
         onStepChange={handleTourStepChange}
       />
 
-      {/* Celebratory Confetti Overlay */}
-      <ConfettiCelebration burstKey={confettiBurstKey} />
-
-      {/* Challenge Breach / Pass Alert Modal */}
-      {challengeAlertModal && (
-        <div className="dark-modal fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl border p-6 space-y-4 bg-[#14171c] border-[#262a34] text-white shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                {challengeAlertModal.status === 'FAILED' ? (
-                  <XCircle className="w-6 h-6 text-rose-500" />
-                ) : (
-                  <Trophy className="w-6 h-6 text-amber-400" />
-                )}
-                <h3 className="text-base font-extrabold">
-                  {challengeAlertModal.title}
-                </h3>
-              </div>
-              <button
-                onClick={() => setChallengeAlertModal(null)}
-                className="p-1 rounded hover:bg-gray-500/20"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs leading-relaxed opacity-90 bg-black/30 p-3.5 rounded-xl border border-gray-500/20 font-mono">
-              {challengeAlertModal.explanation}
-            </p>
-
-            {challengeAlertModal.advancedToPhase2 ? (
-              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 space-y-1">
-                <div className="font-extrabold text-emerald-400">
-                  🎉 Congratulations! Challenge 1 (Phase 1) Completed &amp; Saved to Analytics
-                </div>
-                <p className="text-[11px] opacity-90">
-                  Your Phase 1 trades and target results are recorded under Challenge 1 in Performance Analytics. Click <strong>Congratulations — Go to Phase 2</strong> below to shoot confetti and begin your Phase 2 verification.
-                </p>
-              </div>
-            ) : challengeAlertModal.status === 'PASSED' ? (
-              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 space-y-1">
-                <div className="font-extrabold text-emerald-400">
-                  🎉 Congratulations! Prop Firm Challenge Successfully Passed!
-                </div>
-                <p className="text-[11px] opacity-90">
-                  You hit the profit target while respecting all daily and maximum drawdown rules. Both Challenge 1 and Challenge 2 results are saved in Performance Analytics.
-                </p>
-              </div>
-            ) : challengeAlertModal.status === 'FAILED' ? (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200 space-y-1">
-                <div className="font-extrabold text-rose-400">
-                  Would you like to redo this challenge phase?
-                </div>
-                <p className="text-[11px] opacity-90">
-                  You can immediately redo your current phase with a fresh balance and drawdown allowance while keeping your earlier attempt history intact.
-                </p>
-              </div>
-            ) : null}
-
-            <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
-              <button
-                onClick={() => {
-                  if (challengeAlertModal.status === 'PASSED') {
-                    triggerConfetti();
-                  }
-                  setChallengeAlertModal(null);
-                  setHubInitialSection('analytics');
-                  setActiveView('analytics_page');
-                }}
-                className="px-3.5 py-2 rounded-xl bg-[#22262f] hover:bg-[#2c313d] border border-[#323744] text-white text-xs font-extrabold flex items-center gap-1.5"
-              >
-                <BarChart3 className="w-4 h-4" />
-                <span>View Analytics</span>
-              </button>
-
-              {challengeAlertModal.advancedToPhase2 ? (
-                <button
-                  onClick={() => {
-                    triggerConfetti();
-                    setChallengeAlertModal(null);
-                    showToast(
-                      '🎉 Congratulations on passing Phase 1! Phase 2 (Challenge 2) is now active!',
-                      'up'
-                    );
-                  }}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg"
-                >
-                  <Trophy className="w-4 h-4 text-amber-300" />
-                  <span>🎉 Congratulations — Go to Phase 2</span>
-                </button>
-              ) : challengeAlertModal.status === 'PASSED' ? (
-                <button
-                  onClick={() => {
-                    triggerConfetti();
-                    setChallengeAlertModal(null);
-                    showToast(
-                      '🎉 Congratulations! Prop Firm Challenge Passed & Saved to Analytics!',
-                      'up'
-                    );
-                  }}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg"
-                >
-                  <Trophy className="w-4 h-4 text-amber-300" />
-                  <span>🎉 Congratulations! Celebrate &amp; Continue</span>
-                </button>
-              ) : (activeSession.frozenConfig?.propFirmRules?.challengePhase ||
-                  activeSession.propFirmRules?.challengePhase) === 'PHASE_2' ? (
-                <>
-                  <button
-                    onClick={() =>
-                      handleStartNewChallengeAttempt(undefined, 'PHASE_1')
-                    }
-                    className="px-3.5 py-2 rounded-xl bg-[#22262f] hover:bg-[#2c313d] border border-[#323744] text-white text-xs font-extrabold flex items-center gap-1.5"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>Restart Phase 1</span>
-                  </button>
-                  <button
-                    onClick={() =>
-                      handleStartNewChallengeAttempt(undefined, 'PHASE_2')
-                    }
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>Redo Phase 2</span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() =>
-                      handleStartNewChallengeAttempt(undefined, 'PHASE_1')
-                    }
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>Redo Phase 1</span>
-                  </button>
-                  <button
-                    onClick={() =>
-                      handleStartNewChallengeAttempt(undefined, 'PHASE_2')
-                    }
-                    className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center gap-1.5"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>Go to Phase 2</span>
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Celebratory Confetti & Challenge Breach / Pass Alert Modal */}
+      {unsubscribeOverlay}
+      {challengeResultOverlay}
     </div>
     </Suspense>
   );

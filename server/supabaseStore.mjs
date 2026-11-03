@@ -90,7 +90,45 @@ export async function supabaseRestRequest(
   return data;
 }
 
+function extractActiveSecondsFromSessionIds(rawSessionIds, rowTotalActive) {
+  if (typeof rowTotalActive === 'number' && Number.isFinite(rowTotalActive) && rowTotalActive >= 0) {
+    return Math.round(rowTotalActive);
+  }
+  if (!Array.isArray(rawSessionIds)) return 0;
+  for (const item of rawSessionIds) {
+    const str = String(item || '');
+    if (str.startsWith('__meta_active_sec:')) {
+      const parsed = Number(str.slice('__meta_active_sec:'.length));
+      if (Number.isFinite(parsed) && parsed >= 0) return Math.round(parsed);
+    }
+  }
+  return 0;
+}
+
+function extractUnsubscribedFromSessionIds(rawSessionIds, rowUnsubscribed) {
+  if (typeof rowUnsubscribed === 'boolean') return rowUnsubscribed;
+  if (!Array.isArray(rawSessionIds)) return false;
+  return rawSessionIds.some((item) => String(item || '') === '__meta_unsubscribed:1');
+}
+
+function stripMetaSessionIds(rawSessionIds) {
+  if (!Array.isArray(rawSessionIds)) return [];
+  return rawSessionIds.filter((item) => !String(item || '').startsWith('__meta_'));
+}
+
+function serializeSessionIdsWithMeta(sessionIds, totalActiveSeconds, emailUnsubscribed = false) {
+  const clean = stripMetaSessionIds(sessionIds);
+  const activeSec = Math.max(0, Math.round(Number(totalActiveSeconds || 0)));
+  const next = activeSec > 0 ? [...clean, `__meta_active_sec:${activeSec}`] : [...clean];
+  if (emailUnsubscribed) {
+    next.push('__meta_unsubscribed:1');
+  }
+  return next;
+}
+
 function rowToUser(row) {
+  const rawIds = Array.isArray(row.session_ids) ? row.session_ids : [];
+  const emailUnsubscribed = extractUnsubscribedFromSessionIds(rawIds, row.email_unsubscribed);
   return {
     id: row.id,
     name: row.name,
@@ -102,7 +140,9 @@ function rowToUser(row) {
     loginCount: Number(row.login_count ?? 1),
     lastLoginAt: row.last_login_at || null,
     lastSeenAt: row.last_seen_at || null,
-    sessionIds: Array.isArray(row.session_ids) ? row.session_ids : [],
+    totalActiveSeconds: extractActiveSecondsFromSessionIds(rawIds, row.total_active_seconds),
+    sessionIds: stripMetaSessionIds(rawIds),
+    ...(emailUnsubscribed ? { emailUnsubscribed: true } : {}),
   };
 }
 
@@ -152,7 +192,11 @@ function userToRow(user) {
     login_count: Number(user.loginCount ?? 1),
     last_login_at: user.lastLoginAt || null,
     last_seen_at: user.lastSeenAt || null,
-    session_ids: Array.isArray(user.sessionIds) ? user.sessionIds : [],
+    session_ids: serializeSessionIdsWithMeta(
+      user.sessionIds,
+      user.totalActiveSeconds,
+      Boolean(user.emailUnsubscribed)
+    ),
   };
 }
 
@@ -201,6 +245,7 @@ export function createSupabaseAccountStore({
     const isStarterSessionId = (id, email) => {
       const sId = String(id || '').trim();
       if (!sId) return true;
+      if (sId.startsWith('__meta_')) return true;
       if (/^session-empty-/i.test(sId)) return true;
       if (!/^session-(normal|prop)-/i.test(sId)) return false;
       const slug =
@@ -522,14 +567,24 @@ export function createSupabaseAccountStore({
     async touchUserActivity(accountId, sessionIds = [], nowMs = Date.now()) {
       if (!accountId) return;
       const nonStarterIds = (Array.isArray(sessionIds) ? sessionIds : [])
-        .filter((id) => !/^session-(normal|prop)-/.test(String(id)))
+        .filter((id) => {
+          const s = String(id || '');
+          return !s.startsWith('__meta_') && !/^session-(normal|prop)-/.test(s);
+        })
         .slice(0, 10000);
       const sig = nonStarterIds.join('|');
       const prev = activityWriteTs.get(accountId);
+      const deltaSeconds =
+        prev && nowMs > prev.at
+          ? nowMs - prev.at <= 180000
+            ? Math.round((nowMs - prev.at) / 1000)
+            : 30
+          : 30;
+      const nextAccumulated = (prev?.accumulatedSec || 0) + Math.max(0, deltaSeconds);
       if (prev && nowMs - prev.at < 45000 && prev.sig === sig) {
         return;
       }
-      activityWriteTs.set(accountId, { at: nowMs, sig });
+      activityWriteTs.set(accountId, { at: nowMs, sig, accumulatedSec: nextAccumulated });
       const nowIso = new Date(nowMs).toISOString();
       if (!isSupabaseConfigured(env)) {
         if (!fallbackStore) return;
@@ -537,19 +592,30 @@ export function createSupabaseAccountStore({
           const user = users.find((u) => u.id === accountId);
           if (user) {
             user.lastSeenAt = nowIso;
-            user.sessionIds = [...new Set([...(user.sessionIds || []), ...nonStarterIds])].slice(0, 10000);
+            user.totalActiveSeconds = Math.max(0, Number(user.totalActiveSeconds || 0)) + Math.max(0, deltaSeconds);
+            user.sessionIds = [...new Set([...stripMetaSessionIds(user.sessionIds || []), ...nonStarterIds])].slice(0, 10000);
           }
         });
         return;
       }
       try {
-        const patchBody = { last_seen_at: nowIso };
-        if (nonStarterIds.length > 0) {
-          const cached = userByIdCache.get(accountId)?.user;
-          patchBody.session_ids = [
-            ...new Set([...(cached?.sessionIds || []), ...nonStarterIds]),
-          ].slice(0, 10000);
+        const cached = userByIdCache.get(accountId)?.user;
+        const baseActive = Math.max(0, Number(cached?.totalActiveSeconds || 0)) + Math.max(0, deltaSeconds);
+        if (cached) {
+          cached.lastSeenAt = nowIso;
+          cached.totalActiveSeconds = baseActive;
         }
+        const mergedCleanIds = [
+          ...new Set([...stripMetaSessionIds(cached?.sessionIds || []), ...nonStarterIds]),
+        ].slice(0, 10000);
+        const patchBody = {
+          last_seen_at: nowIso,
+          session_ids: serializeSessionIdsWithMeta(
+            mergedCleanIds,
+            baseActive,
+            Boolean(cached?.emailUnsubscribed)
+          ),
+        };
         await supabaseRestRequest(
           `platform_users?id=eq.${encodeURIComponent(accountId)}`,
           {
@@ -881,6 +947,101 @@ export function createSupabaseAccountStore({
           await fallbackStore.saveContactInquiry(savedRemote || entry);
         } catch {
           // ignore local fallback write error when remote succeeded
+        }
+      }
+      return savedRemote || entry;
+    },
+    async readNewsletters() {
+      const results = [];
+      if (isSupabaseConfigured(env)) {
+        try {
+          const remote = await readSupabaseNewsletters({ env, request });
+          if (Array.isArray(remote)) results.push(...remote);
+        } catch {
+          // fall back
+        }
+      }
+      if (fallbackStore && typeof fallbackStore.readNewsletters === 'function') {
+        try {
+          const local = await fallbackStore.readNewsletters();
+          if (Array.isArray(local)) results.push(...local);
+        } catch {
+          // ignore
+        }
+      }
+      const byId = new Map();
+      for (const item of results) {
+        if (item && item.id && !byId.has(item.id)) {
+          byId.set(item.id, item);
+        }
+      }
+      return Array.from(byId.values()).sort(
+        (a, b) => (Number(a.dayNumber) || 0) - (Number(b.dayNumber) || 0)
+      );
+    },
+    async saveNewsletters(items) {
+      const list = Array.isArray(items) ? items : [];
+      let savedRemote = null;
+      if (isSupabaseConfigured(env)) {
+        try {
+          savedRemote = await saveSupabaseNewsletters(list, { env, request });
+        } catch (err) {
+          if (!fallbackStore || typeof fallbackStore.saveNewsletters !== 'function') {
+            throw err;
+          }
+        }
+      }
+      if (fallbackStore && typeof fallbackStore.saveNewsletters === 'function') {
+        try {
+          await fallbackStore.saveNewsletters(savedRemote || list);
+        } catch {
+          // ignore local fallback write error when remote succeeded
+        }
+      }
+      return savedRemote || list;
+    },
+    async readNewsletterLogs() {
+      const results = [];
+      if (isSupabaseConfigured(env)) {
+        try {
+          const remote = await readSupabaseNewsletterLogs({ env, request });
+          if (Array.isArray(remote)) results.push(...remote);
+        } catch {
+          // fall back
+        }
+      }
+      if (fallbackStore && typeof fallbackStore.readNewsletterLogs === 'function') {
+        try {
+          const local = await fallbackStore.readNewsletterLogs();
+          if (Array.isArray(local)) results.push(...local);
+        } catch {
+          // ignore
+        }
+      }
+      const byId = new Map();
+      for (const item of results) {
+        if (item && item.id && !byId.has(item.id)) {
+          byId.set(item.id, item);
+        }
+      }
+      return Array.from(byId.values()).sort(
+        (a, b) => (Date.parse(b.sentAt || '') || 0) - (Date.parse(a.sentAt || '') || 0)
+      );
+    },
+    async recordNewsletterLog(entry) {
+      let savedRemote = null;
+      if (isSupabaseConfigured(env)) {
+        try {
+          savedRemote = await saveSupabaseNewsletterLog(entry, { env, request });
+        } catch {
+          // ignore and fall back
+        }
+      }
+      if (fallbackStore && typeof fallbackStore.recordNewsletterLog === 'function') {
+        try {
+          await fallbackStore.recordNewsletterLog(savedRemote || entry);
+        } catch {
+          // ignore
         }
       }
       return savedRemote || entry;
@@ -1542,3 +1703,141 @@ export async function saveSupabaseContactInquiry(
 
   return normalized;
 }
+
+const NEWSLETTERS_FALLBACK_ID = '__platform_newsletters_v1__';
+const NEWSLETTER_LOGS_FALLBACK_ID = '__newsletter_email_logs_v1__';
+
+export async function readSupabaseNewsletters({
+  env = process.env,
+  request = fetch,
+} = {}) {
+  try {
+    const fallbackRows = await supabaseRestRequest(
+      `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+        SPONSORSHIP_FALLBACK_EMAIL
+      )}&id=eq.${NEWSLETTERS_FALLBACK_ID}&select=rules_data&limit=1`,
+      { method: 'GET', env, request }
+    );
+    const items = fallbackRows?.[0]?.rules_data?.items;
+    if (Array.isArray(items)) {
+      return items.filter((item) => item && item.id);
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+export async function saveSupabaseNewsletters(
+  items,
+  { env = process.env, request = fetch } = {}
+) {
+  const normalizedList = (Array.isArray(items) ? items : []).filter(
+    (it) => it && it.id
+  );
+  const nowIso = new Date().toISOString();
+  await supabaseRestRequest('custom_rule_profiles?on_conflict=user_email,id', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=minimal',
+    body: {
+      id: NEWSLETTERS_FALLBACK_ID,
+      user_email: SPONSORSHIP_FALLBACK_EMAIL,
+      name: NEWSLETTERS_FALLBACK_ID,
+      description: 'Platform personalized trader motivation newsletters & schedules',
+      rules_data: {
+        id: NEWSLETTERS_FALLBACK_ID,
+        items: normalizedList,
+        updatedAt: nowIso,
+      },
+      created_at: nowIso,
+    },
+    env,
+    request,
+  });
+  return normalizedList;
+}
+
+export async function readSupabaseNewsletterLogs({
+  env = process.env,
+  request = fetch,
+} = {}) {
+  try {
+    const fallbackRows = await supabaseRestRequest(
+      `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+        SPONSORSHIP_FALLBACK_EMAIL
+      )}&id=eq.${NEWSLETTER_LOGS_FALLBACK_ID}&select=rules_data&limit=1`,
+      { method: 'GET', env, request }
+    );
+    const items = fallbackRows?.[0]?.rules_data?.items;
+    if (Array.isArray(items)) {
+      return items
+        .filter((item) => item && item.id)
+        .sort(
+          (a, b) =>
+            (Date.parse(b.sentAt || '') || 0) -
+            (Date.parse(a.sentAt || '') || 0)
+        );
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+export async function saveSupabaseNewsletterLog(
+  logEntry,
+  { env = process.env, request = fetch } = {}
+) {
+  const normalized = {
+    id: String(logEntry.id || ''),
+    newsletterId: String(logEntry.newsletterId || ''),
+    dayNumber: Number(logEntry.dayNumber || 1),
+    subject: String(logEntry.subject || ''),
+    userEmail: String(logEntry.userEmail || '').toLowerCase(),
+    userName: String(logEntry.userName || 'Trader'),
+    sentBy: String(logEntry.sentBy || 'admin'),
+    deliveryStatus: String(logEntry.deliveryStatus || 'sent'),
+    sentAt: logEntry.sentAt || new Date().toISOString(),
+  };
+
+  let existingItems = [];
+  try {
+    const fallbackRows = await supabaseRestRequest(
+      `custom_rule_profiles?user_email=eq.${encodeURIComponent(
+        SPONSORSHIP_FALLBACK_EMAIL
+      )}&id=eq.${NEWSLETTER_LOGS_FALLBACK_ID}&select=rules_data&limit=1`,
+      { method: 'GET', env, request }
+    );
+    if (Array.isArray(fallbackRows?.[0]?.rules_data?.items)) {
+      existingItems = fallbackRows[0].rules_data.items;
+    }
+  } catch {
+    existingItems = [];
+  }
+  const mergedItems = [
+    normalized,
+    ...existingItems.filter((it) => it && it.id !== normalized.id),
+  ].slice(0, 500);
+
+  await supabaseRestRequest('custom_rule_profiles?on_conflict=user_email,id', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=minimal',
+    body: {
+      id: NEWSLETTER_LOGS_FALLBACK_ID,
+      user_email: SPONSORSHIP_FALLBACK_EMAIL,
+      name: NEWSLETTER_LOGS_FALLBACK_ID,
+      description: 'Platform personalized newsletter delivery logs',
+      rules_data: {
+        id: NEWSLETTER_LOGS_FALLBACK_ID,
+        items: mergedItems,
+        updatedAt: normalized.sentAt,
+      },
+      created_at: normalized.sentAt,
+    },
+    env,
+    request,
+  });
+
+  return normalized;
+}
+

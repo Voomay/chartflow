@@ -4,13 +4,8 @@ import {
   X,
   Send,
   CheckCircle2,
-  Mail,
   Handshake,
   MessageSquarePlus,
-  Sparkles,
-  ArrowRight,
-  Copy,
-  Check,
 } from 'lucide-react';
 import {
   submitTraderPlatformFeedback,
@@ -105,21 +100,10 @@ export const ExperienceReviewPopup: React.FC<ExperienceReviewPopupProps> = ({
   const [improvementNote, setImprovementNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [copiedField, setCopiedField] = useState<'official' | 'personal' | null>(null);
 
   if (!isOpen) return null;
 
   const displayStar = hoveredStar ?? rating;
-
-  const handleCopy = async (email: string, which: 'official' | 'personal') => {
-    try {
-      await navigator.clipboard.writeText(email);
-      setCopiedField(which);
-      setTimeout(() => setCopiedField(null), 2000);
-    } catch {
-      // ignore clipboard errors
-    }
-  };
 
   const handleQuickSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,60 +139,43 @@ export const ExperienceReviewPopup: React.FC<ExperienceReviewPopupProps> = ({
       aria-modal="true"
       aria-labelledby="once-experience-popup-title"
     >
-      <div className="relative w-full max-w-xl rounded-3xl border border-white/[0.08] bg-gradient-to-b from-[#0d1626] to-[#09101b] text-slate-200 shadow-2xl overflow-hidden">
-        {/* Top emerald-to-cyan accent */}
+      <div className="relative w-full max-w-md rounded-3xl border border-white/[0.08] bg-gradient-to-b from-[#0d1626] to-[#09101b] text-slate-200 shadow-2xl overflow-hidden">
         <div className="h-1 w-full bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400" />
 
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-3 sm:px-7">
-          <div>
-            <div className="mb-3 flex flex-wrap items-center gap-2.5">
-              <ChartReplayLogo size={28} />
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-0.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300">
-                <Sparkles size={11} />
-                Quick 5-Second Review
-              </span>
-            </div>
+        <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-2">
+          <div className="flex items-center gap-2.5">
+            <ChartReplayLogo size={24} />
             <h2
               id="once-experience-popup-title"
-              className="text-xl sm:text-2xl font-extrabold tracking-tight text-white leading-snug"
+              className="text-lg font-extrabold tracking-tight text-white"
             >
-              How was your experience on Chart Replay?
+              Rate your experience
             </h2>
-            <p className="text-xs sm:text-sm text-slate-400 mt-1 leading-relaxed">
-              Before you go, can you take 2–5 seconds to rate your experience and share how we can improve?
-            </p>
           </div>
           <button
             type="button"
             onClick={onDismissAndContinue}
-            title="Close and continue"
-            className="rounded-xl border border-white/10 bg-white/[0.03] p-2 text-slate-400 hover:bg-white/[0.08] hover:text-white transition shrink-0"
+            title="Close"
+            className="rounded-xl border border-white/10 bg-white/[0.03] p-1.5 text-slate-400 hover:bg-white/[0.08] hover:text-white transition shrink-0"
           >
             <X size={16} />
           </button>
         </div>
 
         {submitted ? (
-          <div className="px-6 py-9 text-center sm:px-7">
-            <div className="mx-auto mb-3.5 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-400/20 text-emerald-300">
-              <CheckCircle2 size={28} />
+          <div className="px-6 py-8 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-400/20 text-emerald-300">
+              <CheckCircle2 size={24} />
             </div>
-            <h3 className="text-lg font-extrabold text-white">
-              Thank you for your feedback!
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              Taking you right where you were heading…
-            </p>
+            <h3 className="text-base font-extrabold text-white">Thanks!</h3>
           </div>
         ) : (
-          <form onSubmit={handleQuickSubmit} className="px-6 pb-6 pt-2 space-y-4 sm:px-7 sm:pb-7">
-            {/* Star Rating Card matching PlatformFeedbackPage */}
-            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                  Overall Experience
-                </span>
+          <form onSubmit={handleQuickSubmit} className="px-6 pb-5 pt-2 space-y-3.5">
+            {/* Stars */}
+            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3.5">
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-xs font-semibold text-slate-400">Your rating</span>
                 <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-0.5 text-[11px] font-bold text-amber-300">
                   {displayStar}/5 · {RATING_LABELS[displayStar]}
                 </span>
@@ -223,7 +190,7 @@ export const ExperienceReviewPopup: React.FC<ExperienceReviewPopupProps> = ({
                       onMouseEnter={() => setHoveredStar(star)}
                       onMouseLeave={() => setHoveredStar(null)}
                       onClick={() => setRating(star)}
-                      className={`group flex flex-1 items-center justify-center gap-1.5 rounded-xl border py-2.5 text-xs font-bold transition-all ${
+                      className={`group flex flex-1 items-center justify-center gap-1 rounded-xl border py-2.5 text-xs font-bold transition-all ${
                         active
                           ? 'border-amber-400/40 bg-amber-400/10 text-amber-300 shadow-[0_0_20px_-6px_rgba(251,191,36,0.4)]'
                           : 'border-white/[0.07] bg-white/[0.02] text-slate-500 hover:border-white/15 hover:text-slate-300'
@@ -244,120 +211,67 @@ export const ExperienceReviewPopup: React.FC<ExperienceReviewPopupProps> = ({
               </div>
             </div>
 
-            {/* Optional quick improvement note */}
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                How can we improve? <span className="text-slate-500 font-normal">(Optional)</span>
-              </label>
-              <textarea
-                rows={2}
-                value={improvementNote}
-                onChange={(e) => setImprovementNote(e.target.value)}
-                placeholder="Any tools, pairs, or improvements you would love to see next?"
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 outline-none transition focus:border-emerald-400/50 resize-none"
-              />
-            </div>
+            {/* Optional quick note */}
+            <textarea
+              rows={2}
+              value={improvementNote}
+              onChange={(e) => setImprovementNote(e.target.value)}
+              placeholder="Any feedback or ideas? (optional)"
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 outline-none transition focus:border-emerald-400/50 resize-none"
+            />
 
-            {/* Primary CTA & Skip */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 pt-0.5">
+            {/* Actions */}
+            <div className="flex items-center gap-2">
               <button
                 type="submit"
                 disabled={submitting}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 px-5 py-3 text-xs sm:text-sm font-extrabold text-slate-950 shadow-lg transition hover:brightness-110 disabled:opacity-60"
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-2.5 text-xs sm:text-sm font-extrabold text-slate-950 shadow-lg transition hover:brightness-110 disabled:opacity-60"
               >
-                <Send size={15} />
-                {submitting ? 'Submitting...' : 'Submit Review'}
+                <Send size={14} />
+                {submitting ? 'Sending...' : 'Submit'}
               </button>
               <button
                 type="button"
                 onClick={onDismissAndContinue}
-                className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] px-4 py-3 text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition"
+                className="rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition"
               >
-                {triggerReason === 'logout' ? 'Skip & Log Out' : 'Skip & Continue'}
-                <ArrowRight size={14} />
+                {triggerReason === 'logout' ? 'Log Out' : 'Skip'}
               </button>
             </div>
 
-            {/* Clean Direct Contact & Partner Bar */}
-            <div className="border-t border-white/[0.07] pt-4 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                <div className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                      Our Email
-                    </div>
-                    <a
-                      href={`mailto:${OFFICIAL_CONTACT_EMAIL}`}
-                      className="font-mono font-bold text-emerald-300 hover:underline truncate block"
-                    >
-                      {OFFICIAL_CONTACT_EMAIL}
-                    </a>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(OFFICIAL_CONTACT_EMAIL, 'official')}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] shrink-0"
-                    title="Copy official email"
-                  >
-                    {copiedField === 'official' ? (
-                      <Check size={13} className="text-emerald-400" />
-                    ) : (
-                      <Copy size={13} />
-                    )}
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                      Personal Email
-                    </div>
-                    <a
-                      href={`mailto:${PERSONAL_CONTACT_EMAIL}`}
-                      className="font-mono font-bold text-cyan-300 hover:underline truncate block"
-                    >
-                      {PERSONAL_CONTACT_EMAIL}
-                    </a>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(PERSONAL_CONTACT_EMAIL, 'personal')}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] shrink-0"
-                    title="Copy personal email"
-                  >
-                    {copiedField === 'personal' ? (
-                      <Check size={13} className="text-emerald-400" />
-                    ) : (
-                      <Copy size={13} />
-                    )}
-                  </button>
-                </div>
+            {/* Minimal footer */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] pt-3 text-[11px] text-slate-400">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onOpenPartners}
+                  className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/25 bg-emerald-400/10 hover:bg-emerald-400/15 px-2.5 py-1 font-semibold text-emerald-300 transition"
+                >
+                  <Handshake size={12} />
+                  Partner
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenContactUs}
+                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] px-2.5 py-1 font-semibold text-slate-300 hover:text-white transition"
+                >
+                  <MessageSquarePlus size={12} />
+                  Contact
+                </button>
               </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={onOpenPartners}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-400/25 bg-emerald-400/10 hover:bg-emerald-400/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition"
-                  >
-                    <Handshake size={13} />
-                    Partner with Us
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onOpenContactUs}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white transition"
-                  >
-                    <MessageSquarePlus size={13} />
-                    Contact Us
-                  </button>
-                </div>
+              <div className="flex items-center gap-2 font-mono">
+                <a
+                  href={`mailto:${OFFICIAL_CONTACT_EMAIL}`}
+                  className="text-emerald-300 hover:underline"
+                >
+                  {OFFICIAL_CONTACT_EMAIL}
+                </a>
+                <span className="text-slate-600">·</span>
                 <a
                   href={`mailto:${PERSONAL_CONTACT_EMAIL}`}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-emerald-300 transition"
+                  className="text-cyan-300 hover:underline"
                 >
-                  <Mail size={12} /> Reach Cheslin Directly
+                  {PERSONAL_CONTACT_EMAIL}
                 </a>
               </div>
             </div>

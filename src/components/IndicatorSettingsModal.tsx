@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import {
   ChartIndicatorConfigs,
+  CRTCandleStartMode,
+  DisplayTimezone,
   IndicatorPriceSource,
   LineStyleType,
   MovingAverageIndicatorConfig,
@@ -130,6 +132,8 @@ export const IndicatorSettingsModal: React.FC<IndicatorSettingsModalProps> = ({
         return 'Engulfing Vol/Mom';
       case 'showOrderFlow':
         return 'Historical Order Flow (VP · OB/FVG · Delta)';
+      case 'showCRTOverlay':
+        return 'CRT overlay Pro+';
       case 'showMomentum':
         return 'Momentum Pullback';
       case 'showForecast':
@@ -170,6 +174,7 @@ export const IndicatorSettingsModal: React.FC<IndicatorSettingsModalProps> = ({
     { id: 'showRSI', label: 'RSI', color: configs.rsi.color },
     { id: 'showMACD', label: 'MACD', color: configs.macd.macdColor },
     { id: 'showVOL', label: 'VOL', color: configs.vol.maColor },
+    { id: 'showCRTOverlay', label: 'CRT PRO+', color: configs.crtOverlay?.purgeColor || '#3b82f6' },
     { id: 'showOrderFlow', label: 'ORDER FLOW', color: configs.orderFlow?.pocColor || '#f59e0b' },
   ];
 
@@ -915,6 +920,288 @@ export const IndicatorSettingsModal: React.FC<IndicatorSettingsModalProps> = ({
               </label>
             </div>
           )}
+
+          {indicatorId === 'showCRTOverlay' && (() => {
+            const crt = configs.crtOverlay ?? DEFAULT_INDICATOR_CONFIGS.crtOverlay;
+            const updateCRT = (patch: Partial<typeof crt>) =>
+              onUpdateConfigs((prev) => ({
+                ...prev,
+                crtOverlay: {
+                  ...(prev.crtOverlay || DEFAULT_INDICATOR_CONFIGS.crtOverlay),
+                  ...patch,
+                },
+              }));
+
+            const LINE_COLOR_PRESETS: { label: string; value: string }[] = [
+              { label: 'white', value: '#ffffff' },
+              { label: 'green', value: '#22c55e' },
+              { label: 'red', value: '#ef4444' },
+              { label: 'blue', value: '#3b82f6' },
+              { label: 'gold', value: '#f59e0b' },
+              { label: 'cyan', value: '#06b6d4' },
+              { label: 'purple', value: '#a855f7' },
+              { label: 'slate', value: '#94a3b8' },
+            ];
+
+            return (
+              <div className="space-y-3.5">
+                {/* INDICATOR SETTINGS */}
+                <div className={`p-3.5 rounded-xl border space-y-3 ${sectionCardSurface}`}>
+                  <div className={`text-[10px] font-extrabold uppercase tracking-wider ${mutedText}`}>
+                    Indicator Settings
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold">Timezone</span>
+                    <select
+                      value={crt.timezone}
+                      onChange={(e) => updateCRT({ timezone: e.target.value as DisplayTimezone })}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold border outline-none ${inputSurface}`}
+                    >
+                      <option value="America/New_York">America/New_York (NY)</option>
+                      <option value="Europe/London">Europe/London</option>
+                      <option value="UTC">UTC</option>
+                      <option value="Africa/Johannesburg">Africa/Johannesburg</option>
+                      <option value="Europe/Prague">Europe/Prague</option>
+                      <option value="Asia/Tokyo">Asia/Tokyo</option>
+                      <option value="Australia/Sydney">Australia/Sydney</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold">CRT Purge Color</span>
+                    <label
+                      className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border cursor-pointer text-xs font-mono font-bold ${recessedTrackSurface}`}
+                    >
+                      <input
+                        type="color"
+                        value={crt.purgeColor}
+                        onChange={(e) => updateCRT({ purgeColor: e.target.value })}
+                        className="w-6 h-5 rounded cursor-pointer bg-transparent"
+                      />
+                      <span>{crt.purgeColor.toUpperCase()}</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* TIME SETTINGS */}
+                <div className={`p-3.5 rounded-xl border space-y-3 ${sectionCardSurface}`}>
+                  <div className={`text-[10px] font-extrabold uppercase tracking-wider ${mutedText}`}>
+                    Time Settings
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold">
+                        CRT CANDLE START (1 AM, 5 AM, 9 AM)
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {([1, 5, 9, 'ALL'] as CRTCandleStartMode[]).map((mode) => {
+                          const active = crt.candleStart === mode;
+                          return (
+                            <button
+                              key={String(mode)}
+                              type="button"
+                              onClick={() => updateCRT({ candleStart: mode })}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border transition ${
+                                active ? chipActive : chipIdle
+                              }`}
+                            >
+                              {mode === 'ALL' ? 'All (1/5/9)' : `${mode}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold">Purge Duration (minutes)</span>
+                    <input
+                      type="number"
+                      min={15}
+                      max={480}
+                      step={15}
+                      value={crt.purgeDurationMinutes}
+                      onChange={(e) =>
+                        updateCRT({
+                          purgeDurationMinutes: Math.max(
+                            15,
+                            Math.min(480, Number(e.target.value) || 90)
+                          ),
+                        })
+                      }
+                      className={`w-24 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-right border outline-none ${inputSurface}`}
+                    />
+                  </div>
+                </div>
+
+                {/* LINE COLORS */}
+                <div className={`p-3.5 rounded-xl border space-y-3 ${sectionCardSurface}`}>
+                  <div className={`text-[10px] font-extrabold uppercase tracking-wider ${mutedText}`}>
+                    Line Colors
+                  </div>
+                  {(
+                    [
+                      { key: 'highLineColor', label: 'High Line Color', value: crt.highLineColor },
+                      { key: 'lowLineColor', label: 'Low Line Color', value: crt.lowLineColor },
+                      { key: 'midLineColor', label: 'Mid Line Color', value: crt.midLineColor },
+                    ] as const
+                  ).map(({ key, label, value }) => {
+                    const matchedPreset = LINE_COLOR_PRESETS.find(
+                      (p) => p.value.toLowerCase() === value.toLowerCase()
+                    );
+                    return (
+                      <div key={key} className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-semibold">{label}</span>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={matchedPreset ? matchedPreset.value : 'custom'}
+                            onChange={(e) => {
+                              if (e.target.value !== 'custom') {
+                                updateCRT({ [key]: e.target.value });
+                              }
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border outline-none ${inputSurface}`}
+                          >
+                            {LINE_COLOR_PRESETS.map((p) => (
+                              <option key={p.value} value={p.value}>
+                                {p.label}
+                              </option>
+                            ))}
+                            {!matchedPreset && <option value="custom">custom</option>}
+                          </select>
+                          <input
+                            type="color"
+                            value={value}
+                            onChange={(e) => updateCRT({ [key]: e.target.value })}
+                            className="w-7 h-7 rounded cursor-pointer bg-transparent"
+                            title={`Pick custom ${label}`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* CSD LINE COLORS & FAIR VALUE GAPS */}
+                <div className={`p-3.5 rounded-xl border space-y-3 ${sectionCardSurface}`}>
+                  <div className={`text-[10px] font-extrabold uppercase tracking-wider ${mutedText}`}>
+                    CSD Line Colors & Fair Value Gaps
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label
+                      className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}
+                    >
+                      <span>CSD Line (High Sweep)</span>
+                      <input
+                        type="color"
+                        value={crt.csdHighSweepColor}
+                        onChange={(e) => updateCRT({ csdHighSweepColor: e.target.value })}
+                        className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                      />
+                    </label>
+                    <label
+                      className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}
+                    >
+                      <span>CSD Line (Low Sweep)</span>
+                      <input
+                        type="color"
+                        value={crt.csdLowSweepColor}
+                        onChange={(e) => updateCRT({ csdLowSweepColor: e.target.value })}
+                        className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5 pt-1">
+                    <div>
+                      <span className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${labelText}`}>
+                        FVG LENGTH
+                      </span>
+                      <input
+                        type="number"
+                        min={5}
+                        max={200}
+                        value={crt.fvgLength}
+                        onChange={(e) =>
+                          updateCRT({
+                            fvgLength: Math.max(5, Math.min(200, Number(e.target.value) || 40)),
+                          })
+                        }
+                        className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold border outline-none ${inputSurface}`}
+                      />
+                    </div>
+                    <div>
+                      <span className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${labelText}`}>
+                        FVG FINDER
+                      </span>
+                      <input
+                        type="number"
+                        min={20}
+                        max={2000}
+                        value={crt.fvgFinder}
+                        onChange={(e) =>
+                          updateCRT({
+                            fvgFinder: Math.max(20, Math.min(2000, Number(e.target.value) || 300)),
+                          })
+                        }
+                        className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold border outline-none ${inputSurface}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label
+                      className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}
+                    >
+                      <span>Bull FVG Color</span>
+                      <input
+                        type="color"
+                        value={crt.bullFvgColor}
+                        onChange={(e) => updateCRT({ bullFvgColor: e.target.value })}
+                        className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                      />
+                    </label>
+                    <label
+                      className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}
+                    >
+                      <span>Bear FVG Color</span>
+                      <input
+                        type="color"
+                        value={crt.bearFvgColor}
+                        onChange={(e) => updateCRT({ bearFvgColor: e.target.value })}
+                        className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5 pt-1">
+                    <div
+                      className={`flex items-center justify-between px-2.5 py-2 rounded-xl border ${recessedTrackSurface}`}
+                    >
+                      <span className="text-xs font-semibold">REMOVE OLD FVG</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        value={crt.removeOldFvg ? 1 : 0}
+                        onChange={(e) => updateCRT({ removeOldFvg: Number(e.target.value) >= 1 })}
+                        className={`w-14 px-2 py-1 rounded-lg text-xs font-mono font-bold text-right border outline-none ${inputSurface}`}
+                      />
+                    </div>
+                    <label
+                      className={`flex items-center justify-between px-2.5 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${recessedTrackSurface}`}
+                    >
+                      <span>FVG 50%</span>
+                      <input
+                        type="checkbox"
+                        checked={crt.showFvg50}
+                        onChange={(e) => updateCRT({ showFvg50: e.target.checked })}
+                        className="accent-blue-600 w-4 h-4 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {indicatorId === 'showOrderFlow' && (
             <div className={`p-3.5 rounded-xl border space-y-3.5 ${sectionCardSurface}`}>

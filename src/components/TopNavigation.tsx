@@ -74,6 +74,7 @@ export interface ChartIndicatorsState {
   showForecast: boolean;
   showEngulfing: boolean;
   showOrderFlow?: boolean;
+  showCRTOverlay?: boolean;
 }
 
 interface TopNavigationProps {
@@ -615,6 +616,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                         { label: `MACD (${cfg.macd.fastPeriod}, ${cfg.macd.slowPeriod}, ${cfg.macd.signalPeriod})`, key: 'showMACD', color: cfg.macd.macdColor, settingsId: 'showMACD' },
                         { label: `RSI (${cfg.rsi.period})`, key: 'showRSI', color: cfg.rsi.color, settingsId: 'showRSI' },
                         { label: '__ai__', key: null, color: '' },
+                        { label: 'CRT overlay Pro+', key: 'showCRTOverlay', color: cfg.crtOverlay?.purgeColor || '#3b82f6', settingsId: 'showCRTOverlay' },
                         { label: 'Order Flow (VP · OB/FVG · Delta)', key: 'showOrderFlow', color: cfg.orderFlow?.pocColor || '#f59e0b', settingsId: 'showOrderFlow' },
                         { label: 'Engulfing Vol / Momentum', key: 'showEngulfing', color: cfg.engulfing.upColor, settingsId: 'showEngulfing' },
                         { label: 'Momentum Pullback · 2R', key: 'showMomentum', color: cfg.momentum.fastColor, settingsId: 'showMomentum' },

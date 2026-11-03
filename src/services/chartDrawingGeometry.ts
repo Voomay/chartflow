@@ -19,8 +19,8 @@ export function clipExtendedLine(a:PixelPoint,b:PixelPoint,width:number,height:n
   }
   return [{x:a.x+low*dx,y:a.y+low*dy},{x:a.x+high*dx,y:a.y+high*dy}];
 }
-export const PATTERN_LABELS:Record<string,string[]>={abc_pattern:['0','A','B','C'],abcd_pattern:['A','B','C','D']};
-export const isPatternTool=(tool:string)=>tool==='abc_pattern'||tool==='abcd_pattern';
+export const PATTERN_LABELS:Record<string,string[]>={abc_pattern:['0','A','B','C'],abcd_pattern:['A','B','C','D'],elliott_wave:['0','1','2','3','4','5']};
+export const isPatternTool=(tool:string)=>tool==='abc_pattern'||tool==='abcd_pattern'||tool==='elliott_wave';
 export function formatChartCrosshairTime(timestampMs:number,timezone:string):string {
   const formatted=new Intl.DateTimeFormat('en-GB',{timeZone:timezone,weekday:'short',day:'2-digit',month:'short',year:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23',timeZoneName:'short'}).format(new Date(timestampMs));
   return timezone==='Africa/Johannesburg'?formatted.replace(/\s+(?:GMT\+2|SAST|UTC\+2)$/i,' South Africa'):formatted;
@@ -374,6 +374,23 @@ export const DEFAULT_INDICATOR_CONFIGS: ChartIndicatorConfigs = {
     sellColor: '#f43f5e',
     pocColor: '#f59e0b',
   },
+  crtOverlay: {
+    timezone: 'America/New_York',
+    purgeColor: '#3b82f6',
+    candleStart: 5,
+    purgeDurationMinutes: 90,
+    highLineColor: '#ffffff',
+    lowLineColor: '#ffffff',
+    midLineColor: '#22c55e',
+    csdHighSweepColor: '#ef4444',
+    csdLowSweepColor: '#22c55e',
+    fvgLength: 40,
+    fvgFinder: 300,
+    bullFvgColor: '#3b82f6',
+    bearFvgColor: '#b48a5a',
+    removeOldFvg: true,
+    showFvg50: true,
+  },
 };
 
 const INDICATOR_CONFIGS_STORAGE_KEY = 'chart_flow_indicator_configs_v1';
@@ -404,6 +421,7 @@ export function loadSavedIndicatorConfigs(): ChartIndicatorConfigs {
             momentum: { ...DEFAULT_INDICATOR_CONFIGS.momentum, ...(parsed.momentum || {}) },
             forecast: { ...DEFAULT_INDICATOR_CONFIGS.forecast, ...(parsed.forecast || {}) },
             orderFlow: { ...DEFAULT_INDICATOR_CONFIGS.orderFlow, ...(parsed.orderFlow || {}) },
+            crtOverlay: { ...DEFAULT_INDICATOR_CONFIGS.crtOverlay, ...(parsed.crtOverlay || {}) },
           };
         }
       }

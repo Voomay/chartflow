@@ -223,13 +223,12 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
       {/* 2. Trend Line, Horizontal Line, Vertical Line & Arrow Flyout */}
       <div className="relative flex items-center shrink-0">
         <button
-          onClick={() =>
-            selectAndClose(
-              ['trendline', 'hline', 'vline', 'arrow', 'ray', 'extended_line'].includes(activeTool)
-                ? 'cursor'
-                : 'trendline'
-            )
-          }
+          onClick={() => {
+            if (!['trendline', 'hline', 'vline', 'arrow', 'ray', 'extended_line'].includes(activeTool)) {
+              onSelectTool('trendline');
+            }
+            setOpenMenu(openMenu === 'lines' ? null : 'lines');
+          }}
           className={`w-8 h-7 rounded-lg flex items-center justify-center transition ${
             ['trendline', 'hline', 'vline', 'arrow', 'ray', 'extended_line'].includes(activeTool)
               ? btnActive
@@ -241,7 +240,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         </button>
         <button
           onClick={() => setOpenMenu(openMenu === 'lines' ? null : 'lines')}
-          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-3 h-5 flex items-center justify-center opacity-60 hover:opacity-100"
+          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-6 flex items-center justify-center opacity-70 hover:opacity-100"
           title="More Line Tools (Trend Line, Ray, Extended Line, Horizontal Line, Vertical Line, Arrow)"
         >
           <ChevronRight className="w-3 h-3" />
@@ -332,15 +331,12 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
       {/* 4. Long / Short (Buy / Sell) Position Tool (Light Stroke matching Ruler & Text T) */}
       <div className="relative flex items-center shrink-0" data-tour="left-position-tool">
         <button
-          onClick={() =>
-            selectAndClose(
-              activeTool === 'long_position'
-                ? 'short_position'
-                : activeTool === 'short_position'
-                ? 'cursor'
-                : 'long_position'
-            )
-          }
+          onClick={() => {
+            if (!['long_position', 'short_position', 'ruler'].includes(activeTool)) {
+              onSelectTool('long_position');
+            }
+            setOpenMenu(openMenu === 'positions' ? null : 'positions');
+          }}
           className={`w-8 h-7 rounded-lg flex items-center justify-center transition ${
             activeTool === 'long_position' || activeTool === 'short_position'
               ? btnActive
@@ -362,7 +358,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
           onClick={() =>
             setOpenMenu(openMenu === 'positions' ? null : 'positions')
           }
-          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-3 h-5 flex items-center justify-center opacity-60 hover:opacity-100"
+          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-6 flex items-center justify-center opacity-70 hover:opacity-100"
           title="Choose Long (Buy) or Short (Sell) Position Tool"
         >
           <ChevronRight className="w-3 h-3" />
@@ -424,13 +420,12 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
       {/* 5. Shapes: Rectangle / Zone Block, Circle / Liquidity Pool, Triangle Pattern */}
       <div className="relative flex items-center shrink-0">
         <button
-          onClick={() =>
-            selectAndClose(
-              ['rect_box', 'circle', 'triangle', 'brush', 'highlighter', 'arrow_up', 'arrow_down'].includes(activeTool)
-                ? 'cursor'
-                : 'rect_box'
-            )
-          }
+          onClick={() => {
+            if (!['rect_box', 'circle', 'triangle', 'brush', 'highlighter', 'arrow_up', 'arrow_down', 'arrow'].includes(activeTool)) {
+              onSelectTool('rect_box');
+            }
+            setOpenMenu(openMenu === 'shapes' ? null : 'shapes');
+          }}
           className={`w-8 h-7 rounded-lg flex items-center justify-center transition ${
             ['rect_box', 'circle', 'triangle', 'brush', 'highlighter', 'arrow_up', 'arrow_down'].includes(activeTool)
               ? btnActive
@@ -442,7 +437,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         </button>
         <button
           onClick={() => setOpenMenu(openMenu === 'shapes' ? null : 'shapes')}
-          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-3 h-5 flex items-center justify-center opacity-60 hover:opacity-100"
+          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-6 flex items-center justify-center opacity-70 hover:opacity-100"
           title="Brushes, Arrows & Shapes Menu"
         >
           <ChevronRight className="w-3 h-3" />
@@ -528,8 +523,15 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
       </div>
 
       <div className="relative flex items-center shrink-0">
-        <button type="button" aria-label="Chart pattern tools" title="Chart Patterns — ABC correction, ABCD" onClick={()=>setOpenMenu(openMenu==='patterns'?null:'patterns')} className={`w-8 h-7 rounded-lg flex items-center justify-center ${activeTool==='abc_pattern'||activeTool==='abcd_pattern'?btnActive:btnIdle}`}><Waypoints className="h-4 w-4"/></button>
-        {openMenu==='patterns'&&<div className={`absolute left-11 top-0 w-64 max-h-[55dvh] overflow-y-auto rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}><div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60">Manual chart patterns</div>{([['abc_pattern','ABC correction','0 → A → B → C'],['abcd_pattern','ABCD pattern','A → B → C → D']] as const).map(([tool,label,hint])=><button key={tool} onClick={()=>selectAndClose(tool)} className={menuItemClass(activeTool===tool)}><span>{label}</span><span className="text-[10px] opacity-60">{hint}</span></button>)}<p className="px-3 py-2 text-[10px] opacity-50 leading-4">Click four points on the chart. Escape cancels. These are drawing tools, not trade signals.</p></div>}
+        <button type="button" aria-label="Chart pattern tools" title="Chart Patterns — Elliott Wave, ABC correction, ABCD" onClick={()=>setOpenMenu(openMenu==='patterns'?null:'patterns')} className={`w-8 h-7 rounded-lg flex items-center justify-center ${activeTool==='abc_pattern'||activeTool==='abcd_pattern'||activeTool==='elliott_wave'?btnActive:btnIdle}`}><Waypoints className="h-4 w-4"/></button>
+        <button
+          onClick={() => setOpenMenu(openMenu === 'patterns' ? null : 'patterns')}
+          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-6 flex items-center justify-center opacity-70 hover:opacity-100"
+          title="Chart Patterns — Elliott Wave (0-1-2-3-4-5), ABC, ABCD"
+        >
+          <ChevronRight className="w-3 h-3" />
+        </button>
+        {openMenu==='patterns'&&<div className={`absolute left-11 top-0 w-64 max-h-[55dvh] overflow-y-auto rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}><div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60">Manual chart patterns</div>{([['elliott_wave','Elliott Wave (1-5)','0 → 1 → 2 → 3 → 4 → 5'],['abc_pattern','ABC correction','0 → A → B → C'],['abcd_pattern','ABCD pattern','A → B → C → D']] as const).map(([tool,label,hint])=><button key={tool} onClick={()=>selectAndClose(tool)} className={menuItemClass(activeTool===tool)}><span>{label}</span><span className="text-[10px] opacity-60">{hint}</span></button>)}<p className="px-3 py-2 text-[10px] opacity-50 leading-4">Click each wave/pivot point on the chart (6 points for Elliott Wave, 4 for ABC/ABCD). Escape cancels.</p></div>}
       </div>
       {/* 6. Text Annotation (T) */}
       <button

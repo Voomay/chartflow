@@ -3379,7 +3379,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               transform: `translate(calc(-50% + ${floatingWidgetOffset.x}px), ${floatingWidgetOffset.y}px)`,
               touchAction: 'none',
             }}
-            className={`fixed bottom-16 left-1/2 z-[45] max-w-[calc(100vw-12px)] flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border shadow-2xl backdrop-blur-md cursor-grab active:cursor-grabbing select-none ${
+            className={`fixed bottom-16 left-[calc(50%-18px)] sm:left-1/2 z-[45] max-w-[calc(100vw-52px)] sm:max-w-[calc(100vw-12px)] flex items-center gap-0.5 sm:gap-1.5 px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border shadow-2xl backdrop-blur-md cursor-grab active:cursor-grabbing select-none ${
               isLight
                 ? 'bg-white/95 border-slate-200/90 text-slate-900 shadow-slate-900/15'
                 : 'bg-[#12161f]/95 border-emerald-500/25 text-slate-100 shadow-black/70'
@@ -3388,7 +3388,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
           >
             {/* Drag grip dots */}
             <div
-              className="flex flex-col gap-0.5 px-0.5 opacity-40 hover:opacity-80 cursor-grab"
+              className="hidden sm:flex flex-col gap-0.5 px-0.5 opacity-40 hover:opacity-80 cursor-grab"
               title="Drag to move replay widget"
             >
               <span className="w-1 h-1 rounded-full bg-current" />
@@ -3437,7 +3437,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               type="button"
               disabled={isLocked}
               onClick={onTogglePlay}
-              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-extrabold transition shadow ${
+              className={`flex items-center gap-1 px-1.5 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-extrabold transition shadow ${
                 isPlaying
                   ? 'bg-amber-500 text-slate-950'
                   : 'bg-emerald-600 hover:bg-emerald-500 text-white'
@@ -3449,7 +3449,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               ) : (
                 <Play className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
               )}
-              <span className="hidden xs:inline sm:inline">
+              <span className="hidden sm:inline">
                 {isPlaying ? 'Pause' : 'Play'}
               </span>
             </button>
@@ -3459,7 +3459,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               type="button"
               disabled={isLocked}
               onClick={() => onStepBar(1)}
-              className={`flex items-center gap-0.5 px-1.5 sm:px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-mono font-bold transition ${cardBg} hover:border-emerald-500/60`}
+              className={`flex items-center gap-0.5 px-1 sm:px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-mono font-bold transition ${cardBg} hover:border-emerald-500/60`}
               title={`Advance by ${replayStepTimeframe}`}
             >
               <SkipForward className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400" />
@@ -3490,9 +3490,9 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               )}
             </select>
 
-            {/* Smooth Speed Slider */}
+            {/* Smooth Speed Slider (Desktop) + Compact Speed Cycle Badge (Mobile) */}
             <div
-              className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg border text-[10px] font-mono font-bold ${cardBg}`}
+              className={`flex items-center gap-1 px-1 sm:px-2 py-1 rounded-lg border text-[10px] font-mono font-bold ${cardBg}`}
               title={`Smooth Replay Speed (${speedMultiplier.toFixed(1)}x)`}
             >
               <input
@@ -3503,13 +3503,23 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                 step={1}
                 value={Math.round(speedMultiplier * 10)}
                 onChange={(e) => handleSpeedSliderChange(Number(e.target.value))}
-                className="w-12 sm:w-16 h-1.5 accent-emerald-500 cursor-pointer"
+                className="hidden sm:block w-16 h-1.5 accent-emerald-500 cursor-pointer"
               />
-              <span className="min-w-[28px] text-right text-emerald-400 tabular-nums">
+              <button
+                type="button"
+                onClick={() => {
+                  const presets = [10, 20, 30, 50, 100, 200];
+                  const curr = Math.round(speedMultiplier * 10);
+                  const next = presets.find((p) => p > curr) ?? presets[0];
+                  handleSpeedSliderChange(next);
+                }}
+                className="min-w-[24px] sm:min-w-[28px] text-center sm:text-right text-emerald-400 tabular-nums"
+                title="Tap to cycle replay speed"
+              >
                 {speedMultiplier >= 10
                   ? `${Math.round(speedMultiplier)}x`
                   : `${speedMultiplier.toFixed(1)}x`}
-              </span>
+              </button>
             </div>
 
             {/* 1-Click Quick Skip Button */}
@@ -3517,7 +3527,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               type="button"
               disabled={isLocked}
               onClick={handleQuickSkip}
-              className={`px-1.5 sm:px-2 py-1 rounded-lg border text-[10px] font-extrabold flex items-center gap-1 transition ${
+              className={`px-1 sm:px-2 py-1 rounded-lg border text-[10px] font-extrabold flex items-center gap-0.5 sm:gap-1 transition ${
                 isLight
                   ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-600 text-white'
                   : 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/50 text-emerald-200'
@@ -3525,7 +3535,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               title={`1-Click Quick Skip to ${quickSkipButtonLabel}`}
             >
               <FastForward className="w-3 h-3 text-emerald-300 shrink-0" />
-              <span className="truncate max-w-[68px] sm:max-w-none">
+              <span className="truncate max-w-[46px] sm:max-w-none">
                 {quickSkipButtonLabel}
               </span>
             </button>

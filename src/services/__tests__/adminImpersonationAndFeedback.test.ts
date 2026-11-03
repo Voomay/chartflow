@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error Node server module has no .d.ts
 import { createAdminSession, createPlatformHandler, hashPassword } from '../../../server/platformAccounts.mjs';
 // @ts-expect-error Node server module has no .d.ts
-import { buildFirstTradeFeedbackEmail, buildContactInquiryEmail, CONTACT_INQUIRY_RECIPIENT, PERSONAL_CONTACT_EMAIL } from '../../../server/resendMail.mjs';
+import { buildFirstTradeFeedbackEmail, buildContactInquiryEmail, buildPersonalizedNewsletterEmail, DEFAULT_NEWSLETTER_TEMPLATES, CONTACT_INQUIRY_RECIPIENT, PERSONAL_CONTACT_EMAIL } from '../../../server/resendMail.mjs';
 import {
   hasSeenExperiencePopup,
   markExperiencePopupSeen,
@@ -31,6 +31,8 @@ function createInMemoryTestStore(adminConfig: {
   const feedback: any[] = [];
   const emailLogs: any[] = [];
   const contactInquiries: any[] = [];
+  let newsletters: any[] = [];
+  const newsletterLogs: any[] = [];
 
   return {
     remote: true,
@@ -70,6 +72,20 @@ function createInMemoryTestStore(adminConfig: {
     },
     async saveContactInquiry(entry: any) {
       contactInquiries.unshift(entry);
+      return entry;
+    },
+    async readNewsletters() {
+      return newsletters;
+    },
+    async saveNewsletters(items: any[]) {
+      newsletters = Array.isArray(items) ? items : [];
+      return newsletters;
+    },
+    async readNewsletterLogs() {
+      return newsletterLogs;
+    },
+    async recordNewsletterLog(entry: any) {
+      newsletterLogs.unshift(entry);
       return entry;
     },
   };
@@ -316,5 +332,163 @@ describe('Administrator user impersonation & trader feedback system', () => {
     markExperiencePopupSeen('sipho@example.com');
     expect(hasSeenExperiencePopup('sipho@example.com')).toBe(true);
     expect(hasSeenExperiencePopup()).toBe(true);
+  });
+
+  it('exposes user login timestamps and time-on-platform duration only to the authenticated administrator', async () => {
+    const adminConfig = {
+      email: 'admin@chartreplay.co.za',
+      passwordHash: await hashPassword('admin-secret-pass'),
+      sessionSecret: 'test-session-secret-key-123456',
+    };
+    const store = createInMemoryTestStore(adminConfig);
+    const handler = createPlatformHandler({ store });
+    const adminCookie = `chart_replay_admin=${createAdminSession(
+      adminConfig,
+      Date.now()
+    )}`;
+
+    // 1. Regular user impersonation / status does not expose admin-only duration fields
+    const impRes = await callHandler(handler, {
+      method: 'POST',
+      action: 'admin-impersonate',
+      cookie: adminCookie,
+      body: { userId: 'user-trader-1', email: 'sipho@example.com' },
+    });
+    expect(impRes.status).toBe(200);
+    expect(impRes.data.user.totalTimeOnPlatformSeconds).toBeUndefined();
+
+    // 2. Administrator users endpoint includes login timestamp and platform duration metrics
+    const usersRes = await callHandler(handler, {
+      method: 'GET',
+      action: 'users',
+      cookie: adminCookie,
+    });
+    expect(usersRes.status).toBe(200);
+    const adminViewUser = usersRes.data.users[0];
+    expect(adminViewUser.lastLoginAt).toBe('2026-10-25T10:00:00.000Z');
+    expect(typeof adminViewUser.currentSessionSeconds).toBe('number');
+    expect(adminViewUser.currentSessionSeconds).toBeGreaterThan(0);
+    expect(typeof adminViewUser.totalTimeOnPlatformSeconds).toBe('number');
+    expect(adminViewUser.totalTimeOnPlatformSeconds).toBeGreaterThan(0);
+    expect(typeof adminViewUser.platformMemberDurationSeconds).toBe('number');
+    expect(adminViewUser.platformMemberDurationSeconds).toBeGreaterThan(0);
+  });
+
+  it('personalizes motivational trader newsletters, requires administrator approval before scheduling/sending, and supports daily then every-second-day scheduling', async () => {
+    expect(DEFAULT_NEWSLETTER_TEMPLATES.length).toBeGreaterThanOrEqual(8);
+
+    const sampleRecipient = {
+      name: 'Sipho Ndlovu',
+      email: 'sipho@example.com',
+      joinedAt: '2026-10-20T08:00:00.000Z',
+      sessionCount: 5,
+      tradeCount: 11,
+      hasTradingPlan: true,
+      tradingPlanName: 'London Breakout Plan',
+    };
+
+    const personalized = buildPersonalizedNewsletterEmail({
+      newsletter: DEFAULT_NEWSLETTER_TEMPLATES[0],
+      recipient: sampleRecipient,
+    });
+    expect(personalized.subject).toContain('Sipho');
+    expect(personalized.headline).toContain('Sipho');
+    expect(personalized.html).toContain('London Breakout Plan');
+    expect(personalized.html).toContain('Personal Trader Snapshot · Sipho Ndlovu');
+
+    const adminConfig = {
+      email: 'admin@chartreplay.co.za',
+      passwordHash: await hashPassword('admin-secret-pass'),
+      sessionSecret: 'test-session-secret-key-123456',
+    };
+    const store = createInMemoryTestStore(adminConfig);
+    const handler = createPlatformHandler({ store });
+    const adminCookie = `chart_replay_admin=${createAdminSession(
+      adminConfig,
+      Date.now()
+    )}`;
+
+    // 1. Load newsletters in Admin Dashboard
+    const getRes = await callHandler(handler, {
+      method: 'GET',
+      action: 'newsletters',
+      cookie: adminCookie,
+    });
+    expect(getRes.status).toBe(200);
+    expect(getRes.data.newsletters.length).toBeGreaterThanOrEqual(8);
+    expect(getRes.data.newsletters[0].approved).toBe(false);
+
+    // 2. Attempting to schedule without approval fails with 400
+    const unapprovedSchedule = await callHandler(handler, {
+      method: 'POST',
+      action: 'schedule-newsletter',
+      cookie: adminCookie,
+      body: {
+        id: 'newsletter-day-1',
+        scheduledFor: '2026-11-05T07:00:00.000Z',
+        cadence: 'daily',
+      },
+    });
+    expect(unapprovedSchedule.status).toBe(400);
+
+    // 3. Administrator approves Day 1 newsletter
+    const approveRes = await callHandler(handler, {
+      method: 'POST',
+      action: 'approve-newsletter',
+      cookie: adminCookie,
+      body: { id: 'newsletter-day-1', approved: true },
+    });
+    expect(approveRes.status).toBe(200);
+    expect(approveRes.data.newsletter.approved).toBe(true);
+    expect(approveRes.data.newsletter.approvedBy).toBe('admin@chartreplay.co.za');
+
+    // 4. Administrator schedules approved Day 1 newsletter
+    const scheduleRes = await callHandler(handler, {
+      method: 'POST',
+      action: 'schedule-newsletter',
+      cookie: adminCookie,
+      body: {
+        id: 'newsletter-day-1',
+        scheduledFor: '2026-11-05T07:00:00.000Z',
+        cadence: 'daily',
+        targetAudience: 'all',
+      },
+    });
+    expect(scheduleRes.status).toBe(200);
+    expect(scheduleRes.data.newsletter.status).toBe('scheduled');
+    expect(scheduleRes.data.newsletter.scheduledFor).toBe('2026-11-05T07:00:00.000Z');
+
+    // 5. Administrator schedules full series (Daily in beginning Days 1-5, then Every 2nd Day)
+    const seriesRes = await callHandler(handler, {
+      method: 'POST',
+      action: 'schedule-newsletter-series',
+      cookie: adminCookie,
+      body: {
+        cadence: 'daily_then_every_second_day',
+        dailyDaysCount: 5,
+        startAt: '2026-11-03T06:00:00.000Z',
+        targetAudience: 'all',
+        approveAll: true,
+      },
+    });
+    expect(seriesRes.status).toBe(200);
+    const scheduledList = seriesRes.data.newsletters;
+    expect(scheduledList[0].cadence).toBe('daily');
+    expect(scheduledList[5].cadence).toBe('every_second_day');
+
+    // 6. Administrator sends an approved newsletter immediately
+    const sendRes = await callHandler(handler, {
+      method: 'POST',
+      action: 'send-newsletter',
+      cookie: adminCookie,
+      body: {
+        id: 'newsletter-day-1',
+      },
+    });
+    expect(sendRes.status).toBe(200);
+    expect(sendRes.data.newsletter.status).toBe('sent');
+    expect(sendRes.data.results).toHaveLength(1);
+    expect(sendRes.data.results[0].email).toBe('sipho@example.com');
+    expect(sendRes.data.results[0].subject).toContain('Sipho');
   });
 });

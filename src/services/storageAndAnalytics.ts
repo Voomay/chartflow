@@ -1470,6 +1470,7 @@ export function computeAnalyticsReport(
     const p1FinalBal = Number((startBal + p1NetPnl).toFixed(2));
     const p1ReturnPct =
       startBal > 0 ? Number(((p1NetPnl / startBal) * 100).toFixed(2)) : 0;
+    const p1TargetAmount = Number((startBal * (p1TargetPct / 100)).toFixed(2));
     const p1Status: PropChallengePhaseSummary['status'] =
       currentPhase !== 'PHASE_1' && passedP1Attempt
         ? 'PASSED'
@@ -1477,7 +1478,8 @@ export function computeAnalyticsReport(
           primarySession.status === 'FAILED'
         ? 'FAILED'
         : primarySession.challengeState?.status === 'PASSED' ||
-          primarySession.status === 'PASSED'
+          primarySession.status === 'PASSED' ||
+          (p1TargetAmount > 0 && p1NetPnl >= p1TargetAmount)
         ? 'PASSED'
         : 'ACTIVE';
 
@@ -1492,6 +1494,7 @@ export function computeAnalyticsReport(
     const p2FinalBal = Number((startBal + p2NetPnl).toFixed(2));
     const p2ReturnPct =
       startBal > 0 ? Number(((p2NetPnl / startBal) * 100).toFixed(2)) : 0;
+    const p2TargetAmount = Number((startBal * (p2TargetPct / 100)).toFixed(2));
     const p2Status: PropChallengePhaseSummary['status'] =
       currentPhase === 'PHASE_1'
         ? 'PENDING'
@@ -1499,7 +1502,8 @@ export function computeAnalyticsReport(
           primarySession.status === 'FAILED'
         ? 'FAILED'
         : primarySession.challengeState?.status === 'PASSED' ||
-          primarySession.status === 'PASSED'
+          primarySession.status === 'PASSED' ||
+          (p2TargetAmount > 0 && p2NetPnl >= p2TargetAmount)
         ? 'PASSED'
         : 'ACTIVE';
 
@@ -1511,7 +1515,7 @@ export function computeAnalyticsReport(
         label: 'Challenge 1 (Phase 1)',
         status: p1Status,
         targetPct: p1TargetPct,
-        targetAmount: Number((startBal * (p1TargetPct / 100)).toFixed(2)),
+        targetAmount: p1TargetAmount,
         startingBalance: startBal,
         finalBalance: p1FinalBal,
         netPnl: p1NetPnl,

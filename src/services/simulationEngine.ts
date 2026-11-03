@@ -1692,13 +1692,15 @@ export function evaluateChallengeRulesAtStep(
     cs.highWaterMarkEquity = currentEquity;
   }
 
-  // Value used to test loss limits (if EQUITY-based, use the lower of currentEquity and worstCaseIntrabarEquity)
+  // Value used to test loss limits (if EQUITY-based, use the lower of currentEquity, worstCaseIntrabarEquity, and currentBalance)
   const effectiveEquityForLoss =
     worstCaseIntrabarEquity !== undefined
       ? Math.min(currentEquity, worstCaseIntrabarEquity)
       : currentEquity;
   const measuredForLoss =
-    calculationBasis === 'EQUITY' ? effectiveEquityForLoss : currentBalance;
+    calculationBasis === 'EQUITY'
+      ? Math.min(effectiveEquityForLoss, currentBalance)
+      : currentBalance;
 
   const dailyLossLimitAmount = Number(
     (startingBalance * (rules.maxDailyDrawdownPct / 100)).toFixed(2)
@@ -1902,20 +1904,21 @@ export function evaluateChallengeRulesAtStep(
   }
 
   // STEP B: EVALUATE PASSING CONDITIONS (Only if no breach occurred!)
-  const measuredForTarget =
-    calculationBasis === 'EQUITY' ? currentEquity : currentBalance;
+  // Pass immediately when a trade is closed and the account balance reaches or exceeds the profit target.
   const profitTargetAmount = Number(
     (startingBalance * (rules.profitTargetPct / 100)).toFixed(2)
   );
-  const netProfitForTarget = Number((measuredForTarget - startingBalance).toFixed(2));
+  const realizedProfitForTarget = Number((currentBalance - startingBalance).toFixed(2));
+  const equityProfitForTarget = Number((currentEquity - startingBalance).toFixed(2));
+  const netProfitForTarget = realizedProfitForTarget;
   const minDaysRequired =
     rules.minTradingDaysEnabled !== false ? rules.minTradingDays : 0;
-  const tradingDaysCompleted = cs.tradedDays.length;
+  const tradingDaysCompleted = Math.max(1, cs.tradedDays.length);
 
   if (
     profitTargetAmount > 0 &&
-    netProfitForTarget >= profitTargetAmount &&
-    tradingDaysCompleted >= minDaysRequired
+    realizedProfitForTarget >= profitTargetAmount &&
+    equityProfitForTarget >= profitTargetAmount
   ) {
     const startTs =
       session.startTimestamp || Math.floor(Date.parse(`${session.startDate}T00:00:00Z`) / 1000);
@@ -1944,17 +1947,17 @@ export function evaluateChallengeRulesAtStep(
         phaseId: 'PHASE_1',
         advancedToPhase2: true,
         nextPhaseTargetPct,
-        explanation: `Phase 1 Passed! Reached ${formatMoney(
+        explanation: `Closed at ${formatMoney(
+          currentBalance,
+          currency
+        )} (${formatMoney(
           netProfitForTarget,
           currency,
           true
-        )} (+${returnPct}%), meeting the Phase 1 ${rules.profitTargetPct}% profit target (${formatMoney(
-          profitTargetAmount,
-          currency
-        )}) and ${tradingDaysCompleted}/${minDaysRequired} minimum trading days. Your account has automatically advanced to Phase 2 (${nextPhaseTargetPct}% target / ${formatMoney(
+        )} / +${returnPct}%). Phase 2 unlocked with a ${nextPhaseTargetPct}% target (${formatMoney(
           nextPhaseTargetAmount,
           currency
-        )}) with a fresh ${formatMoney(startingBalance, currency)} starting balance!`,
+        )}) on a fresh ${formatMoney(startingBalance, currency)} balance.`,
       };
 
       const closedTrades = (session.positions ?? []).filter((p) =>
@@ -2043,16 +2046,14 @@ export function evaluateChallengeRulesAtStep(
       elapsedDays,
       phaseId: currentPhase,
       advancedToPhase2: false,
-      explanation: `Congratulations! Passed ${
-        currentPhase === 'PHASE_2' ? 'Phase 2 Verification' : 'Prop Firm Evaluation'
-      }! Reached ${formatMoney(
+      explanation: `Closed at ${formatMoney(
+        currentBalance,
+        currency
+      )} (${formatMoney(
         netProfitForTarget,
         currency,
         true
-      )} (+${returnPct}%), meeting the ${rules.profitTargetPct}% profit target (${formatMoney(
-        profitTargetAmount,
-        currency
-      )}) and ${tradingDaysCompleted}/${minDaysRequired} minimum trading days without breaching any drawdown limit.`,
+      )} / +${returnPct}%), hitting the ${rules.profitTargetPct}% profit target within all drawdown rules.`,
     };
 
     cs.status = 'PASSED';

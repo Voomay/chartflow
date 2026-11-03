@@ -558,6 +558,7 @@ export type DrawingTool =
   | 'highlighter'
   | 'abc_pattern'
   | 'abcd_pattern'
+  | 'elliott_wave'
   | 'trendline'
   | 'hline'
   | 'vline'
@@ -671,6 +672,26 @@ export interface OrderFlowIndicatorConfig {
   pocColor: string;
 }
 
+export type CRTCandleStartMode = 1 | 5 | 9 | 'ALL';
+
+export interface CRTOverlayIndicatorConfig {
+  timezone: DisplayTimezone;
+  purgeColor: string;
+  candleStart: CRTCandleStartMode;
+  purgeDurationMinutes: number;
+  highLineColor: string;
+  lowLineColor: string;
+  midLineColor: string;
+  csdHighSweepColor: string;
+  csdLowSweepColor: string;
+  fvgLength: number;
+  fvgFinder: number;
+  bullFvgColor: string;
+  bearFvgColor: string;
+  removeOldFvg: boolean;
+  showFvg50: boolean;
+}
+
 export interface ChartIndicatorConfigs {
   maConfigs: Record<string, MovingAverageIndicatorConfig>;
   customMAs: MovingAverageIndicatorConfig[];
@@ -683,6 +704,7 @@ export interface ChartIndicatorConfigs {
   momentum: { fastColor: string; slowColor: string; lineWidth: number };
   forecast: { lookback: number; horizon: number; primaryColor: string; secondaryColor: string };
   orderFlow: OrderFlowIndicatorConfig;
+  crtOverlay: CRTOverlayIndicatorConfig;
 }
 
 export interface ChartDrawing {
@@ -695,6 +717,7 @@ export interface ChartDrawing {
     | 'highlighter'
     | 'abc_pattern'
     | 'abcd_pattern'
+    | 'elliott_wave'
     | 'trendline'
     | 'hline'
     | 'vline'

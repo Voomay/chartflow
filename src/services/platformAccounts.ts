@@ -31,10 +31,44 @@ export interface AdminUser {
   currentSessionSeconds?: number | null;
   totalTimeOnPlatformSeconds?: number | null;
   platformMemberDurationSeconds?: number | null;
+  emailUnsubscribed?: boolean;
+  unsubscribedAt?: string | null;
   source: 'server' | 'browser';
 }
+
+const LOCAL_UNSUBSCRIBED_KEY = 'cr_unsubscribed_emails_v1';
+
+export function getLocalUnsubscribedEmails(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(LOCAL_UNSUBSCRIBED_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.map((e) => String(e || '').trim().toLowerCase()).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+export function setLocalEmailUnsubscribed(email: string, unsubscribed: boolean): Set<string> {
+  const clean = String(email || '').trim().toLowerCase();
+  const current = getLocalUnsubscribedEmails();
+  if (clean) {
+    if (unsubscribed) current.add(clean);
+    else current.delete(clean);
+    try {
+      window.localStorage.setItem(LOCAL_UNSUBSCRIBED_KEY, JSON.stringify(Array.from(current)));
+    } catch {
+      // ignore storage quota errors
+    }
+  }
+  return current;
+}
+
 export function localAdminProfiles(): AdminUser[] {
   const nowMs = Date.now();
+  const unsubSet = getLocalUnsubscribedEmails();
   return getRegisteredUsers()
     .filter((user) => user.id !== 'user-demo-trader' && user.authSource !== 'server')
     .map((user) => {
@@ -46,6 +80,7 @@ export function localAdminProfiles(): AdminUser[] {
       const sessionSec = Number.isFinite(loginMs)
         ? Math.max(120, Math.min(3600, Math.round(Math.max(60000, nowMs - loginMs) / 1000)))
         : 120;
+      const isUnsub = unsubSet.has(String(user.email || '').trim().toLowerCase());
       return {
         id: user.id,
         name: user.name,
@@ -56,6 +91,7 @@ export function localAdminProfiles(): AdminUser[] {
         currentSessionSeconds: sessionSec,
         totalTimeOnPlatformSeconds: Math.max(sessionSec, (user.loginCount || 1) * 300),
         platformMemberDurationSeconds: memberSec,
+        emailUnsubscribed: isUnsub,
         source: 'browser' as const,
       };
     });
@@ -1067,6 +1103,7 @@ export async function loadAdminNewsletters(preview = false): Promise<{
   ok: boolean;
   newsletters: NewsletterEditionItem[];
   logs: NewsletterDeliveryLogItem[];
+  unsubscribedEmails?: string[];
   resendConfigured: boolean;
 }> {
   if (preview) {
@@ -1074,16 +1111,25 @@ export async function loadAdminNewsletters(preview = false): Promise<{
       ok: true,
       newsletters: previewNewslettersState,
       logs: previewNewsletterLogsState,
+      unsubscribedEmails: Array.from(getLocalUnsubscribedEmails()),
       resendConfigured: true,
     };
   }
   try {
     const res = await platformRequest('newsletters');
     if (res.ok && Array.isArray(res.newsletters)) {
+      if (Array.isArray(res.unsubscribedEmails)) {
+        for (const em of res.unsubscribedEmails) {
+          if (em) setLocalEmailUnsubscribed(String(em), true);
+        }
+      }
       return {
         ok: true,
         newsletters: res.newsletters as NewsletterEditionItem[],
         logs: Array.isArray(res.logs) ? (res.logs as NewsletterDeliveryLogItem[]) : [],
+        unsubscribedEmails: Array.isArray(res.unsubscribedEmails)
+          ? (res.unsubscribedEmails as string[])
+          : Array.from(getLocalUnsubscribedEmails()),
         resendConfigured: Boolean(res.resendConfigured),
       };
     }
@@ -1094,6 +1140,7 @@ export async function loadAdminNewsletters(preview = false): Promise<{
     ok: true,
     newsletters: DEFAULT_CLIENT_NEWSLETTER_TEMPLATES,
     logs: [],
+    unsubscribedEmails: Array.from(getLocalUnsubscribedEmails()),
     resendConfigured: false,
   };
 }
@@ -1383,6 +1430,129 @@ export async function sendAdminNewsletterNow(
     results: res.results,
   };
 }
+
+export async function unscheduleAdminNewsletter(
+  id: string,
+  preview = false
+): Promise<{
+  ok: boolean;
+  newsletter?: NewsletterEditionItem;
+  newsletters?: NewsletterEditionItem[];
+  error?: string;
+}> {
+  if (preview) {
+    const nowIso = new Date().toISOString();
+    let updated: NewsletterEditionItem | undefined;
+    previewNewslettersState = previewNewslettersState.map((item) => {
+      if (item.id !== id) return item;
+      updated = {
+        ...item,
+        status: item.approved ? 'approved' : 'pending_approval',
+        scheduledFor: null,
+        updatedAt: nowIso,
+      };
+      return updated;
+    });
+    return { ok: true, newsletter: updated, newsletters: previewNewslettersState };
+  }
+  const res = await platformRequest('unschedule-newsletter', { id });
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: (res.error as string) || 'Unable to unschedule newsletter.',
+    };
+  }
+  return {
+    ok: true,
+    newsletter: res.newsletter,
+    newsletters: res.newsletters,
+  };
+}
+
+export async function deleteAdminNewsletter(
+  id: string,
+  preview = false
+): Promise<{
+  ok: boolean;
+  newsletters?: NewsletterEditionItem[];
+  error?: string;
+}> {
+  if (preview) {
+    previewNewslettersState = previewNewslettersState.filter((item) => item.id !== id);
+    return { ok: true, newsletters: previewNewslettersState };
+  }
+  const res = await platformRequest('delete-newsletter', { id });
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: (res.error as string) || 'Unable to delete newsletter.',
+    };
+  }
+  return {
+    ok: true,
+    newsletters: res.newsletters,
+  };
+}
+
+export async function updateEmailSubscriptionStatus(
+  email: string,
+  unsubscribed: boolean,
+  preview = false
+): Promise<{
+  ok: boolean;
+  email: string;
+  unsubscribed: boolean;
+  unsubscribedEmails?: string[];
+  error?: string;
+}> {
+  const clean = String(email || '').trim().toLowerCase();
+  if (!clean || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+    return {
+      ok: false,
+      email: clean,
+      unsubscribed,
+      error: 'Please enter a valid email address.',
+    };
+  }
+  const updatedLocal = setLocalEmailUnsubscribed(clean, unsubscribed);
+  if (preview) {
+    return {
+      ok: true,
+      email: clean,
+      unsubscribed,
+      unsubscribedEmails: Array.from(updatedLocal),
+    };
+  }
+  try {
+    const res = await platformRequest(unsubscribed ? 'unsubscribe' : 'resubscribe', {
+      email: clean,
+    });
+    if (res.ok) {
+      if (Array.isArray(res.unsubscribedEmails)) {
+        for (const em of res.unsubscribedEmails) {
+          if (em) setLocalEmailUnsubscribed(String(em), true);
+        }
+      }
+      return {
+        ok: true,
+        email: clean,
+        unsubscribed: Boolean(res.unsubscribed ?? unsubscribed),
+        unsubscribedEmails: Array.isArray(res.unsubscribedEmails)
+          ? (res.unsubscribedEmails as string[])
+          : Array.from(getLocalUnsubscribedEmails()),
+      };
+    }
+  } catch {
+    // Fall back to local subscription state when offline/preview
+  }
+  return {
+    ok: true,
+    email: clean,
+    unsubscribed,
+    unsubscribedEmails: Array.from(updatedLocal),
+  };
+}
+
 
 
 

@@ -97,6 +97,7 @@ import {
   ContactInquiryCategory,
   getAdminImpersonationState,
   platformRequest,
+  updateEmailSubscriptionStatus,
 } from './services/platformAccounts';
 import {
   ExperienceReviewPopup,
@@ -1114,7 +1115,8 @@ export function App() {
   // Handle ?unsubscribe=1&email=... links from user emails
   const [unsubscribeModal, setUnsubscribeModal] = useState<{
     email: string;
-    status: 'processing' | 'unsubscribed' | 'resubscribed' | 'error';
+    status: 'prompt' | 'processing' | 'unsubscribed' | 'resubscribed' | 'error';
+    error?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -1124,8 +1126,7 @@ export function App() {
         sp.get('unsubscribe') === '1' ||
         window.location.pathname.replace(/\/+$/, '') === '/unsubscribe';
       const rawEmail = (sp.get('email') || '').trim().toLowerCase();
-      if (!isUnsub || !rawEmail) return;
-      setUnsubscribeModal({ email: rawEmail, status: 'processing' });
+      if (!isUnsub) return;
       const url = new URL(window.location.href);
       url.searchParams.delete('unsubscribe');
       url.searchParams.delete('email');
@@ -1133,7 +1134,15 @@ export function App() {
         url.pathname = '/';
       }
       window.history.replaceState({}, '', url.toString());
-      void platformRequest('unsubscribe', { email: rawEmail })
+      if (!rawEmail) {
+        setUnsubscribeModal({
+          email: currentUser?.email || '',
+          status: 'prompt',
+        });
+        return;
+      }
+      setUnsubscribeModal({ email: rawEmail, status: 'processing' });
+      void updateEmailSubscriptionStatus(rawEmail, true)
         .then(() => {
           setUnsubscribeModal({ email: rawEmail, status: 'unsubscribed' });
         })
@@ -1143,7 +1152,7 @@ export function App() {
     } catch {
       // ignore
     }
-  }, []);
+  }, [currentUser?.email]);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -2505,6 +2514,8 @@ export function App() {
           <h3 className="text-base font-extrabold">
             {unsubscribeModal.status === 'resubscribed'
               ? 'Email Subscription Restored'
+              : unsubscribeModal.status === 'prompt'
+              ? 'Manage Email Subscription'
               : 'Unsubscribed from Emails'}
           </h3>
           <button
@@ -2515,40 +2526,128 @@ export function App() {
             <X className="w-4 h-4" />
           </button>
         </div>
-        <p className="text-xs leading-relaxed opacity-90">
-          {unsubscribeModal.status === 'processing'
-            ? `Updating email preferences for ${unsubscribeModal.email}…`
-            : unsubscribeModal.status === 'resubscribed'
-            ? `${unsubscribeModal.email} has been re-subscribed to Chart Replay updates.`
-            : `${unsubscribeModal.email} has been unsubscribed from Chart Replay marketing and update emails.`}
-        </p>
-        <div className="flex items-center justify-end gap-2 pt-2">
-          {unsubscribeModal.status === 'unsubscribed' && (
-            <button
-              type="button"
-              onClick={() => {
-                void platformRequest('resubscribe', {
-                  email: unsubscribeModal.email,
-                }).finally(() => {
-                  setUnsubscribeModal({
-                    email: unsubscribeModal.email,
-                    status: 'resubscribed',
+        {unsubscribeModal.status === 'prompt' ? (
+          <div className="space-y-3">
+            <p className="text-xs leading-relaxed opacity-90">
+              Enter your email address below to unsubscribe from Chart Replay newsletters and coaching updates (or re-subscribe at any time).
+            </p>
+            <input
+              type="email"
+              value={unsubscribeModal.email}
+              onChange={(e) =>
+                setUnsubscribeModal({
+                  ...unsubscribeModal,
+                  email: e.target.value,
+                  error: undefined,
+                })
+              }
+              placeholder="you@example.com"
+              className="w-full rounded-xl border border-[#323744] bg-[#0e1116] px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+            />
+            {unsubscribeModal.error && (
+              <p className="text-xs text-rose-400 font-semibold">{unsubscribeModal.error}</p>
+            )}
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const clean = unsubscribeModal.email.trim().toLowerCase();
+                  if (!clean || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+                    setUnsubscribeModal({
+                      ...unsubscribeModal,
+                      error: 'Please enter a valid email address.',
+                    });
+                    return;
+                  }
+                  setUnsubscribeModal({ email: clean, status: 'processing' });
+                  void updateEmailSubscriptionStatus(clean, false).finally(() => {
+                    setUnsubscribeModal({ email: clean, status: 'resubscribed' });
                   });
-                });
-              }}
-              className="px-3.5 py-2 rounded-xl bg-[#22262f] hover:bg-[#2c313d] border border-[#323744] text-white text-xs font-extrabold"
-            >
-              Resubscribe
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setUnsubscribeModal(null)}
-            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold"
-          >
-            Done
-          </button>
-        </div>
+                }}
+                className="px-3.5 py-2 rounded-xl bg-[#22262f] hover:bg-[#2c313d] border border-[#323744] text-white text-xs font-extrabold"
+              >
+                Resubscribe
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const clean = unsubscribeModal.email.trim().toLowerCase();
+                  if (!clean || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+                    setUnsubscribeModal({
+                      ...unsubscribeModal,
+                      error: 'Please enter a valid email address.',
+                    });
+                    return;
+                  }
+                  setUnsubscribeModal({ email: clean, status: 'processing' });
+                  void updateEmailSubscriptionStatus(clean, true).finally(() => {
+                    setUnsubscribeModal({ email: clean, status: 'unsubscribed' });
+                  });
+                }}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold"
+              >
+                Unsubscribe
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="text-xs leading-relaxed opacity-90">
+              {unsubscribeModal.status === 'processing'
+                ? `Updating email preferences for ${unsubscribeModal.email}…`
+                : unsubscribeModal.status === 'resubscribed'
+                ? `${unsubscribeModal.email} has been re-subscribed to Chart Replay updates.`
+                : `${unsubscribeModal.email} has been unsubscribed from Chart Replay marketing and update emails.`}
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              {unsubscribeModal.status === 'unsubscribed' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void updateEmailSubscriptionStatus(
+                      unsubscribeModal.email,
+                      false
+                    ).finally(() => {
+                      setUnsubscribeModal({
+                        email: unsubscribeModal.email,
+                        status: 'resubscribed',
+                      });
+                    });
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-[#22262f] hover:bg-[#2c313d] border border-[#323744] text-white text-xs font-extrabold"
+                >
+                  Resubscribe
+                </button>
+              )}
+              {unsubscribeModal.status === 'resubscribed' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void updateEmailSubscriptionStatus(
+                      unsubscribeModal.email,
+                      true
+                    ).finally(() => {
+                      setUnsubscribeModal({
+                        email: unsubscribeModal.email,
+                        status: 'unsubscribed',
+                      });
+                    });
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-[#22262f] hover:bg-[#2c313d] border border-[#323744] text-white text-xs font-extrabold"
+                >
+                  Unsubscribe Again
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setUnsubscribeModal(null)}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold"
+              >
+                Done
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   ) : null;
@@ -3042,6 +3141,7 @@ export function App() {
   if (activeView === 'login' || !currentUser) {
     return (
       <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]" />}>
+      {experiencePopupOverlay}
       <LoginPage
         initialMode={urlResetParams.token ? 'reset' : loginInitialMode}
         onModeChange={(nextMode) => setLoginInitialMode(nextMode)}
@@ -3275,6 +3375,7 @@ export function App() {
           <CreateSessionModal
             isOpen={isCreateSessionModalOpen}
             initialMode={createSessionModalMode}
+            userName={currentUser?.name}
             onClose={() => setIsCreateSessionModalOpen(false)}
             sessions={tradingSessions}
             activeSessionId={activeSession.id}
@@ -3290,7 +3391,7 @@ export function App() {
             onDeleteSession={handleDeleteSession}
             savedStrategies={allStrategyNames}
             onAddStrategy={(newStratName: string) => {
-              if (!allStrategyNames.includes(newStratName)) {
+              if (!strategies.some((s) => s.name === newStratName)) {
                 const next: StrategyRecord[] = [
                   ...strategies,
                   {
@@ -4013,6 +4114,7 @@ export function App() {
         <CreateSessionModal
           isOpen={isCreateSessionModalOpen}
           initialMode={createSessionModalMode}
+          userName={currentUser?.name}
           onClose={() => setIsCreateSessionModalOpen(false)}
           sessions={tradingSessions}
           activeSessionId={activeSession.id}
@@ -4027,7 +4129,7 @@ export function App() {
           onDeleteSession={handleDeleteSession}
           savedStrategies={allStrategyNames}
           onAddStrategy={(newStratName: string) => {
-            if (!allStrategyNames.includes(newStratName)) {
+            if (!strategies.some((s) => s.name === newStratName)) {
               const next: StrategyRecord[] = [
                 ...strategies,
                 {

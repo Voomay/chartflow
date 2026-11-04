@@ -6,21 +6,27 @@ import {
   Clock3,
   Edit3,
   Eye,
+  FileText,
   Mail,
   MailCheck,
   MailOpen,
+  MailX,
   MousePointerClick,
   Newspaper,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
   ShieldCheck,
   Smartphone,
   Sparkles,
+  Trash2,
   UserCheck,
+  UserMinus,
   Users,
   Monitor,
+  X,
 } from 'lucide-react';
 import {
   AdminUser,
@@ -29,8 +35,10 @@ import {
   NewsletterEditionItem,
   NewsletterTargetAudience,
   approveAdminNewsletter,
+  deleteAdminNewsletter,
   extractClientNewsletterStepsAndIntro,
   formatPlatformDurationLabel,
+  getLocalUnsubscribedEmails,
   getTraderDaysSinceActive,
   isTraderInactive2To3PlusDays,
   loadAdminNewsletters,
@@ -40,6 +48,8 @@ import {
   scheduleAdminNewsletterSeries,
   sendAdminNewsletterNow,
   stripClientLegacyDayPrefix,
+  unscheduleAdminNewsletter,
+  updateEmailSubscriptionStatus,
 } from '../services/platformAccounts';
 
 interface AdminNewsletterProps {
@@ -111,8 +121,16 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
   const [targetAudience, setTargetAudience] =
     useState<NewsletterTargetAudience>('all');
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
+  const [unsubscribedSet, setUnsubscribedSet] = useState<Set<string>>(() =>
+    getLocalUnsubscribedEmails()
+  );
+  const [customRecipients, setCustomRecipients] = useState<AdminUser[]>([]);
+  const [customEmailInput, setCustomEmailInput] = useState('');
+  const [customNameInput, setCustomNameInput] = useState('');
   const [userSearch, setUserSearch] = useState('');
-  const [userFilterMode, setUserFilterMode] = useState<'all' | 'inactive_2_3_days'>('all');
+  const [userFilterMode, setUserFilterMode] = useState<
+    'all' | 'subscribed' | 'unsubscribed' | 'inactive_2_3_days'
+  >('all');
   const [openFilterMode, setOpenFilterMode] = useState<'all' | 'opened' | 'unopened' | 'clicked'>('all');
   const [openLogSearch, setOpenLogSearch] = useState('');
   const [statusBanner, setStatusBanner] = useState<{
@@ -126,6 +144,18 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       const res = await loadAdminNewsletters(preview);
       setNewsletters(res.newsletters);
       setLogs(res.logs);
+      const localUnsub = getLocalUnsubscribedEmails();
+      if (Array.isArray(res.unsubscribedEmails)) {
+        for (const em of res.unsubscribedEmails) {
+          if (em) localUnsub.add(em.toLowerCase());
+        }
+      }
+      for (const u of users) {
+        if (u.emailUnsubscribed && u.email) {
+          localUnsub.add(u.email.toLowerCase());
+        }
+      }
+      setUnsubscribedSet(new Set(localUnsub));
       if (
         res.newsletters.length > 0 &&
         !res.newsletters.some((n) => n.id === selectedId)
@@ -135,17 +165,56 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [preview, selectedId]);
+  }, [preview, selectedId, users]);
 
   useEffect(() => {
     void refreshNewsletters();
   }, [refreshNewsletters]);
 
+  // Automatic background due-check polling while admin is viewing newsletters
   useEffect(() => {
-    if (!previewUserEmail && users.length > 0) {
-      setPreviewUserEmail(users[0].email);
+    const timer = window.setInterval(() => {
+      void loadAdminNewsletters(preview).then((res) => {
+        if (res.ok) {
+          setNewsletters(res.newsletters);
+          setLogs(res.logs);
+        }
+      });
+    }, 45000);
+    return () => window.clearInterval(timer);
+  }, [preview]);
+
+  const allCombinedUsers = useMemo(() => {
+    const known = new Set(users.map((u) => u.email.toLowerCase()));
+    return [
+      ...users,
+      ...customRecipients.filter((c) => !known.has(c.email.toLowerCase())),
+    ];
+  }, [users, customRecipients]);
+
+  const isUserUnsubscribed = useCallback(
+    (u: AdminUser) => {
+      const clean = String(u.email || '').trim().toLowerCase();
+      return Boolean(u.emailUnsubscribed || unsubscribedSet.has(clean));
+    },
+    [unsubscribedSet]
+  );
+
+  const subscribedUsers = useMemo(
+    () => allCombinedUsers.filter((u) => !isUserUnsubscribed(u)),
+    [allCombinedUsers, isUserUnsubscribed]
+  );
+
+  const unsubscribedUsersCount = useMemo(
+    () => allCombinedUsers.filter((u) => isUserUnsubscribed(u)).length,
+    [allCombinedUsers, isUserUnsubscribed]
+  );
+
+  useEffect(() => {
+    if (!previewUserEmail && allCombinedUsers.length > 0) {
+      setPreviewUserEmail(allCombinedUsers[0].email);
     }
-  }, [users, previewUserEmail]);
+  }, [allCombinedUsers, previewUserEmail]);
 
   const activeNewsletter = useMemo(() => {
     return (
@@ -181,11 +250,11 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
   }, [activeNewsletter]);
 
   const previewRecipient = useMemo<AdminUser>(() => {
-    const found = users.find(
+    const found = allCombinedUsers.find(
       (u) => u.email.toLowerCase() === previewUserEmail.toLowerCase()
     );
     if (found) return found;
-    if (users[0]) return users[0];
+    if (allCombinedUsers[0]) return allCombinedUsers[0];
     return {
       id: 'sample-trader',
       name: 'Lerato Mokoena',
@@ -201,7 +270,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       currentSessionSeconds: 1800,
       source: 'server',
     };
-  }, [users, previewUserEmail]);
+  }, [allCombinedUsers, previewUserEmail]);
 
   const personalizedPreview = useMemo(() => {
     const src = {
@@ -265,47 +334,58 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
   ]);
 
   const inactiveTraders = useMemo(() => {
-    return users.filter((u) => isTraderInactive2To3PlusDays(u));
-  }, [users]);
+    return subscribedUsers.filter((u) => isTraderInactive2To3PlusDays(u));
+  }, [subscribedUsers]);
 
   const filteredUsers = useMemo(() => {
     const q = userSearch.trim().toLowerCase();
-    return users.filter((u) => {
-      if (userFilterMode === 'inactive_2_3_days' && !isTraderInactive2To3PlusDays(u)) {
+    return allCombinedUsers.filter((u) => {
+      const unsub = isUserUnsubscribed(u);
+      if (userFilterMode === 'subscribed' && unsub) return false;
+      if (userFilterMode === 'unsubscribed' && !unsub) return false;
+      if (
+        userFilterMode === 'inactive_2_3_days' &&
+        (unsub || !isTraderInactive2To3PlusDays(u))
+      ) {
         return false;
       }
       return !q || `${u.name} ${u.email}`.toLowerCase().includes(q);
     });
-  }, [users, userSearch, userFilterMode]);
+  }, [allCombinedUsers, userSearch, userFilterMode, isUserUnsubscribed]);
 
   const recipientUsersForTarget = useMemo(() => {
-    if (targetAudience === 'selected' && selectedEmails.size > 0) {
-      return users.filter((u) => selectedEmails.has(u.email.toLowerCase()));
+    if (targetAudience === 'selected') {
+      return subscribedUsers.filter((u) =>
+        selectedEmails.has(u.email.toLowerCase())
+      );
     }
     if (targetAudience === 'inactive_2_3_days') {
       return inactiveTraders;
     }
     if (targetAudience === 'active') {
-      return users.filter(
+      return subscribedUsers.filter(
         (u) => Number(u.sessionCount ?? 0) > 0 || Number(u.tradeCount ?? 0) > 0
       );
     }
     if (targetAudience === 'new_starters') {
       const now = Date.now();
-      return users.filter((u) => {
+      return subscribedUsers.filter((u) => {
         const joinedMs = u.joinedAt ? Date.parse(u.joinedAt) : NaN;
         if (!Number.isFinite(joinedMs)) return true;
         return now - joinedMs <= 7 * 86400000;
       });
     }
-    return users;
-  }, [targetAudience, selectedEmails, users, inactiveTraders]);
+    return subscribedUsers;
+  }, [targetAudience, selectedEmails, subscribedUsers, inactiveTraders]);
+
+  const scheduledNewsletters = useMemo(
+    () => newsletters.filter((n) => n.status === 'scheduled'),
+    [newsletters]
+  );
 
   const metrics = useMemo(() => {
     const approvedCount = newsletters.filter((n) => n.approved).length;
-    const scheduledCount = newsletters.filter(
-      (n) => n.status === 'scheduled'
-    ).length;
+    const scheduledCount = scheduledNewsletters.length;
     const sentEditions = newsletters.filter((n) => n.status === 'sent').length;
     const totalDeliveries =
       logs.length ||
@@ -316,7 +396,8 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       logs.length > 0 ? Math.round((openedLogsCount / logs.length) * 100) : 0;
 
     return {
-      totalEmails: users.length,
+      totalEmails: subscribedUsers.length,
+      unsubscribedCount: unsubscribedUsersCount,
       inactiveCount: inactiveTraders.length,
       approvedCount,
       scheduledCount,
@@ -326,7 +407,14 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       clickedLogsCount,
       openRate,
     };
-  }, [newsletters, logs, users.length, inactiveTraders.length]);
+  }, [
+    newsletters,
+    scheduledNewsletters.length,
+    logs,
+    subscribedUsers.length,
+    unsubscribedUsersCount,
+    inactiveTraders.length,
+  ]);
 
   const perUserOpenStats = useMemo(() => {
     const map = new Map<
@@ -377,10 +465,13 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       else next.add(clean);
       return next;
     });
+    setTargetAudience('selected');
   };
 
   const handleSelectAllFiltered = () => {
-    const allFiltered = filteredUsers.map((u) => u.email.toLowerCase());
+    const allFiltered = filteredUsers
+      .filter((u) => !isUserUnsubscribed(u))
+      .map((u) => u.email.toLowerCase());
     const allChecked =
       allFiltered.length > 0 &&
       allFiltered.every((e) => selectedEmails.has(e));
@@ -389,6 +480,81 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     } else {
       setSelectedEmails(new Set(allFiltered));
       setTargetAudience('selected');
+    }
+  };
+
+  const handleAddCustomRecipient = () => {
+    const clean = customEmailInput.trim().toLowerCase();
+    if (!clean || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+      setStatusBanner({
+        tone: 'error',
+        text: 'Please enter a valid email address to add as a recipient.',
+      });
+      return;
+    }
+    const name = customNameInput.trim() || clean.split('@')[0] || 'Trader';
+    if (!allCombinedUsers.some((u) => u.email.toLowerCase() === clean)) {
+      setCustomRecipients((prev) => [
+        {
+          id: `custom-${Date.now()}`,
+          name,
+          email: clean,
+          joinedAt: new Date().toISOString(),
+          loginCount: 1,
+          lastLoginAt: new Date().toISOString(),
+          sessionCount: 0,
+          tradeCount: 0,
+          source: 'server',
+        },
+        ...prev,
+      ]);
+    }
+    setSelectedEmails((prev) => new Set([...prev, clean]));
+    setTargetAudience('selected');
+    setCustomEmailInput('');
+    setCustomNameInput('');
+    setStatusBanner({
+      tone: 'info',
+      text: `Added ${name} (${clean}) to your selected individual recipients.`,
+    });
+  };
+
+  const handleToggleUserSubscription = async (
+    user: AdminUser,
+    makeUnsubscribed: boolean
+  ) => {
+    const clean = user.email.trim().toLowerCase();
+    setBusyAction(`sub-${clean}`);
+    setStatusBanner(null);
+    try {
+      const res = await updateEmailSubscriptionStatus(
+        clean,
+        makeUnsubscribed,
+        preview
+      );
+      if (res.ok) {
+        setUnsubscribedSet((prev) => {
+          const next = new Set(prev);
+          if (makeUnsubscribed) next.add(clean);
+          else next.delete(clean);
+          return next;
+        });
+        if (makeUnsubscribed) {
+          setSelectedEmails((prev) => {
+            const next = new Set(prev);
+            next.delete(clean);
+            return next;
+          });
+        }
+        setStatusBanner({
+          tone: 'info',
+          text: makeUnsubscribed
+            ? `${user.name} (${clean}) has been unsubscribed from emails.`
+            : `${user.name} (${clean}) has been re-subscribed to emails.`,
+        });
+      }
+    } finally {
+      setBusyAction(null);
     }
   };
 
@@ -428,8 +594,55 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       setEditingCopy(false);
       setStatusBanner({
         tone: 'success',
-        text: 'Step-by-step playbook layout and personalized copy saved.',
+        text: 'Email layout and personalized copy saved.',
       });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleCreateNewLetter = async () => {
+    const maxDay = newsletters.reduce(
+      (max, n) => Math.max(max, n.dayNumber || 1),
+      0
+    );
+    const nextOrder = maxDay + 1;
+    const newId = `newsletter-letter-${nextOrder}-${Date.now().toString(36)}`;
+    setBusyAction('create-letter');
+    try {
+      const res = await saveAdminNewsletter(
+        {
+          id: newId,
+          dayNumber: nextOrder,
+          cadence: 'daily',
+          category: 'letter',
+          phaseLabel: 'Personal Letter · Chart Replay',
+          badgeText: 'Personal Letter · Chart Replay',
+          subject:
+            'Hi {{firstName}} — A Personal Note from Cheslin at Chart Replay',
+          headline:
+            'Hi {{firstName}}, thank you for practicing and building your edge with us.',
+          bodyText:
+            'I wanted to send you a quick personal letter to check in on your trading journey.\n\nConsistent profitability comes from deliberate, stress-free repetition on the charts. Whether you are testing a Normal Strategy Backtest or preparing for a Prop Firm Evaluation, every 15-minute replay session sharpens your eye for high-probability setups.\n\nKeep {{tradingPlanName}} pinned on your chart, trust your stop-loss math, and let me know if there is any feature we can build to make your practice even smoother.',
+          steps: [],
+          actionTip:
+            'Open Chart Replay for a focused 15-minute session today and execute 2 to 3 clean setups strictly following your plan.',
+          ctaText: 'Open Your Chart Replay Workspace →',
+          status: 'pending_approval',
+          targetAudience,
+          approved: true,
+        },
+        preview
+      );
+      if (res.ok && res.newsletters) {
+        setNewsletters(res.newsletters);
+        setSelectedId(newId);
+        setEditingCopy(true);
+        setStatusBanner({
+          tone: 'info',
+          text: 'Created new Personal Letter! Customize your letter below, then choose All or Individuals to Send Now or Schedule.',
+        });
+      }
     } finally {
       setBusyAction(null);
     }
@@ -539,6 +752,13 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
 
   const handleScheduleSelected = async () => {
     if (!activeNewsletter) return;
+    if (targetAudience === 'selected' && selectedEmails.size === 0) {
+      setStatusBanner({
+        tone: 'error',
+        text: 'Please check at least one individual recipient below before scheduling for Selected Individuals.',
+      });
+      return;
+    }
     setBusyAction('schedule');
     setStatusBanner(null);
     try {
@@ -559,6 +779,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
           actionTip: draftActionTip,
           ctaText: draftCtaText,
           targetAudience,
+          selectedRecipients: Array.from(selectedEmails),
         },
         preview
       );
@@ -586,8 +807,49 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         tone: 'success',
         text: `Approved & scheduled "${cleanBadge}" for ${formatSaDateTime(
           scheduledIso
-        )} SAST.`,
+        )} SAST (${
+          targetAudience === 'selected'
+            ? `${selectedEmails.size} selected individual(s)`
+            : `${recipientUsersForTarget.length} subscribed recipients`
+        }).`,
       });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleCancelScheduledEdition = async (id: string) => {
+    setBusyAction(`unschedule-${id}`);
+    setStatusBanner(null);
+    try {
+      const res = await unscheduleAdminNewsletter(id, preview);
+      if (res.ok && res.newsletters) {
+        setNewsletters(res.newsletters);
+        setStatusBanner({
+          tone: 'info',
+          text: 'Scheduled delivery cancelled.',
+        });
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDeleteEdition = async (id: string) => {
+    setBusyAction(`delete-${id}`);
+    setStatusBanner(null);
+    try {
+      const res = await deleteAdminNewsletter(id, preview);
+      if (res.ok && res.newsletters) {
+        setNewsletters(res.newsletters);
+        if (selectedId === id && res.newsletters[0]) {
+          setSelectedId(res.newsletters[0].id);
+        }
+        setStatusBanner({
+          tone: 'info',
+          text: 'Email template removed.',
+        });
+      }
     } finally {
       setBusyAction(null);
     }
@@ -628,10 +890,32 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     }
   };
 
-  const handleSendNow = async (overrideAudience?: NewsletterTargetAudience) => {
+  const handleSendNow = async (
+    overrideAudience?: NewsletterTargetAudience,
+    singleRecipient?: AdminUser
+  ) => {
     if (!activeNewsletter) return;
-    const effectiveAudience = overrideAudience || targetAudience;
-    setBusyAction(overrideAudience === 'inactive_2_3_days' ? 'send-inactive' : 'send');
+    const effectiveAudience = singleRecipient
+      ? 'selected'
+      : overrideAudience || targetAudience;
+    if (
+      !singleRecipient &&
+      effectiveAudience === 'selected' &&
+      selectedEmails.size === 0
+    ) {
+      setStatusBanner({
+        tone: 'error',
+        text: 'Please select at least one individual recipient (or switch to All Subscribed Traders) before sending.',
+      });
+      return;
+    }
+    setBusyAction(
+      singleRecipient
+        ? `send-single-${singleRecipient.email}`
+        : overrideAudience === 'inactive_2_3_days'
+        ? 'send-inactive'
+        : 'send'
+    );
     setStatusBanner(null);
     try {
       const { steps: parsedSteps } = extractClientNewsletterStepsAndIntro(draftBody);
@@ -651,21 +935,36 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
           actionTip: draftActionTip,
           ctaText: draftCtaText,
           targetAudience: effectiveAudience,
+          selectedRecipients: singleRecipient
+            ? [singleRecipient.email.toLowerCase()]
+            : Array.from(selectedEmails),
         },
         preview
       );
 
       let targetUsers = recipientUsersForTarget;
-      if (effectiveAudience === 'inactive_2_3_days') {
-        targetUsers = inactiveTraders.length > 0 ? inactiveTraders : users;
+      if (singleRecipient) {
+        targetUsers = [singleRecipient];
+      } else if (effectiveAudience === 'inactive_2_3_days') {
+        targetUsers =
+          inactiveTraders.length > 0 ? inactiveTraders : subscribedUsers;
       } else if (effectiveAudience === 'all') {
-        targetUsers = users;
+        targetUsers = subscribedUsers;
       }
 
-      const recipients = targetUsers.map((u) => ({
-        email: u.email,
-        name: u.name,
-      }));
+      const recipients = targetUsers
+        .filter((u) => !isUserUnsubscribed(u))
+        .map((u) => ({
+          email: u.email,
+          name: u.name,
+        }));
+      if (recipients.length === 0) {
+        setStatusBanner({
+          tone: 'error',
+          text: 'No subscribed recipients matched your selection (unsubscribed users are automatically excluded).',
+        });
+        return;
+      }
       const res = await sendAdminNewsletterNow(
         {
           id: activeNewsletter.id,
@@ -687,14 +986,15 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       if (res.logs) setLogs(res.logs);
       setStatusBanner({
         tone: 'success',
-        text:
-          effectiveAudience === 'inactive_2_3_days'
-            ? `Sent Comeback Motivation playbook to ${
-                res.results?.length || recipients.length
-              } trader(s) who were away 2–3+ days! Open tracking is active.`
-            : `Bulk email "${cleanBadge}" sent from Cheslin from Chart Replay to ${
-                res.results?.length || recipients.length
-              } trader(s)! Open tracking is active.`,
+        text: singleRecipient
+          ? `Email "${cleanBadge}" sent individually to ${singleRecipient.name} (${singleRecipient.email})!`
+          : effectiveAudience === 'inactive_2_3_days'
+          ? `Sent Comeback Motivation playbook to ${
+              res.results?.length || recipients.length
+            } trader(s) who were away 2–3+ days! Open tracking is active.`
+          : `Sent "${cleanBadge}" from Cheslin from Chart Replay to ${
+              res.results?.length || recipients.length
+            } subscribed trader(s)! Open tracking & Unsubscribe link active.`,
       });
     } finally {
       setBusyAction(null);
@@ -730,15 +1030,22 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
           <div className="flex items-center justify-between text-emerald-300 mb-3">
             <Users size={18} />
             <span className="text-[9px] uppercase tracking-wider opacity-70">
-              Bulk Audience
+              Subscribed List
             </span>
           </div>
           <p className="text-[11px] text-slate-400">
-            Registered Trader Emails
+            Subscribed Trader Emails
           </p>
-          <p className="mt-1 text-2xl sm:text-3xl font-bold text-emerald-300">
-            {metrics.totalEmails}
-          </p>
+          <div className="mt-1 flex items-baseline gap-2">
+            <p className="text-2xl sm:text-3xl font-bold text-emerald-300">
+              {metrics.totalEmails}
+            </p>
+            {metrics.unsubscribedCount > 0 && (
+              <span className="text-[11px] font-semibold text-rose-300">
+                · {metrics.unsubscribedCount} unsubscribed
+              </span>
+            )}
+          </div>
         </section>
 
         <section className={`${card} from-amber-500/15 p-4 sm:p-5`}>
@@ -760,13 +1067,20 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
           <div className="flex items-center justify-between text-cyan-300 mb-3">
             <ShieldCheck size={18} />
             <span className="text-[9px] uppercase tracking-wider opacity-70">
-              Step Playbooks
+              Letters &amp; Playbooks
             </span>
           </div>
-          <p className="text-[11px] text-slate-400">Approved Playbooks</p>
-          <p className="mt-1 text-2xl sm:text-3xl font-bold text-cyan-300">
-            {metrics.approvedCount} / {newsletters.length}
-          </p>
+          <p className="text-[11px] text-slate-400">Approved &amp; Scheduled</p>
+          <div className="mt-1 flex items-baseline gap-2">
+            <p className="text-2xl sm:text-3xl font-bold text-cyan-300">
+              {metrics.approvedCount} / {newsletters.length}
+            </p>
+            {metrics.scheduledCount > 0 && (
+              <span className="text-[11px] font-semibold text-emerald-300">
+                · {metrics.scheduledCount} scheduled
+              </span>
+            )}
+          </div>
         </section>
 
         <section className={`${card} from-violet-500/15 p-4 sm:p-5`}>
@@ -805,39 +1119,41 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         </section>
       </div>
 
-      {/* Bulk Broadcast, Inactive Re-Engagement & Playbook Automation Banner */}
+      {/* Bulk Broadcast, Letters, Recipient Selection & Scheduler Banner */}
       <section className={`${card} p-5 sm:p-6`}>
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/5 pb-5">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-emerald-400/10 border border-emerald-400/30 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
               <Newspaper size={12} />
-              Cheslin from Chart Replay · Step-by-Step Trader Playbooks &amp; Bulk Broadcasts
+              Cheslin from Chart Replay · Personal Letters, Step Playbooks, Scheduler &amp; Bulk Emails
             </div>
             <h2 className="mt-2.5 text-lg sm:text-xl font-semibold text-white">
-              Structured 3-to-5-Step Trader Playbooks, Bulk Email Broadcasts &amp; Live Open Tracking
+              Send Bulk Emails or Personal Letters — To All Subscribed or Selected Individuals — Now or Scheduled
             </h2>
             <p className="mt-1 text-xs text-slate-400 max-w-3xl leading-relaxed">
               Every email is sent from{' '}
               <strong className="text-emerald-300">
                 Cheslin from Chart Replay &lt;noreply@chartreplay.co.za&gt;
               </strong>{' '}
-              in a clean{' '}
-              <strong className="text-slate-200">
-                3-to-5-step playbook format
-              </strong>{' '}
-              (Prop Firm Passing Steps, Eliminating Revenge Trading, Comeback Motivation after 2–3 days away, Risk &amp; R-Multiples) — with{' '}
-              <strong className="text-sky-300">real-time open &amp; click tracking</strong>{' '}
-              so you can see exactly who opened every email.
+              with a built-in{' '}
+              <strong className="text-slate-200">1-click Unsubscribe link</strong>{' '}
+              and{' '}
+              <strong className="text-sky-300">real-time open &amp; click tracking</strong>. Compose a clean{' '}
+              <strong className="text-cyan-300">Personal Letter</strong> or a{' '}
+              <strong className="text-emerald-300">3-to-5-Step Playbook</strong>, choose whether to send to{' '}
+              <strong className="text-white">All Subscribed</strong> or{' '}
+              <strong className="text-white">Individuals</strong>, and send immediately or schedule for any Date &amp; Time.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={handleSelectComebackPlaybook}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-400/35 bg-amber-400/10 px-3.5 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-400/20 transition"
+              onClick={() => void handleCreateNewLetter()}
+              disabled={busyAction !== null}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-400/40 bg-cyan-400/15 px-3.5 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-400/25 transition"
             >
-              <Clock3 size={14} />
-              2–3+ Days Inactive Comeback ({metrics.inactiveCount})
+              <FileText size={14} />
+              + New Personal Letter
             </button>
             <button
               type="button"
@@ -846,7 +1162,15 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
               className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3.5 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-400/20 transition"
             >
               <Plus size={14} />
-              New Step-by-Step Email
+              + New Step-by-Step Playbook
+            </button>
+            <button
+              type="button"
+              onClick={handleSelectComebackPlaybook}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-400/35 bg-amber-400/10 px-3.5 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-400/20 transition"
+            >
+              <Clock3 size={14} />
+              2–3+ Days Inactive ({metrics.inactiveCount})
             </button>
             <button
               type="button"
@@ -860,14 +1184,165 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
           </div>
         </div>
 
-        {/* Bulk Broadcast & Audience Control Bar */}
-        <div className="mt-5 grid gap-4 lg:grid-cols-[1.15fr_1fr_auto] items-end rounded-2xl border border-cyan-400/20 bg-[#070e19] p-4">
+        {/* Visual Mode Cards: Send to All Subscribed vs Send to Selected Individuals */}
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <button
+            type="button"
+            onClick={() => setTargetAudience('all')}
+            className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition ${
+              targetAudience === 'all'
+                ? 'border-emerald-400/50 bg-emerald-400/10 shadow-md'
+                : 'border-white/10 bg-black/20 hover:bg-white/[0.03]'
+            }`}
+          >
+            <div className="mt-0.5 rounded-xl bg-emerald-400/15 p-2 text-emerald-300">
+              <Users size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-bold text-white">
+                  Send to All (Bulk)
+                </span>
+                <span className="rounded-full bg-emerald-400/20 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
+                  {subscribedUsers.length}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                All subscribed traders (excludes {unsubscribedUsersCount} unsubscribed)
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTargetAudience('selected')}
+            className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition ${
+              targetAudience === 'selected'
+                ? 'border-cyan-400/50 bg-cyan-400/10 shadow-md'
+                : 'border-white/10 bg-black/20 hover:bg-white/[0.03]'
+            }`}
+          >
+            <div className="mt-0.5 rounded-xl bg-cyan-400/15 p-2 text-cyan-300">
+              <UserCheck size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-bold text-white">
+                  Select Individuals
+                </span>
+                <span className="rounded-full bg-cyan-400/20 px-2 py-0.5 text-[10px] font-bold text-cyan-200">
+                  {selectedEmails.size} selected
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Hand-pick 1 or more individual recipients below
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTargetAudience('inactive_2_3_days')}
+            className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition ${
+              targetAudience === 'inactive_2_3_days'
+                ? 'border-amber-400/50 bg-amber-400/10 shadow-md'
+                : 'border-white/10 bg-black/20 hover:bg-white/[0.03]'
+            }`}
+          >
+            <div className="mt-0.5 rounded-xl bg-amber-400/15 p-2 text-amber-300">
+              <Clock3 size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-bold text-white">
+                  Inactive 2–3+ Days
+                </span>
+                <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-bold text-amber-200">
+                  {inactiveTraders.length}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Traders away 2–3+ days ready for a comeback nudge
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTargetAudience('active')}
+            className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition ${
+              targetAudience === 'active'
+                ? 'border-violet-400/50 bg-violet-400/10 shadow-md'
+                : 'border-white/10 bg-black/20 hover:bg-white/[0.03]'
+            }`}
+          >
+            <div className="mt-0.5 rounded-xl bg-violet-400/15 p-2 text-violet-300">
+              <Sparkles size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-bold text-white">
+                  Active Traders
+                </span>
+                <span className="rounded-full bg-violet-400/20 px-2 py-0.5 text-[10px] font-bold text-violet-200">
+                  Segment
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Traders actively running sessions &amp; trades
+              </p>
+            </div>
+          </button>
+        </div>
+
+        {/* Inline Add Individual Email Bar */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5">
+          <span className="text-[11px] font-semibold text-slate-300">
+            Quick Add Individual Email:
+          </span>
+          <input
+            type="text"
+            value={customNameInput}
+            onChange={(e) => setCustomNameInput(e.target.value)}
+            placeholder="Recipient Name (e.g. Cheslin)"
+            className="w-40 sm:w-48 rounded-lg border border-white/10 bg-[#0b1320] px-3 py-1.5 text-xs text-white outline-none"
+          />
+          <input
+            type="email"
+            value={customEmailInput}
+            onChange={(e) => setCustomEmailInput(e.target.value)}
+            placeholder="recipient@example.com"
+            className="w-48 sm:w-60 rounded-lg border border-white/10 bg-[#0b1320] px-3 py-1.5 text-xs text-white outline-none"
+          />
+          <button
+            type="button"
+            onClick={handleAddCustomRecipient}
+            className="rounded-lg border border-cyan-400/40 bg-cyan-400/15 px-3 py-1.5 text-xs font-bold text-cyan-200 hover:bg-cyan-400/25 transition"
+          >
+            + Add &amp; Select Individual
+          </button>
+          {selectedEmails.size > 0 && (
+            <span className="ml-auto flex items-center gap-2 text-[11px] text-cyan-200">
+              <span>{selectedEmails.size} individual(s) selected</span>
+              <button
+                type="button"
+                onClick={() => setSelectedEmails(new Set())}
+                className="text-slate-400 hover:text-white underline"
+              >
+                Clear selection
+              </button>
+            </span>
+          )}
+        </div>
+
+        {/* Bulk Broadcast & Scheduler Control Bar */}
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_1fr_auto] items-end rounded-2xl border border-cyan-400/20 bg-[#070e19] p-4">
           <div>
             <label
               htmlFor="newsletter-audience-select"
               className="block text-[10px] font-bold uppercase tracking-wider text-emerald-300 mb-1.5"
             >
-              Bulk Email Target Audience
+              Recipient Mode (All or Individuals)
             </label>
             <select
               id="newsletter-audience-select"
@@ -878,7 +1353,10 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
               className="w-full rounded-xl border border-white/10 bg-[#0f1928] px-3.5 py-2.5 text-xs text-white outline-none focus:border-emerald-400/50"
             >
               <option value="all">
-                All Registered Traders — Bulk Broadcast ({users.length} traders)
+                All Subscribed Traders — Bulk Broadcast ({subscribedUsers.length} subscribed)
+              </option>
+              <option value="selected">
+                Selected Individual Recipients ({selectedEmails.size} selected)
               </option>
               <option value="inactive_2_3_days">
                 Inactive 2–3+ Days — Comeback Motivation ({inactiveTraders.length} traders)
@@ -888,9 +1366,6 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
               </option>
               <option value="new_starters">
                 New Traders (Joined in Last 7 Days)
-              </option>
-              <option value="selected">
-                Hand-Picked Trader Emails Below ({selectedEmails.size} selected)
               </option>
             </select>
           </div>
@@ -944,22 +1419,94 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
             >
               <Send size={14} />
               {busyAction === 'send'
-                ? 'Sending Bulk Email…'
-                : `Send Bulk Email Now (${recipientUsersForTarget.length || users.length})`}
+                ? 'Sending Email…'
+                : targetAudience === 'selected'
+                ? `Send to ${selectedEmails.size} Selected Now`
+                : `Send Bulk Email Now (${recipientUsersForTarget.length})`}
+            </button>
+            <button
+              type="button"
+              disabled={busyAction !== null}
+              onClick={() => void handleScheduleSelected()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-400/40 bg-cyan-400/15 px-3.5 py-2.5 text-xs font-bold text-cyan-200 hover:bg-cyan-400/25 disabled:opacity-50 transition whitespace-nowrap"
+            >
+              <CalendarClock size={14} />
+              {busyAction === 'schedule'
+                ? 'Scheduling…'
+                : targetAudience === 'selected'
+                ? `Schedule for ${selectedEmails.size} Selected`
+                : 'Schedule Selected Email'}
             </button>
             <button
               type="button"
               disabled={busyAction !== null}
               onClick={() => void handleAutoScheduleFullSeries()}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-400/35 bg-cyan-400/15 px-3.5 py-2.5 text-xs font-bold text-cyan-200 hover:bg-cyan-400/25 disabled:opacity-50 transition whitespace-nowrap"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/10 disabled:opacity-50 transition whitespace-nowrap"
             >
               <CalendarClock size={14} />
-              {busyAction === 'series'
-                ? 'Scheduling…'
-                : 'Schedule Playbook Queue'}
+              {busyAction === 'series' ? 'Scheduling…' : 'Schedule Series'}
             </button>
           </div>
         </div>
+
+        {/* Active Scheduled Queue */}
+        {scheduledNewsletters.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-cyan-400/25 bg-cyan-400/[0.04] p-4 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-cyan-200">
+                <CalendarClock size={14} />
+                Scheduled Delivery Queue ({scheduledNewsletters.length})
+              </span>
+              <span className="text-[11px] text-slate-400">
+                Scheduled emails dispatch automatically when due (SAST)
+              </span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {scheduledNewsletters.map((sched) => (
+                <div
+                  key={sched.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#070f1d] px-3.5 py-2.5 text-xs"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-white truncate">
+                      {sched.subject}
+                    </p>
+                    <p className="text-[11px] text-cyan-300 mt-0.5">
+                      {formatSaDateTime(sched.scheduledFor)} SAST ·{' '}
+                      {sched.targetAudience === 'selected'
+                        ? `${sched.selectedRecipients?.length || 1} Individual(s)`
+                        : sched.targetAudience === 'inactive_2_3_days'
+                        ? 'Inactive 2–3+ Days'
+                        : 'All Subscribed'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      disabled={busyAction !== null}
+                      onClick={() => {
+                        setSelectedId(sched.id);
+                        void handleSendNow(sched.targetAudience);
+                      }}
+                      className="rounded-lg border border-emerald-400/35 bg-emerald-400/15 px-2.5 py-1 text-[11px] font-bold text-emerald-200 hover:bg-emerald-400/25 transition"
+                    >
+                      Send Now
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyAction === `unschedule-${sched.id}`}
+                      onClick={() => void handleCancelScheduledEdition(sched.id)}
+                      className="rounded-lg border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-400/20 transition"
+                      title="Cancel scheduled delivery"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {statusBanner && (
           <div
@@ -987,17 +1534,17 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         )}
       </section>
 
-      {/* Main Split Workspace: All Step-by-Step Playbooks (Left) + Visual Email Layout & Approval Controls (Right) */}
+      {/* Main Split Workspace: All Letters & Step-by-Step Playbooks (Left) + Visual Email Layout & Approval Controls (Right) */}
       <div className="grid gap-6 xl:grid-cols-[380px_1fr]">
-        {/* Left Column: All Step-by-Step Playbooks */}
+        {/* Left Column: All Letters & Step-by-Step Playbooks */}
         <section className={`${card} p-4 sm:p-5 flex flex-col`}>
           <div className="flex items-center justify-between border-b border-white/5 pb-3.5">
             <div>
               <h3 className="text-sm font-semibold text-white">
-                Step-by-Step Email Playbooks ({newsletters.length})
+                Letters &amp; Email Playbooks ({newsletters.length})
               </h3>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Select any 3-to-5-step email to preview, customize, or send in bulk
+                Select any personal letter or 3-to-5-step playbook to customize, schedule, or send
               </p>
             </div>
             <span className="rounded-full bg-emerald-400/10 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-300">
@@ -1013,6 +1560,10 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                 item.bodyText,
                 item.steps
               );
+              const isLetter =
+                item.category === 'letter' ||
+                /letter/i.test(cleanBadge) ||
+                itemSteps.length === 0;
               const statusBadge =
                 item.status === 'sent'
                   ? {
@@ -1035,14 +1586,22 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     };
 
               return (
-                <button
+                <div
                   key={item.id}
-                  type="button"
                   onClick={() => {
                     setSelectedId(item.id);
                     setEditingCopy(false);
                   }}
-                  className={`w-full text-left rounded-2xl border p-3.5 transition ${
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedId(item.id);
+                      setEditingCopy(false);
+                    }
+                  }}
+                  className={`w-full cursor-pointer text-left rounded-2xl border p-3.5 transition ${
                     isSelected
                       ? 'border-emerald-400/50 bg-emerald-400/[0.09] shadow-lg'
                       : 'border-white/[0.06] bg-black/20 hover:bg-white/[0.04]'
@@ -1052,11 +1611,27 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
                       {cleanBadge}
                     </span>
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusBadge.cls}`}
-                    >
-                      {statusBadge.label}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusBadge.cls}`}
+                      >
+                        {statusBadge.label}
+                      </span>
+                      {item.id.startsWith('newsletter-letter-') ||
+                      item.id.startsWith('newsletter-playbook-') ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeleteEdition(item.id);
+                          }}
+                          title="Delete custom template"
+                          className="p-1 rounded-lg text-slate-500 hover:text-rose-300 hover:bg-rose-500/10"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   <p className="mt-1.5 text-xs font-semibold text-white line-clamp-2">
                     {personalizeClientNewsletterText(
@@ -1065,9 +1640,18 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     )}
                   </p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    {itemSteps.length > 0 && (
+                    {isLetter ? (
+                      <span className="rounded-md bg-cyan-400/15 border border-cyan-400/30 px-2 py-0.5 text-[10px] font-semibold text-cyan-200">
+                        Personal Letter Format
+                      </span>
+                    ) : (
                       <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium text-sky-300">
                         {itemSteps.length} Structured Steps
+                      </span>
+                    )}
+                    {item.targetAudience === 'selected' && (
+                      <span className="rounded-md bg-cyan-400/15 border border-cyan-400/30 px-2 py-0.5 text-[10px] font-semibold text-cyan-200">
+                        Individuals ({item.selectedRecipients?.length || selectedEmails.size})
                       </span>
                     )}
                     {item.targetAudience === 'inactive_2_3_days' && (
@@ -1082,7 +1666,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                       Scheduled: {formatSaDateTime(item.scheduledFor)} SAST
                     </p>
                   )}
-                </button>
+                </div>
               );
             })}
           </div>
@@ -1098,9 +1682,13 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                   <span className="rounded-full bg-emerald-400/15 border border-emerald-400/30 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
                     {stripClientLegacyDayPrefix(draftBadge)}
                   </span>
-                  {personalizedPreview.steps.length > 0 && (
+                  {personalizedPreview.steps.length > 0 ? (
                     <span className="rounded-full bg-sky-500/15 border border-sky-400/30 px-2.5 py-0.5 text-[10px] font-bold text-sky-300">
                       {personalizedPreview.steps.length}-Step Breakdown
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-cyan-500/15 border border-cyan-400/30 px-2.5 py-0.5 text-[10px] font-bold text-cyan-200">
+                      Personal Letter Format
                     </span>
                   )}
                   {activeNewsletter.approved ? (
@@ -1121,7 +1709,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     )}
                 </div>
                 <p className="mt-1.5 text-xs text-slate-400">
-                  Review the 3-to-5-step email below · Approve · Send Bulk Email or Comeback Motivation
+                  Review your letter or playbook below · Choose All Subscribed or Selected Individuals · Send Now or Schedule
                 </p>
               </div>
 
@@ -1132,7 +1720,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                   className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
                 >
                   <Edit3 size={13} />
-                  {editingCopy ? 'Close Editor' : 'Customize Steps & Copy'}
+                  {editingCopy ? 'Close Editor' : 'Edit Letter / Steps'}
                 </button>
 
                 {!activeNewsletter.approved ? (
@@ -1167,6 +1755,8 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                   <CalendarClock size={14} />
                   {busyAction === 'schedule'
                     ? 'Scheduling…'
+                    : targetAudience === 'selected'
+                    ? `2. Schedule for ${selectedEmails.size} Selected`
                     : '2. Approve & Schedule'}
                 </button>
 
@@ -1180,7 +1770,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                   <Clock3 size={13} />
                   {busyAction === 'send-inactive'
                     ? 'Sending…'
-                    : `Send to Inactive 2–3+ Days (${inactiveTraders.length})`}
+                    : `Send to Inactive (${inactiveTraders.length})`}
                 </button>
 
                 <button
@@ -1192,7 +1782,9 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                   <Send size={13} />
                   {busyAction === 'send'
                     ? 'Sending…'
-                    : '3. Approve & Send Bulk Email'}
+                    : targetAudience === 'selected'
+                    ? `3. Send to ${selectedEmails.size} Individual(s)`
+                    : `3. Send Bulk Email (${recipientUsersForTarget.length})`}
                 </button>
               </div>
             </div>
@@ -1574,6 +2166,13 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     <span className="text-sky-600 font-semibold">
                       chartreplay.co.za
                     </span>
+                    <br />
+                    <span className="text-[10px] text-slate-400">
+                      Don&apos;t want to receive these trader emails?{' '}
+                      <span className="underline text-slate-500">
+                        Unsubscribe from email listing
+                      </span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1756,14 +2355,14 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/5 pb-4">
           <div>
             <h3 className="text-base font-semibold text-white">
-              Registered Trader Recipients ({filteredUsers.length})
+              Registered Trader Recipients &amp; Subscription Controls ({filteredUsers.length})
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Filter by traders inactive for 2–3+ days, check their email open history, or select specific recipients for a bulk send.
+              Select specific traders for bulk/individual sends, send a 1-click personal email, or manage their subscription status.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-xl border border-white/10 bg-black/30 p-1 text-xs">
+            <div className="inline-flex flex-wrap rounded-xl border border-white/10 bg-black/30 p-1 text-xs">
               <button
                 type="button"
                 onClick={() => setUserFilterMode('all')}
@@ -1773,7 +2372,29 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                All Traders ({users.length})
+                All ({users.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserFilterMode('subscribed')}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  userFilterMode === 'subscribed'
+                    ? 'bg-sky-400/20 text-sky-200 font-semibold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Subscribed ({subscribedUsers.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserFilterMode('unsubscribed')}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  userFilterMode === 'unsubscribed'
+                    ? 'bg-rose-400/20 text-rose-200 font-semibold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Unsubscribed ({unsubscribedUsersCount})
               </button>
               <button
                 type="button"
@@ -1814,23 +2435,24 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         </div>
 
         <div className="mt-4 overflow-x-auto rounded-xl border border-white/5">
-          <table className="w-full min-w-[820px] text-left text-xs">
+          <table className="w-full min-w-[920px] text-left text-xs">
             <thead className="bg-white/[0.02] text-[10px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Select</th>
                 <th className="px-4 py-3 font-medium">Trader Name &amp; Email</th>
+                <th className="px-4 py-3 font-medium">Email Subscription</th>
                 <th className="px-4 py-3 font-medium">Platform Activity Status</th>
                 <th className="px-4 py-3 font-medium">Emails Opened</th>
-                <th className="px-4 py-3 font-medium">Trading Plan</th>
                 <th className="px-4 py-3 font-medium text-right">
-                  Personalization Preview
+                  Individual Actions
                 </th>
               </tr>
             </thead>
             <tbody>
-              {filteredUsers.slice(0, 25).map((user) => {
+              {filteredUsers.slice(0, 40).map((user) => {
                 const emailKey = user.email.toLowerCase();
                 const isSelected = selectedEmails.has(emailKey);
+                const isUnsubscribed = isUserUnsubscribed(user);
                 const isPreviewing =
                   previewRecipient.email.toLowerCase() === emailKey;
                 const inactive = isTraderInactive2To3PlusDays(user);
@@ -1842,15 +2464,16 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     key={user.source + user.id}
                     className={`border-t border-white/5 hover:bg-white/[0.02] ${
                       isPreviewing ? 'bg-emerald-400/[0.05]' : ''
-                    }`}
+                    } ${isUnsubscribed ? 'opacity-65' : ''}`}
                   >
                     <td className="px-4 py-3">
                       <input
                         type="checkbox"
                         aria-label={`Select ${user.email}`}
-                        checked={isSelected}
+                        disabled={isUnsubscribed}
+                        checked={isSelected && !isUnsubscribed}
                         onChange={() => toggleSelectEmail(user.email)}
-                        className="h-4 w-4 rounded border-white/20 accent-emerald-400"
+                        className="h-4 w-4 rounded border-white/20 accent-emerald-400 disabled:opacity-40"
                       />
                     </td>
                     <td className="px-4 py-3">
@@ -1858,6 +2481,19 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                       <p className="text-slate-400 font-mono text-[11px]">
                         {user.email}
                       </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      {isUnsubscribed ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 border border-rose-400/35 px-2.5 py-0.5 text-[11px] font-semibold text-rose-200">
+                          <UserMinus size={11} />
+                          Unsubscribed
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-400/35 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-200">
+                          <CheckCircle2 size={11} />
+                          Subscribed
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {inactive ? (
@@ -1888,32 +2524,54 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                         <span className="text-slate-500">No emails sent yet</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      {user.tradingPlanName ? (
-                        <span className="text-emerald-300 font-medium">
-                          {user.tradingPlanName}
-                        </span>
-                      ) : user.hasTradingPlan ? (
-                        <span className="text-emerald-300">Plan created</span>
-                      ) : (
-                        <span className="text-slate-500">No plan yet</span>
-                      )}
-                    </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setPreviewUserEmail(user.email)}
-                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition ${
-                          isPreviewing
-                            ? 'border-emerald-400/50 bg-emerald-400/20 text-emerald-200'
-                            : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
-                        }`}
-                      >
-                        <Sparkles size={12} />
-                        {isPreviewing
-                          ? 'Previewing Layout'
-                          : 'Preview Email'}
-                      </button>
+                      <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewUserEmail(user.email)}
+                          className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                            isPreviewing
+                              ? 'border-emerald-400/50 bg-emerald-400/20 text-emerald-200'
+                              : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                          }`}
+                        >
+                          <Sparkles size={11} />
+                          {isPreviewing ? 'Previewing' : 'Preview'}
+                        </button>
+                        {!isUnsubscribed && (
+                          <button
+                            type="button"
+                            disabled={busyAction !== null}
+                            onClick={() => void handleSendNow(undefined, user)}
+                            className="inline-flex items-center gap-1 rounded-xl border border-sky-400/30 bg-sky-400/10 px-2.5 py-1.5 text-[11px] font-semibold text-sky-200 hover:bg-sky-400/20 transition disabled:opacity-50"
+                            title={`Send current email/letter directly to ${user.email}`}
+                          >
+                            <Send size={11} />
+                            Send 1-to-1
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleUserSubscription(user, !isUnsubscribed)}
+                          className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                            isUnsubscribed
+                              ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/20'
+                              : 'border-rose-400/25 bg-rose-400/10 text-rose-200 hover:bg-rose-400/20'
+                          }`}
+                        >
+                          {isUnsubscribed ? (
+                            <>
+                              <RotateCcw size={11} />
+                              Resubscribe
+                            </>
+                          ) : (
+                            <>
+                              <UserMinus size={11} />
+                              Unsubscribe
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

@@ -13,7 +13,7 @@ const scrypt=promisify(nodeScrypt);
 export const platformDataDirectory=()=>process.env.PLATFORM_DATA_DIR||path.join(homedir(),'.chart-replay');
 export async function hashPassword(password){const salt=randomBytes(16).toString('hex');const key=await scrypt(password,salt,32);return `scrypt:${salt}:${key.toString('hex')}`;}
 export async function verifyPassword(password,encoded){try{const [kind,salt,hex]=String(encoded).split(':');if(kind!=='scrypt'||!salt||!/^[a-f0-9]{64}$/.test(hex))return false;const key=await scrypt(password,salt,32);return timingSafeEqual(key,Buffer.from(hex,'hex'));}catch{return false;}}
-export const publicAccount=user=>({id:user.id,name:user.name,email:user.email,joinedAt:user.joinedAt,loginCount:user.loginCount||0,lastLoginAt:user.lastLoginAt||null,lastSeenAt:user.lastSeenAt||null,sessionCount:typeof user.sessionCount==='number'?user.sessionCount:Array.isArray(user.sessionIds)?user.sessionIds.filter(id=>!String(id||'').startsWith('__meta_')).length:0,source:'server',plan:'FREE_FOREVER',...(user.emailUnsubscribed?{emailUnsubscribed:true}:{}),...(user.hasTradingPlan!==undefined?{hasTradingPlan:Boolean(user.hasTradingPlan),tradingPlanName:user.tradingPlanName||null,tradingPlanCount:Number(user.tradingPlanCount||0),tradeCount:Number(user.tradeCount||0)}:{})});
+export const publicAccount=user=>({id:user.id,name:user.name,email:user.email,joinedAt:user.joinedAt,loginCount:user.loginCount||0,lastLoginAt:user.lastLoginAt||null,lastSeenAt:user.lastSeenAt||null,sessionCount:typeof user.sessionCount==='number'?user.sessionCount:Array.isArray(user.sessionIds)?user.sessionIds.filter(id=>!String(id||'').startsWith('__meta_')).length:0,source:'server',plan:'FREE_FOREVER',emailUnsubscribed:Boolean(user.emailUnsubscribed),...(user.unsubscribedAt?{unsubscribedAt:user.unsubscribedAt}:{}),...(user.hasTradingPlan!==undefined?{hasTradingPlan:Boolean(user.hasTradingPlan),tradingPlanName:user.tradingPlanName||null,tradingPlanCount:Number(user.tradingPlanCount||0),tradeCount:Number(user.tradeCount||0)}:{})});
 export function adminAccountProjection(user,nowMs=Date.now(),onlineUserIds=new Set()){
  const pub=publicAccount(user);
  const joinedMs=user.joinedAt?Date.parse(String(user.joinedAt)):NaN;
@@ -222,7 +222,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
   const rawBody=hasLegacyStoredBadge&&base.bodyText?base.bodyText:(obj.bodyText||base.bodyText||'Every session on Chart Replay builds your edge.');
   const rawActionTip=hasLegacyStoredBadge&&base.actionTip?base.actionTip:(obj.actionTip||base.actionTip||'Review your sticky trading plan before placing your first trade today.');
   const rawCta=hasLegacyStoredBadge&&base.ctaText?base.ctaText:(obj.ctaText||base.ctaText||'Open Your Trading Workspace →');
-  const rawSteps=Array.isArray(obj.steps)&&obj.steps.length>0&&!hasLegacyStoredBadge?obj.steps:(Array.isArray(base.steps)?base.steps:[]);
+  const rawSteps=Array.isArray(obj.steps)&&!hasLegacyStoredBadge?obj.steps:(Array.isArray(base.steps)?base.steps:[]);
   const steps=rawSteps
    .map((s,idx)=>{
     if(typeof s==='string'){
@@ -255,7 +255,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    approved,
    approvedBy:approved?cleanText(obj.approvedBy,base.approvedBy||'admin',120):null,
    approvedAt:approved?(obj.approvedAt||base.approvedAt||new Date(now()).toISOString()):null,
-   scheduledFor:obj.scheduledFor||base.scheduledFor||null,
+   scheduledFor:obj.scheduledFor!==undefined?obj.scheduledFor:(base.scheduledFor||null),
    targetAudience,
    selectedRecipients,
    sentAt:obj.sentAt||base.sentAt||null,
@@ -263,6 +263,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    updatedAt:obj.updatedAt||base.updatedAt||new Date(now()).toISOString(),
   };
  };
+ const unsubscribedEmailsRegistry=new Set();
  const loadMergedNewsletters=async()=>{
   const stored=typeof store.readNewsletters==='function'?await store.readNewsletters().catch(()=>[]):[];
   const byId=new Map();
@@ -272,12 +273,30 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
   if(Array.isArray(stored)){
    for(const item of stored){
     if(item&&item.id){
+     if(item.id==='__meta_unsubscribed_registry__'&&Array.isArray(item.selectedRecipients)){
+      for(const em of item.selectedRecipients){
+       if(em)unsubscribedEmailsRegistry.add(String(em).trim().toLowerCase());
+      }
+      continue;
+     }
+     if(item.deleted)continue;
      const base=byId.get(item.id)||{};
      byId.set(item.id,sanitizeNewsletterItem(item,base));
     }
    }
   }
   return Array.from(byId.values()).sort((a,b)=>(a.dayNumber||0)-(b.dayNumber||0));
+ };
+ const persistNewslettersWithMeta=async(items)=>{
+  if(typeof store.saveNewsletters!=='function')return items;
+  const cleanItems=(Array.isArray(items)?items:[]).filter(it=>it&&it.id&&it.id!=='__meta_unsubscribed_registry__');
+  const metaEntry=unsubscribedEmailsRegistry.size>0?[{
+   id:'__meta_unsubscribed_registry__',
+   selectedRecipients:Array.from(unsubscribedEmailsRegistry),
+   updatedAt:new Date(now()).toISOString(),
+  }]:[];
+  await store.saveNewsletters([...cleanItems,...metaEntry]);
+  return cleanItems;
  };
  const isUserInactive2To3PlusDays=(u,curMs=now())=>{
   const lastSeenMs=u?.lastSeenAt?Date.parse(String(u.lastSeenAt)):NaN;
@@ -292,10 +311,13 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
   return curMs-latestActivityMs>=2*86400000;
  };
  const resolveNewsletterRecipients=(newsletter,allUsers,explicitRecipients)=>{
-  const unsubscribedEmails=new Set(allUsers.filter(u=>u&&u.emailUnsubscribed).map(u=>String(u.email||'').toLowerCase()));
-  if(Array.isArray(explicitRecipients)&&explicitRecipients.length>0){
-   const byEmail=new Map(allUsers.map(u=>[String(u.email||'').toLowerCase(),u]));
-   return explicitRecipients
+  const unsubscribedEmails=new Set([
+   ...unsubscribedEmailsRegistry,
+   ...allUsers.filter(u=>u&&u.emailUnsubscribed).map(u=>String(u.email||'').toLowerCase()),
+  ]);
+  const byEmail=new Map(allUsers.map(u=>[String(u.email||'').toLowerCase(),u]));
+  const mapExplicitList=list=>
+   list
     .map(r=>{
      const email=typeof r==='string'?r.trim().toLowerCase():String(r?.email||'').trim().toLowerCase();
      if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return null;
@@ -307,23 +329,24 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
      }
      return {
       id:`recipient-${email}`,
-      name:cleanText(r?.name,'Trader',80),
+      name:cleanText(typeof r==='object'?r?.name:email.split('@')[0],'Trader',80),
       email,
-      joinedAt:r?.joinedAt||new Date(now()).toISOString(),
-      sessionCount:Number(r?.sessionCount||0),
-      tradeCount:Number(r?.tradeCount||0),
-      hasTradingPlan:Boolean(r?.hasTradingPlan),
-      tradingPlanName:r?.tradingPlanName||null,
+      joinedAt:(typeof r==='object'&&r?.joinedAt)||new Date(now()).toISOString(),
+      sessionCount:Number((typeof r==='object'&&r?.sessionCount)||0),
+      tradeCount:Number((typeof r==='object'&&r?.tradeCount)||0),
+      hasTradingPlan:Boolean(typeof r==='object'&&r?.hasTradingPlan),
+      tradingPlanName:(typeof r==='object'&&r?.tradingPlanName)||null,
      };
     })
     .filter(Boolean)
     .slice(0,500);
+  if(Array.isArray(explicitRecipients)&&explicitRecipients.length>0){
+   return mapExplicitList(explicitRecipients);
   }
-  const pubUsers=allUsers.filter(u=>!u?.emailUnsubscribed).map(publicAccount).filter(u=>u.email&&!u.emailUnsubscribed&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(u.email));
   if(newsletter.targetAudience==='selected'&&Array.isArray(newsletter.selectedRecipients)&&newsletter.selectedRecipients.length>0){
-   const set=new Set(newsletter.selectedRecipients.map(e=>e.toLowerCase()));
-   return pubUsers.filter(u=>set.has(u.email.toLowerCase()));
+   return mapExplicitList(newsletter.selectedRecipients);
   }
+  const pubUsers=allUsers.filter(u=>!u?.emailUnsubscribed&&!unsubscribedEmails.has(String(u?.email||'').toLowerCase())).map(publicAccount).filter(u=>u.email&&!u.emailUnsubscribed&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(u.email));
   if(newsletter.targetAudience==='inactive_2_3_days'){
    const curMs=now();
    return pubUsers.filter(u=>isUserInactive2To3PlusDays(u,curMs));
@@ -469,8 +492,8 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     updatedAt:dispatchRes.sentAt,
    };
   }));
-  if(changed&&typeof store.saveNewsletters==='function'){
-   await store.saveNewsletters(updated).catch(()=>{});
+  if(changed){
+   await persistNewslettersWithMeta(updated).catch(()=>{});
   }
   return updated;
  };
@@ -513,6 +536,11 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    const clean=String(targetEmail||'').trim().toLowerCase();
    if(!isSafeEmailFormat(clean))return {ok:false,error:'Please provide a valid email address.'};
    const nowIso=new Date(now()).toISOString();
+   if(unsubscribed){
+    unsubscribedEmailsRegistry.add(clean);
+   }else{
+    unsubscribedEmailsRegistry.delete(clean);
+   }
    try{
     await store.change(users=>{
      const u=users.find(item=>String(item.email||'').toLowerCase()===clean);
@@ -530,7 +558,33 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    }catch{
     // ignore store error if local store is unconfigured
    }
-   return {ok:true,email:clean,unsubscribed:Boolean(unsubscribed),updatedAt:nowIso};
+   try{
+    if(typeof store.readNewsletters==='function'&&typeof store.saveNewsletters==='function'){
+     const stored=await store.readNewsletters().catch(()=>[]);
+     const list=Array.isArray(stored)?stored.filter(it=>it&&it.id!=='__meta_unsubscribed_registry__'):[];
+     for(const item of stored||[]){
+      if(item&&item.id==='__meta_unsubscribed_registry__'&&Array.isArray(item.selectedRecipients)){
+       for(const em of item.selectedRecipients){
+        const lower=String(em||'').trim().toLowerCase();
+        if(lower&&lower!==clean)unsubscribedEmailsRegistry.add(lower);
+       }
+      }
+     }
+     if(unsubscribed)unsubscribedEmailsRegistry.add(clean);
+     else unsubscribedEmailsRegistry.delete(clean);
+     await store.saveNewsletters([
+      ...list,
+      {
+       id:'__meta_unsubscribed_registry__',
+       selectedRecipients:Array.from(unsubscribedEmailsRegistry),
+       updatedAt:nowIso,
+      },
+     ]).catch(()=>{});
+    }
+   }catch{
+    // ignore registry persistence error
+   }
+   return {ok:true,email:clean,unsubscribed:Boolean(unsubscribed),unsubscribedEmails:Array.from(unsubscribedEmailsRegistry),updatedAt:nowIso};
   };
   if(req.method==='GET'&&(action==='unsubscribe'||action==='resubscribe')){
    const queryEmail=url.searchParams.get('email')||'';
@@ -572,7 +626,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     const newsletters=await processDueNewsletters(initialNewsletters,req.headers.origin,config?.email||'admin');
     const rawLogs=typeof store.readNewsletterLogs==='function'?await store.readNewsletterLogs().catch(()=>[]):[];
     const logs=await syncResendOpenStatuses(rawLogs||[]);
-    return send(200,{ok:true,newsletters,logs:logs||[],resendConfigured:isResendConfigured(env),scope});
+    return send(200,{ok:true,newsletters,logs:logs||[],unsubscribedEmails:Array.from(unsubscribedEmailsRegistry),resendConfigured:isResendConfigured(env),scope});
    }catch{
     return send(503,{error:'Newsletter records are temporarily unavailable.'});
    }
@@ -634,9 +688,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     const existing=list.find(n=>n.id===itemId)||{};
     const updatedItem=sanitizeNewsletterItem({...existing,...rawItem,id:itemId,updatedAt:new Date(now()).toISOString()},existing);
     const nextList=[...list.filter(n=>n.id!==itemId),updatedItem].sort((a,b)=>(a.dayNumber||0)-(b.dayNumber||0));
-    if(typeof store.saveNewsletters==='function'){
-     await store.saveNewsletters(nextList);
-    }
+    await persistNewslettersWithMeta(nextList);
     return send(200,{ok:true,newsletter:updatedItem,newsletters:nextList,scope});
    }
    if(action==='approve-newsletter'){
@@ -662,10 +714,46 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
      return updatedItem;
     });
     if(!updatedItem)return send(404,{error:'Newsletter not found.'});
-    if(typeof store.saveNewsletters==='function'){
-     await store.saveNewsletters(nextList);
-    }
+    await persistNewslettersWithMeta(nextList);
     return send(200,{ok:true,newsletter:updatedItem,newsletters:nextList,scope});
+   }
+   if(action==='unschedule-newsletter'){
+    if(!admin)return send(401,{error:'Only the signed-in administrator can unschedule newsletters.'});
+    const list=await loadMergedNewsletters();
+    const targetId=typeof body.id==='string'?body.id.trim():'';
+    if(!targetId)return send(400,{error:'Newsletter ID is required.'});
+    const existing=list.find(n=>n.id===targetId);
+    if(!existing)return send(404,{error:'Newsletter not found.'});
+    const nowIso=new Date(now()).toISOString();
+    const updatedItem=sanitizeNewsletterItem({
+     ...existing,
+     status:existing.approved?'approved':'pending_approval',
+     scheduledFor:null,
+     updatedAt:nowIso,
+    },existing);
+    const nextList=list.map(n=>n.id===targetId?updatedItem:n);
+    await persistNewslettersWithMeta(nextList);
+    return send(200,{ok:true,newsletter:updatedItem,newsletters:nextList,scope});
+   }
+   if(action==='delete-newsletter'){
+    if(!admin)return send(401,{error:'Only the signed-in administrator can delete newsletters.'});
+    const list=await loadMergedNewsletters();
+    const targetId=typeof body.id==='string'?body.id.trim():'';
+    if(!targetId)return send(400,{error:'Newsletter ID is required.'});
+    const nextList=list.filter(n=>n.id!==targetId);
+    const isDefault=DEFAULT_NEWSLETTER_TEMPLATES.some(t=>t.id===targetId);
+    if(isDefault&&typeof store.saveNewsletters==='function'){
+     const cleanItems=nextList.filter(it=>it&&it.id);
+     const metaEntry=unsubscribedEmailsRegistry.size>0?[{
+      id:'__meta_unsubscribed_registry__',
+      selectedRecipients:Array.from(unsubscribedEmailsRegistry),
+      updatedAt:new Date(now()).toISOString(),
+     }]:[];
+     await store.saveNewsletters([...cleanItems,{id:targetId,deleted:true,updatedAt:new Date(now()).toISOString()},...metaEntry]);
+    }else{
+     await persistNewslettersWithMeta(nextList);
+    }
+    return send(200,{ok:true,newsletters:nextList,scope});
    }
    if(action==='schedule-newsletter'){
     if(!admin)return send(401,{error:'Only the signed-in administrator can schedule newsletters.'});
@@ -696,9 +784,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
      updatedAt:nowIso,
     },existing);
     const nextList=list.map(n=>n.id===targetId?updatedItem:n);
-    if(typeof store.saveNewsletters==='function'){
-     await store.saveNewsletters(nextList);
-    }
+    await persistNewslettersWithMeta(nextList);
     return send(200,{ok:true,newsletter:updatedItem,newsletters:nextList,scope});
    }
    if(action==='schedule-newsletter-series'){
@@ -739,9 +825,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
       updatedAt:nowIso,
      },item);
     });
-    if(typeof store.saveNewsletters==='function'){
-     await store.saveNewsletters(nextList);
-    }
+    await persistNewslettersWithMeta(nextList);
     return send(200,{ok:true,newsletters:nextList,cadence:cadenceMode,scope});
    }
    if(action==='send-newsletter'){
@@ -776,9 +860,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
      updatedAt:nowIso,
     },existing);
     const nextList=list.map(n=>n.id===targetId?updatedItem:n);
-    if(typeof store.saveNewsletters==='function'){
-     await store.saveNewsletters(nextList);
-    }
+    await persistNewslettersWithMeta(nextList);
     const logs=typeof store.readNewsletterLogs==='function'?await store.readNewsletterLogs().catch(()=>[]):[];
     return send(200,{
      ok:true,
@@ -793,7 +875,10 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    if(action==='send-feedback-email'){
     if(!admin)return send(401,{error:'Only the signed-in administrator can send feedback emails.'});
     const allUsers=await store.read().catch(()=>[]);
-    const unsubscribedEmails=new Set(allUsers.filter(u=>u&&u.emailUnsubscribed).map(u=>String(u.email||'').toLowerCase()));
+    const unsubscribedEmails=new Set([
+     ...unsubscribedEmailsRegistry,
+     ...allUsers.filter(u=>u&&u.emailUnsubscribed).map(u=>String(u.email||'').toLowerCase()),
+    ]);
     const rawRecipients=Array.isArray(body.recipients)?body.recipients:body.email?[{email:body.email,name:body.name}]:[];
     const recipients=rawRecipients
      .map(r=>({

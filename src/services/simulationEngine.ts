@@ -1926,7 +1926,7 @@ export function evaluateChallengeRulesAtStep(
     const returnPct = Number(((netProfitForTarget / startingBalance) * 100).toFixed(2));
     const currentPhase = rules.challengePhase || 'PHASE_1';
 
-    if (currentPhase === 'PHASE_1') {
+    if (currentPhase === 'PHASE_1' && rules.evaluationSteps !== 1) {
       const nextPhaseTargetPct =
         rules.phase2ProfitTargetPct ||
         rules.phases?.find((p) => p.phaseId === 'PHASE_2')?.profitTargetPct ||

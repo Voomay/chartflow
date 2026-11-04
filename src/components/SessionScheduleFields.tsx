@@ -32,6 +32,8 @@ interface Props {
   scheduleNotice?: string | null;
   onScheduleNotice?: (notice: string | null) => void;
   theme?: ThemeMode;
+  /** 'card' = compact 4-column strip (default). 'hero' = roomy From → Until layout for popups. */
+  variant?: 'card' | 'hero';
 }
 
 const months = [
@@ -73,6 +75,7 @@ export function SessionScheduleFields({
   scheduleNotice,
   onScheduleNotice,
   theme = 'dark',
+  variant = 'card',
 }: Props) {
   const isLight = theme === 'light';
   const [open, setOpen] = useState<'start' | 'end' | 'time' | 'zone' | null>(null);
@@ -229,6 +232,136 @@ export function SessionScheduleFields({
 
   return (
     <>
+      {variant === 'hero' ? (
+        <div className="space-y-3">
+          {/* From → Until */}
+          <div className="grid grid-cols-[1fr_auto_1fr] items-stretch gap-2 sm:gap-3">
+            {(['start', 'end'] as const).map((kind, idx) => {
+              const value = kind === 'start' ? start : end;
+              const weekday = new Intl.DateTimeFormat('en-GB', {
+                weekday: 'long',
+                timeZone: 'UTC',
+              }).format(parse(value));
+              const card = (
+                <button
+                  key={kind}
+                  type="button"
+                  aria-label={`${kind === 'start' ? 'Trade from' : 'Trade until'}: ${value}`}
+                  onClick={() => launch(kind)}
+                  className={`group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 ${
+                    isLight
+                      ? 'border-slate-200 bg-white hover:border-emerald-500 shadow-sm'
+                      : 'border-white/10 bg-[#0c1422] hover:border-[#00f2c3] hover:shadow-[0_0_24px_-10px_rgba(0,242,195,0.5)]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[10.5px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {kind === 'start' ? 'From' : 'Until'}
+                    </span>
+                    <Calendar className={`h-4 w-4 ${iconTone}`} />
+                  </div>
+                  <div className={`mt-2 text-lg sm:text-xl font-extrabold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                    {pretty(value)}
+                  </div>
+                  <div className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{weekday}</div>
+                </button>
+              );
+              return idx === 0 ? (
+                <React.Fragment key={kind}>
+                  {card}
+                  <div className="flex flex-col items-center justify-center gap-1">
+                    <ChevronRight className={`h-5 w-5 ${isLight ? 'text-teal-600' : 'text-[#00f2c3]'}`} />
+                  </div>
+                </React.Fragment>
+              ) : (
+                card
+              );
+            })}
+          </div>
+
+          {/* Duration pill */}
+          <div className="flex justify-center">
+            <span
+              className={`rounded-full px-3 py-1 text-[11px] font-bold ${
+                isLight ? 'bg-emerald-500/10 text-teal-800' : 'bg-[#00f2c3]/10 text-[#00f2c3]'
+              }`}
+            >
+              {Math.max(
+                1,
+                Math.round((parse(end).getTime() - parse(start).getTime()) / 86400000)
+              )}{' '}
+              days of replay
+            </span>
+          </div>
+
+          {/* Time + timezone */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            <button
+              type="button"
+              aria-label={`Start time: ${time} UTC`}
+              onClick={() => launch('time')}
+              className={`group rounded-2xl border p-3.5 text-left transition ${
+                isLight
+                  ? 'border-slate-200 bg-white hover:border-emerald-500'
+                  : 'border-white/10 bg-[#0c1422] hover:border-[#00f2c3]'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-[10.5px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                  Start time (UTC)
+                </span>
+                <Clock className={`h-4 w-4 ${iconTone}`} />
+              </div>
+              <div className={`mt-1.5 text-lg font-extrabold font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                {time}
+              </div>
+            </button>
+            <button
+              type="button"
+              aria-label="Chart timezone"
+              onClick={() => launch('zone')}
+              className={`group rounded-2xl border p-3.5 text-left transition min-w-0 ${
+                isLight
+                  ? 'border-slate-200 bg-white hover:border-emerald-500'
+                  : 'border-white/10 bg-[#0c1422] hover:border-[#00f2c3]'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-[10.5px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                  Chart timezone
+                </span>
+                <Globe2 className={`h-4 w-4 ${iconTone}`} />
+              </div>
+              <div className={`mt-1.5 text-sm font-extrabold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                {zones.find((zone) => zone.value === timezone)?.label || timezone}
+              </div>
+            </button>
+          </div>
+
+          {activeNotice && (
+            <div
+              role="status"
+              className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-[11px] font-medium ${
+                isLight
+                  ? 'border-amber-500/35 bg-amber-500/10 text-amber-900'
+                  : 'border-amber-400/30 bg-amber-500/10 text-amber-200'
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                <span>{activeNotice}</span>
+              </span>
+              <button type="button" onClick={() => setNotice(null)} className="text-[10px] font-bold hover:underline">
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          <p className={`text-center text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+            Data available {coverage.minDate} → {coverage.maxDate} · weekends &amp; holidays skip automatically
+          </p>
+        </div>
+      ) : (
       <div
         className={`rounded-xl border p-2.5 sm:p-3 ${
           isLight
@@ -353,6 +486,7 @@ export function SessionScheduleFields({
           to the next open trading day.
         </p>
       </div>
+      )}
 
       {open && (
         <dialog

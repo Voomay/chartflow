@@ -32,8 +32,11 @@ import {
   formatMoney,
   validateSessionHistoricalData,
 } from '../services/simulationEngine';
+import { DEFAULT_USER_STRATEGIES } from '../services/storageAndAnalytics';
 import {
   AlertCircle,
+  ArrowLeft,
+  ArrowRight,
   BookmarkPlus,
   Calendar,
   Check,
@@ -49,10 +52,12 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  Sparkles,
   Target,
   Trash2,
   Trophy,
   X,
+  Zap,
 } from 'lucide-react';
 
 interface CreateSessionModalProps {
@@ -72,6 +77,7 @@ interface CreateSessionModalProps {
   onSaveCustomRuleProfile?: (profile: CustomRuleProfile) => void;
   onDeleteCustomRuleProfile?: (profileId: string) => void;
   theme?: ThemeMode;
+  userName?: string;
 }
 
 const EXAMPLE_PROP_PROFILES: Record<
@@ -198,19 +204,22 @@ const TIMEZONE_OPTIONS: { value: DisplayTimezone; label: string }[] = [
 
 const POPULAR_MARKETS: InstrumentSymbol[] = [
   'XAUUSD',
+  'NAS100',
+  'US30',
   'EURUSD',
   'GBPUSD',
-  'USDJPY',
-  'NAS100',
-  'SPX500',
-  'US30',
-  'GER30',
-  'UK100',
   'USOIL',
-  'BTCUSD',
-  'GBPJPY',
-  'XAGUSD',
+  'USDJPY',
 ];
+
+/** Platform-wide recommended strategies — every user sees these. User-created strategies are stored per account and only visible to that user. */
+const RECOMMENDED_STRATEGIES: string[] = Array.from(
+  new Set([
+    ...DEFAULT_USER_STRATEGIES.map((s) => s.name),
+    '714 Method',
+    'OBR Strategy',
+  ])
+);
 
 export function getDateRangePresets(
   symbol: InstrumentSymbol = 'XAUUSD',
@@ -291,16 +300,35 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   onSaveCustomRuleProfile,
   onDeleteCustomRuleProfile,
   theme = 'dark',
+  userName,
 }) => {
   const isLight = theme === 'light';
+  const greetingName = useMemo(() => {
+    const raw = (userName || '').trim();
+    if (!raw) return 'Cheslin';
+    const first = raw.split(/\s+/)[0];
+    return first || 'Cheslin';
+  }, [userName]);
+
   const [activeView, setActiveView] = useState<'setup' | 'saved_sessions'>(
     initialTab === 'sessions' ? 'saved_sessions' : 'setup'
   );
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(
+    initialTab === 'more' ? 3 : 1
+  );
+  const [slideDirection, setSlideDirection] = useState<'next' | 'prev'>('next');
+  const [showCustomDates, setShowCustomDates] = useState<boolean>(false);
+  const [showCustomPropRules, setShowCustomPropRules] = useState<boolean>(false);
   const [mode, setMode] = useState<BacktestSessionMode>(initialMode);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(initialTab === 'more');
   const [showAllMarkets, setShowAllMarkets] = useState<boolean>(false);
   const isSubmittingRef = useRef<boolean>(false);
   const [selectedRangePresetId, setSelectedRangePresetId] = useState<string | null>('1Y');
+
+  const goToStep = (targetStep: 1 | 2 | 3) => {
+    setSlideDirection(targetStep >= wizardStep ? 'next' : 'prev');
+    setWizardStep(targetStep);
+  };
 
   // Basic Session State
   const [sessionName, setSessionName] = useState<string>('');
@@ -314,6 +342,25 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   );
   const [isCreatingStrategy, setIsCreatingStrategy] = useState<boolean>(false);
   const [newStrategyInput, setNewStrategyInput] = useState<string>('');
+  const [localStrategies, setLocalStrategies] = useState<string[]>([]);
+  const [strategySavedToast, setStrategySavedToast] = useState<string | null>(null);
+  const [showMarketPopup, setShowMarketPopup] = useState<boolean>(false);
+  const [showDatePopup, setShowDatePopup] = useState<boolean>(false);
+
+  const strategyOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of RECOMMENDED_STRATEGIES) set.add(s);
+    for (const s of savedStrategies) if (s) set.add(s);
+    for (const s of localStrategies) if (s) set.add(s);
+    if (selectedStrategy) set.add(selectedStrategy);
+    return Array.from(set);
+  }, [savedStrategies, localStrategies, selectedStrategy]);
+
+  /** Strategies this user created themselves (not part of the platform recommendations). */
+  const myStrategies = useMemo(
+    () => strategyOptions.filter((s) => !RECOMMENDED_STRATEGIES.includes(s)),
+    [strategyOptions]
+  );
 
   // Target Market State
   const [selectedAssets, setSelectedAssets] = useState<InstrumentSymbol[]>(['XAUUSD']);
@@ -339,6 +386,10 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       isSubmittingRef.current = false;
       setMode(initialMode);
       setActiveView(initialTab === 'sessions' ? 'saved_sessions' : 'setup');
+      setWizardStep(initialTab === 'more' ? 3 : 1);
+      setSlideDirection('next');
+      setShowCustomDates(false);
+      setShowCustomPropRules(false);
       setShowAdvanced(initialTab === 'more');
       setSessionName('');
       setScheduleNotice(null);
@@ -442,9 +493,10 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   const handleSelectExampleProfile = (
     presetId: Exclude<PropFirmPresetId, 'CUSTOM'>
   ) => {
-    setPropFirmRules({
+    setPropFirmRules((prev) => ({
       ...EXAMPLE_PROP_PROFILES[presetId],
-    });
+      evaluationSteps: prev.evaluationSteps ?? 2,
+    }));
   };
 
   const handleSaveNewCustomProfile = () => {
@@ -469,13 +521,55 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
     setTimeout(() => setProfileSavedToast(null), 3000);
   };
 
-  const handleSaveNewStrategy = () => {
+  const handleSaveNewStrategy = (): string | null => {
     const trimmed = newStrategyInput.trim();
-    if (!trimmed) return;
-    onAddStrategy(trimmed, '');
-    setSelectedStrategy(trimmed);
+    if (!trimmed) return null;
+    const exists = strategyOptions.some(
+      (s) => s.toLowerCase() === trimmed.toLowerCase()
+    );
+    const finalName = exists
+      ? strategyOptions.find((s) => s.toLowerCase() === trimmed.toLowerCase()) || trimmed
+      : trimmed;
+    if (!savedStrategies.includes(finalName)) {
+      onAddStrategy(finalName, '');
+    }
+    setLocalStrategies((prev) => (prev.includes(finalName) ? prev : [...prev, finalName]));
+    setSelectedStrategy(finalName);
     setNewStrategyInput('');
     setIsCreatingStrategy(false);
+    setStrategySavedToast(`Saved "${finalName}"`);
+    setTimeout(() => setStrategySavedToast(null), 2500);
+    return finalName;
+  };
+
+  /** Commits a typed-but-unsaved strategy and makes sure the chosen strategy is persisted. */
+  const commitStrategy = (): string => {
+    const pending = isCreatingStrategy ? handleSaveNewStrategy() : null;
+    const chosen = pending || selectedStrategy || 'Price Action Strategy';
+    if (!pending && !savedStrategies.includes(chosen)) {
+      onAddStrategy(chosen, '');
+    }
+    return chosen;
+  };
+
+  const handleSetEvaluationSteps = (steps: 1 | 2) => {
+    setPropFirmRules((prev) => {
+      const p1Target = prev.phase1ProfitTargetPct ?? prev.profitTargetPct;
+      return {
+        ...prev,
+        evaluationSteps: steps,
+        // 1-Step accounts typically use a trailing drawdown; 2-Step a static one.
+        drawdownType: steps === 1 ? 'TRAILING' : 'STATIC',
+        challengePhase: 'PHASE_1',
+        phase1ProfitTargetPct: p1Target,
+        profitTargetPct: p1Target,
+        phase2ProfitTargetPct:
+          steps === 2
+            ? prev.phase2ProfitTargetPct ??
+              Math.max(1, Number((p1Target * 0.5).toFixed(1)))
+            : prev.phase2ProfitTargetPct,
+      };
+    });
   };
 
   const handleCreateAndOpenChart = () => {
@@ -483,6 +577,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
     if (selectedAssets.some(isInstrumentComingSoon)) return;
     if (!dataValidation.valid) return;
     isSubmittingRef.current = true;
+    const finalStrategyName = commitStrategy();
 
     const primaryAsset = selectedAssets[0] || 'XAUUSD';
     const snappedStart = snapToOpenTradingDate(startDate, primaryAsset, 'forward');
@@ -532,7 +627,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       mode,
       startingBalance: effectiveBalance,
       accountCurrency,
-      strategyName: selectedStrategy || 'Price Action Strategy',
+      strategyName: finalStrategyName,
       strategyDescription: '',
       assets: selectedAssets.length > 0 ? selectedAssets : ['XAUUSD'],
       activeAsset: primaryAsset,
@@ -679,15 +774,15 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
               FX
             </div>
             <div>
-              <h2 className={`text-base font-bold tracking-tight ${headingText}`}>
+              <h2 className={`text-lg font-extrabold tracking-tight ${headingText}`}>
                 {activeView === 'saved_sessions'
-                  ? 'Saved Sessions & Attempts'
-                  : 'Create your next session'}
+                  ? 'Saved sessions'
+                  : 'New session'}
               </h2>
-              <p className={`text-[11px] ${mutedText}`}>
+              <p className={`text-xs ${mutedText}`}>
                 {activeView === 'saved_sessions'
-                  ? 'Switch between your active backtests and prop firm challenges'
-                  : 'Choose your mode, market, and start date to open the chart immediately'}
+                  ? 'Switch between your active backtests and challenges.'
+                  : 'Set up your next backtest.'}
               </p>
             </div>
           </div>
@@ -707,8 +802,8 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
               <FolderKanban className="w-3.5 h-3.5" />
               <span>
                 {activeView === 'saved_sessions'
-                  ? 'Back to New Session'
-                  : `Saved Sessions (${sessions.length})`}
+                  ? 'New session'
+                  : `Saved sessions (${sessions.length})`}
               </span>
             </button>
 
@@ -866,1395 +961,1276 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
               )}
             </div>
           ) : (
-            /* STREAMLINED SINGLE-PAGE SETUP */
-            <>
-              {/* STEP 1: MODE SELECTOR */}
-              <div data-tour="setup-mode" className={`${sectionCard} space-y-2.5`}>
-                <div className="flex items-center gap-2">
-                  <span className={stepBadge}>1</span>
-                  <span
-                    className={`text-xs font-bold uppercase tracking-wider ${headingText}`}
-                  >
-                    Step 1: Choose Session Mode
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setMode('BACKTESTING')}
-                    className={`p-3 rounded-xl border text-left transition flex items-start justify-between gap-3 ${
-                      mode === 'BACKTESTING'
-                        ? isLight
-                          ? 'bg-gradient-to-br from-emerald-50 via-teal-50/70 to-cyan-50/50 border-emerald-500/70 shadow-[0_0_0_1px_rgba(16,185,129,0.2)]'
-                          : 'bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-cyan-500/10 border-emerald-400/70 shadow-[0_0_24px_-8px_rgba(16,185,129,0.4)]'
-                        : pillIdle
-                    }`}
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Layers
-                          className={`w-4 h-4 ${
-                            mode === 'BACKTESTING'
-                              ? isLight
-                                ? 'text-teal-700'
-                                : 'text-emerald-300'
-                              : mutedText
-                          }`}
-                        />
-                        <span className={`text-xs sm:text-sm font-bold ${headingText}`}>
-                          Normal Strategy Backtesting
-                        </span>
-                      </div>
-                      <p className={`text-[11px] leading-relaxed ${mutedText}`}>
-                        Test any strategy freely with full bar replay, rewind, and no
-                        drawdown lockouts.
-                      </p>
-                    </div>
-                    <div
-                      className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-                        mode === 'BACKTESTING'
-                          ? 'border-emerald-400 bg-emerald-400 text-slate-950'
-                          : isLight
-                          ? 'border-slate-300'
-                          : 'border-white/20'
-                      }`}
-                    >
-                      {mode === 'BACKTESTING' && (
-                        <Check className="w-3.5 h-3.5 stroke-[3]" />
-                      )}
-                    </div>
-                  </button>
+            /* CLEAN 3-STEP ANIMATED WIZARD MATCHING REFERENCE DESIGN */
+            <div className="px-2 sm:px-4 py-2 space-y-6">
+              <style>{`
+                @keyframes wizardSlideInRight {
+                  from { opacity: 0; transform: translateX(28px); }
+                  to { opacity: 1; transform: translateX(0); }
+                }
+                @keyframes wizardSlideInLeft {
+                  from { opacity: 0; transform: translateX(-28px); }
+                  to { opacity: 1; transform: translateX(0); }
+                }
+              `}</style>
 
-                  <button
-                    type="button"
-                    onClick={() => setMode('PROP_FIRM')}
-                    className={`p-3 rounded-xl border text-left transition flex items-start justify-between gap-3 ${
-                      mode === 'PROP_FIRM'
-                        ? isLight
-                          ? 'bg-gradient-to-br from-amber-50 via-emerald-50/60 to-cyan-50/50 border-emerald-500/70 shadow-[0_0_0_1px_rgba(16,185,129,0.2)]'
-                          : 'bg-gradient-to-br from-amber-500/15 via-emerald-500/15 to-indigo-500/15 border-emerald-400/70 shadow-[0_0_24px_-8px_rgba(16,185,129,0.4)]'
-                        : pillIdle
-                    }`}
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Trophy
-                          className={`w-4 h-4 ${
-                            mode === 'PROP_FIRM'
+              {/* Top 3-Step Horizontal Stepper */}
+              <div className="flex items-center justify-center gap-2 sm:gap-4 pt-1">
+                {(
+                  [
+                    { step: 1 as const, label: 'Session type' },
+                    { step: 2 as const, label: 'Market & dates' },
+                    { step: 3 as const, label: 'Review & start' },
+                  ]
+                ).map((item, idx) => {
+                  const isActive = wizardStep === item.step;
+                  const isDone = wizardStep > item.step;
+                  return (
+                    <React.Fragment key={item.step}>
+                      <button
+                        type="button"
+                        onClick={() => goToStep(item.step)}
+                        className="group flex items-center gap-2.5 text-left focus:outline-none"
+                      >
+                        <span
+                          className={`w-7 h-7 rounded-full text-xs font-extrabold flex items-center justify-center transition-all duration-300 ${
+                            isActive
+                              ? 'bg-[#00f2c3] text-[#032221] shadow-[0_0_16px_rgba(0,242,195,0.45)] scale-105'
+                              : isDone
                               ? isLight
-                                ? 'text-amber-600'
-                                : 'text-amber-400'
-                              : mutedText
+                                ? 'bg-emerald-500/20 text-teal-800 border border-emerald-500/40'
+                                : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                              : isLight
+                              ? 'bg-slate-200/80 text-slate-600 border border-slate-300'
+                              : 'bg-white/[0.06] text-slate-400 border border-white/15'
+                          }`}
+                        >
+                          {isDone ? (
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          ) : (
+                            item.step
+                          )}
+                        </span>
+                        <span
+                          className={`text-xs sm:text-sm transition-colors ${
+                            isActive
+                              ? `font-extrabold ${headingText}`
+                              : isDone
+                              ? `font-semibold ${headingText}`
+                              : `font-medium ${mutedText} group-hover:${headingText}`
+                          }`}
+                        >
+                          {item.label}
+                        </span>
+                      </button>
+
+                      {idx < 2 && (
+                        <div
+                          className={`h-px w-10 sm:w-20 transition-colors duration-300 ${
+                            wizardStep > item.step
+                              ? 'bg-[#00f2c3]/60'
+                              : isLight
+                              ? 'bg-slate-300'
+                              : 'bg-white/15'
                           }`}
                         />
-                        <span className={`text-xs sm:text-sm font-bold ${headingText}`}>
-                          Prop Firm Evaluation
-                        </span>
-                      </div>
-                      <p className={`text-[11px] leading-relaxed ${mutedText}`}>
-                        Simulate FTMO, FundedNext, 5%ers, Topstep, or your own custom
-                        profit &amp; drawdown rules.
-                      </p>
-                    </div>
-                    <div
-                      className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-                        mode === 'PROP_FIRM'
-                          ? 'border-emerald-400 bg-emerald-400 text-slate-950'
-                          : isLight
-                          ? 'border-slate-300'
-                          : 'border-white/20'
-                      }`}
-                    >
-                      {mode === 'PROP_FIRM' && (
-                        <Check className="w-3.5 h-3.5 stroke-[3]" />
                       )}
-                    </div>
-                  </button>
-                </div>
+                    </React.Fragment>
+                  );
+                })}
               </div>
 
-              {/* STEP 2: TARGET MARKET SELECTION */}
-              <div data-tour="setup-market" className={`${sectionCard} space-y-2.5`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <label
-                      className={`text-xs font-bold uppercase tracking-wider flex items-center gap-2 ${headingText}`}
-                    >
-                      <span className={stepBadge}>2</span>
-                      <span>Step 2: Target Market</span>
-                      <span
-                        className={`px-2 py-0.5 rounded-md font-mono text-[11px] border ${
-                          isLight
-                            ? 'bg-emerald-500/10 border-emerald-500/30 text-teal-800'
-                            : 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300'
-                        }`}
-                      >
-                        {selectedAssets[0]}
-                      </span>
-                    </label>
-                    <p className={`text-[11px] ${mutedText}`}>
-                      Click an instrument below to trade it (1 market per session)
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowAllMarkets(!showAllMarkets)}
-                    className={`px-2.5 py-1 rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 transition ${pillIdle}`}
-                  >
-                    <Search className="w-3 h-3" />
-                    <span>
-                      {showAllMarkets ? 'Hide Market Search' : 'Search All 25 Markets'}
-                    </span>
-                  </button>
-                </div>
-
-                {/* Quick Popular Market Pills */}
-                <div className="flex flex-wrap gap-1.5">
-                  {POPULAR_MARKETS.map((sym) => {
-                    const isSelected = selectedAssets.includes(sym);
-                    const isPrimary = selectedAssets[0] === sym;
-                    return (
-                      <button
-                        key={sym}
-                        type="button"
-                        disabled={isInstrumentComingSoon(sym)}
-                        title={
-                          isInstrumentComingSoon(sym)
-                            ? `${sym} · Coming soon`
-                            : instrumentDisplayName(
-                                sym,
-                                getInstrumentConfig(sym).name
-                              )
-                        }
-                        onClick={() => selectSinglePrimaryAsset(sym)}
-                        className={`px-2.5 py-1 rounded-xl text-xs font-bold font-mono border transition flex items-center gap-1.5 ${
-                          isSelected ? pillActive : pillIdle
-                        }`}
-                      >
-                        <span>{sym}</span>
-                        {isInstrumentComingSoon(sym) && (
-                          <span className="text-[9px] font-sans font-medium opacity-60">
-                            Coming soon
-                          </span>
-                        )}
-                        {isPrimary && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Expandable Full Catalog Search */}
-                {showAllMarkets && (
-                  <div
-                    className={`pt-2.5 border-t space-y-2 ${
-                      isLight ? 'border-slate-200' : 'border-white/10'
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="relative flex-1 min-w-[180px]">
-                        <Search
-                          className={`w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 ${mutedText}`}
-                        />
-                        <input
-                          type="text"
-                          value={assetSearch}
-                          onChange={(e) => setAssetSearch(e.target.value)}
-                          placeholder="Search symbol or name (e.g. Gold, GBPJPY, NAS100)..."
-                          className={`w-full pl-8 pr-3 py-1.5 ${inputSurface}`}
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {(
-                          [
-                            'ALL',
-                            'FOREX',
-                            'METALS',
-                            'INDICES',
-                            'ENERGIES',
-                            'CRYPTO',
-                          ] as InstrumentCategory[]
-                        ).map((cat) => (
-                          <button
-                            key={cat}
-                            type="button"
-                            onClick={() => setAssetCategory(cat)}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border transition ${
-                              assetCategory === cat ? pillActive : pillIdle
-                            }`}
-                          >
-                            {cat}
-                          </button>
-                        ))}
-                      </div>
+              {/* Animated Step Viewport */}
+              <div
+                key={`wizard-step-${wizardStep}`}
+                style={{
+                  animation: `${
+                    slideDirection === 'next'
+                      ? 'wizardSlideInRight'
+                      : 'wizardSlideInLeft'
+                  } 240ms cubic-bezier(0.16, 1, 0.3, 1)`,
+                }}
+                className="space-y-6"
+              >
+                {/* STEP 1: SESSION TYPE */}
+                {wizardStep === 1 && (
+                  <div data-tour="setup-mode" className="space-y-6">
+                    <div>
+                      <h3 className={`text-xl sm:text-2xl font-extrabold tracking-tight ${headingText}`}>
+                        How would you like to practise?
+                      </h3>
+                      <p className={`text-xs sm:text-sm mt-1 ${mutedText}`}>
+                        Hi {greetingName} — choose a session type to continue.
+                      </p>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 max-h-36 overflow-y-auto custom-scrollbar pr-1">
-                      {filteredInstruments.map((inst) => {
-                        const isSelected = selectedAssets.includes(inst.symbol);
-                        return (
+                    {/* Two Clean Side-by-Side Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <button
+                        type="button"
+                        onClick={() => setMode('BACKTESTING')}
+                        className={`p-5 rounded-2xl border text-left transition-all duration-200 flex items-center justify-between gap-4 ${
+                          mode === 'BACKTESTING'
+                            ? isLight
+                              ? 'bg-emerald-50/90 border-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]'
+                              : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] shadow-[0_0_28px_-8px_rgba(0,242,195,0.35)]'
+                            : isLight
+                            ? 'bg-white border-slate-200 hover:border-slate-300'
+                            : 'bg-[#0d1522]/90 border-white/10 hover:border-white/25'
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <Layers
+                            className={`w-6 h-6 shrink-0 ${
+                              mode === 'BACKTESTING'
+                                ? isLight
+                                  ? 'text-teal-700'
+                                  : 'text-[#00f2c3]'
+                                : mutedText
+                            }`}
+                          />
+                          <div
+                            className={`h-9 w-px ${
+                              mode === 'BACKTESTING'
+                                ? isLight
+                                  ? 'bg-emerald-500/30'
+                                  : 'bg-[#00f2c3]/30'
+                                : isLight
+                                ? 'bg-slate-200'
+                                : 'bg-white/10'
+                            }`}
+                          />
+                          <div>
+                            <div className={`text-base sm:text-lg font-extrabold ${headingText}`}>
+                              Backtest
+                            </div>
+                            <p className={`text-xs sm:text-sm mt-0.5 ${mutedText}`}>
+                              Test your strategy at your own pace.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div
+                          className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition ${
+                            mode === 'BACKTESTING'
+                              ? 'border-[#00f2c3] bg-[#00f2c3] text-[#032221]'
+                              : isLight
+                              ? 'border-slate-300'
+                              : 'border-white/25'
+                          }`}
+                        >
+                          {mode === 'BACKTESTING' && (
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          )}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setMode('PROP_FIRM')}
+                        className={`p-5 rounded-2xl border text-left transition-all duration-200 flex items-center justify-between gap-4 ${
+                          mode === 'PROP_FIRM'
+                            ? isLight
+                              ? 'bg-emerald-50/90 border-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]'
+                              : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] shadow-[0_0_28px_-8px_rgba(0,242,195,0.35)]'
+                            : isLight
+                            ? 'bg-white border-slate-200 hover:border-slate-300'
+                            : 'bg-[#0d1522]/90 border-white/10 hover:border-white/25'
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <Trophy
+                            className={`w-6 h-6 shrink-0 ${
+                              mode === 'PROP_FIRM'
+                                ? isLight
+                                  ? 'text-teal-700'
+                                  : 'text-[#00f2c3]'
+                                : mutedText
+                            }`}
+                          />
+                          <div
+                            className={`h-9 w-px ${
+                              mode === 'PROP_FIRM'
+                                ? isLight
+                                  ? 'bg-emerald-500/30'
+                                  : 'bg-[#00f2c3]/30'
+                                : isLight
+                                ? 'bg-slate-200'
+                                : 'bg-white/10'
+                            }`}
+                          />
+                          <div>
+                            <div className={`text-base sm:text-lg font-extrabold ${headingText}`}>
+                              Prop challenge
+                            </div>
+                            <p className={`text-xs sm:text-sm mt-0.5 ${mutedText}`}>
+                              Practise with prop firm rules.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div
+                          className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition ${
+                            mode === 'PROP_FIRM'
+                              ? 'border-[#00f2c3] bg-[#00f2c3] text-[#032221]'
+                              : isLight
+                              ? 'border-slate-300'
+                              : 'border-white/25'
+                          }`}
+                        >
+                          {mode === 'PROP_FIRM' && (
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          )}
+                        </div>
+                      </button>
+                    </div>
+
+                    {/* Two Clean Bottom Inputs: Name your session & What strategy are you using? */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label
+                          className={`block text-xs sm:text-sm font-bold mb-2 ${headingText}`}
+                        >
+                          Name your session
+                        </label>
+                        <input
+                          type="text"
+                          value={sessionName}
+                          onChange={(e) => setSessionName(e.target.value)}
+                          placeholder={
+                            mode === 'PROP_FIRM'
+                              ? `${propFirmRules.firmName} · ${selectedAssets[0]} challenge`
+                              : 'Gold · London session'
+                          }
+                          className={`w-full px-4 py-3 text-sm rounded-xl border transition focus:outline-none ${
+                            isLight
+                              ? 'bg-white border-slate-200 text-slate-900 focus:border-emerald-500'
+                              : 'bg-[#0c1422] border-white/15 text-white placeholder-slate-400 focus:border-[#00f2c3]'
+                          }`}
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className={`text-xs sm:text-sm font-bold ${headingText}`}>
+                            What strategy are you using?
+                          </label>
                           <button
-                            key={inst.symbol}
                             type="button"
-                            disabled={isInstrumentComingSoon(inst.symbol)}
-                            onClick={() => toggleAsset(inst.symbol)}
-                            className={`p-2 rounded-xl border text-left transition flex items-center justify-between ${
-                              isSelected ? pillActive : pillIdle
+                            onClick={() => setIsCreatingStrategy(!isCreatingStrategy)}
+                            className={`text-xs font-semibold hover:underline flex items-center gap-0.5 ${
+                              isLight ? 'text-teal-700' : 'text-[#00f2c3]'
                             }`}
                           >
-                            <div>
-                              <div className="text-xs font-bold font-mono">
-                                {inst.symbol}
-                              </div>
-                              <div
-                                className={`text-[10px] truncate max-w-[110px] ${mutedText}`}
-                              >
-                                {isInstrumentComingSoon(inst.symbol)
-                                  ? 'Coming soon'
-                                  : instrumentDisplayName(inst.symbol, inst.name)}
-                              </div>
-                            </div>
-                            {isSelected && (
-                              <Check
-                                className={`w-3.5 h-3.5 shrink-0 ${
-                                  isLight ? 'text-teal-700' : 'text-emerald-300'
-                                }`}
-                              />
-                            )}
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>
+                              {isCreatingStrategy ? 'Choose existing' : 'New'}
+                            </span>
                           </button>
-                        );
-                      })}
+                        </div>
+                        {isCreatingStrategy ? (
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              autoFocus
+                              value={newStrategyInput}
+                              onChange={(e) => setNewStrategyInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleSaveNewStrategy();
+                                }
+                              }}
+                              placeholder="Your strategy name..."
+                              className={`flex-1 px-4 py-3 text-sm rounded-xl border focus:outline-none ${
+                                isLight
+                                  ? 'bg-white border-slate-200 text-slate-900'
+                                  : 'bg-[#0c1422] border-white/15 text-white'
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={handleSaveNewStrategy}
+                              disabled={!newStrategyInput.trim()}
+                              className="px-4 py-3 rounded-xl bg-[#00f2c3] text-[#032221] text-xs font-extrabold disabled:opacity-40"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        ) : (
+                          <select
+                            value={selectedStrategy}
+                            onChange={(e) => setSelectedStrategy(e.target.value)}
+                            className={`w-full px-4 py-3 text-sm rounded-xl border transition focus:outline-none ${
+                              isLight
+                                ? 'bg-white border-slate-200 text-slate-900 focus:border-emerald-500'
+                                : 'bg-[#0c1422] border-white/15 text-white focus:border-[#00f2c3]'
+                            }`}
+                          >
+                            <optgroup
+                              label="Recommended"
+                              className={isLight ? 'bg-white text-slate-500' : 'bg-[#0b131d] text-slate-400'}
+                            >
+                              {RECOMMENDED_STRATEGIES.map((strat) => (
+                                <option
+                                  key={strat}
+                                  value={strat}
+                                  className={
+                                    isLight
+                                      ? 'bg-white text-slate-900'
+                                      : 'bg-[#0b131d] text-slate-100'
+                                  }
+                                >
+                                  {strat}
+                                </option>
+                              ))}
+                            </optgroup>
+                            {myStrategies.length > 0 && (
+                              <optgroup
+                                label="My strategies (only you can see these)"
+                                className={isLight ? 'bg-white text-slate-500' : 'bg-[#0b131d] text-slate-400'}
+                              >
+                                {myStrategies.map((strat) => (
+                                  <option
+                                    key={strat}
+                                    value={strat}
+                                    className={
+                                      isLight
+                                        ? 'bg-white text-slate-900'
+                                        : 'bg-[#0b131d] text-slate-100'
+                                    }
+                                  >
+                                    {strat}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
+                        )}
+                        <p className={`text-[11px] mt-1.5 ${mutedText}`}>
+                          Strategies you add are private to your account.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 )}
-              </div>
 
-              {/* STEP 3: HISTORICAL DATE & TIME SELECTION ("WHEN TO TRADE FROM") */}
-              <div data-tour="setup-schedule" className={`${sectionCard} space-y-2.5`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <label
-                      className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${headingText}`}
-                    >
-                      <span className={stepBadge}>3</span>
-                      <Calendar
-                        className={`w-3.5 h-3.5 ${
-                          isLight ? 'text-teal-700' : 'text-emerald-400'
-                        }`}
-                      />
-                      <span>Step 3: When Do You Want to Trade From?</span>
-                    </label>
-                    <p className={`text-[11px] ${mutedText}`}>
-                      Pick a quick range (like 1 Year Ago till Now) or choose any
-                      exact start date &amp; time
-                    </p>
-                  </div>
-
-                  {/* Quick Range Pills */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {DATE_RANGE_PRESETS.map((preset) => {
-                      const active =
-                        startDate === preset.startDate &&
-                        endDate === preset.endDate;
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedRangePresetId(preset.id);
-                            setStartDate(preset.startDate);
-                            setEndDate(preset.endDate);
-                            setScheduleNotice(null);
-                          }}
-                          className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition ${
-                            active ? pillActive : pillIdle
-                          }`}
-                        >
-                          {preset.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <SessionScheduleFields
-                  symbol={primarySelectedAsset}
-                  start={startDate}
-                  end={endDate}
-                  time={replayStartTime}
-                  timezone={displayTimezone}
-                  zones={TIMEZONE_OPTIONS}
-                  scheduleNotice={scheduleNotice}
-                  onScheduleNotice={setScheduleNotice}
-                  theme={theme}
-                  onStart={(value) => {
-                    setSelectedRangePresetId(null);
-                    const snapped = snapToOpenTradingDate(
-                      value,
-                      primarySelectedAsset,
-                      'forward'
-                    );
-                    setStartDate(snapped.date);
-                    if (endDate < snapped.date) setEndDate(snapped.date);
-                    setScheduleNotice(
-                      snapped.adjusted && snapped.reason ? snapped.reason : null
-                    );
-                  }}
-                  onEnd={(value) => {
-                    setSelectedRangePresetId(null);
-                    setEndDate(value);
-                  }}
-                  onTime={(value) => {
-                    setReplayStartTime(value);
-                    setCustomStartTime(value);
-                    setSelectedQuickStart(null);
-                  }}
-                  onTimezone={setDisplayTimezone}
-                />
-
-                {/* Session Start Time Quick Pills + Live Historical Data Confirmation */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span
-                      className={`text-[11px] flex items-center gap-1 mr-1 ${mutedText}`}
-                    >
-                      <Clock className="w-3 h-3" /> Optional session presets:
-                    </span>
-                    {START_TIME_PRESETS.map((t) => (
-                      <button
-                        key={t.value}
-                        type="button"
-                        aria-pressed={selectedQuickStart === t.value}
-                        onClick={() => {
-                          if (selectedQuickStart === t.value) {
-                            setSelectedQuickStart(null);
-                            setReplayStartTime(customStartTime);
-                          } else {
-                            if (!selectedQuickStart)
-                              setCustomStartTime(replayStartTime);
-                            setSelectedQuickStart(t.value);
-                            setReplayStartTime(t.value);
-                          }
-                        }}
-                        className={`px-2 py-0.5 rounded-lg text-[11px] font-mono border transition ${
-                          selectedQuickStart === t.value
-                            ? `${pillActive} font-bold`
-                            : pillIdle
-                        }`}
-                      >
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {dataValidation.valid ? (
-                    <div
-                      className={`text-[11px] flex items-center gap-1.5 font-medium ${
-                        isLight ? 'text-teal-700' : 'text-emerald-400'
-                      }`}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>
-                        Selected range: <strong>{totalRangeDays} days</strong> ·
-                        starts{' '}
-                        <span className="font-mono">
-                          {startDate} {replayStartTime}
-                        </span>
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="text-[11px] text-rose-400 flex items-center gap-1.5 font-medium">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span>
-                        {dataValidation.errors[0] || 'Invalid date range'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* STEP 4: ACCOUNT BALANCE & SESSION DETAILS */}
-              <div data-tour="setup-details" className={`${sectionCard} space-y-2.5`}>
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                  {/* Starting Balance */}
-                  <div className="sm:col-span-7 space-y-1.5">
-                    <label
-                      className={`text-xs font-bold uppercase tracking-wider flex items-center gap-2 ${headingText}`}
-                    >
-                      <span className={stepBadge}>4</span>
-                      <span>Step 4: Starting Balance &amp; Session Details</span>
-                    </label>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {(accountCurrency === 'ZAR' ? ZAR_BALANCE_PRESETS : BALANCE_PRESETS).map((preset) => {
-                        const active =
-                          balanceMode === 'PRESET' &&
-                          selectedBalance === preset.value;
-                        const labelText =
-                          accountCurrency === 'ZAR'
-                            ? preset.label
-                            : `${CURRENCY_SYMBOLS[accountCurrency] || '$'}${preset.label}`;
-                        return (
-                          <button
-                            key={preset.value}
-                            type="button"
-                            onClick={() => {
-                              setBalanceMode('PRESET');
-                              setSelectedBalance(preset.value);
-                              setCustomBalanceStr(String(preset.value));
-                            }}
-                            className={`px-2.5 py-1 rounded-xl text-xs font-bold font-mono border transition ${
-                              active ? pillActive : pillIdle
-                            }`}
-                          >
-                            {labelText}
-                          </button>
-                        );
-                      })}
-                      <button
-                        type="button"
-                        onClick={() => setBalanceMode('CUSTOM')}
-                        className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition ${
-                          balanceMode === 'CUSTOM' ? pillActive : pillIdle
-                        }`}
-                      >
-                        Custom
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Currency & Custom Balance Input */}
-                  <div className="sm:col-span-5 grid grid-cols-2 gap-2">
-                    {balanceMode === 'CUSTOM' && (
-                      <div>
-                        <label
-                          className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                        >
-                          Custom Amount
-                        </label>
-                        <input
-                          type="number"
-                          min={100}
-                          step={500}
-                          value={customBalanceStr}
-                          onChange={(e) => setCustomBalanceStr(e.target.value)}
-                          className={`w-full px-3 py-1.5 font-mono ${inputSurface}`}
-                        />
-                      </div>
-                    )}
-                    <div className={balanceMode === 'CUSTOM' ? '' : 'col-span-2'}>
-                      <label
-                        className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                      >
-                        Account Currency
-                      </label>
-                      <select
-                        value={accountCurrency}
-                        onChange={(e) =>
-                          setAccountCurrency(e.target.value as AccountCurrency)
-                        }
-                        className={`w-full px-3 py-1.5 ${inputSurface}`}
-                      >
-                        {CURRENCY_OPTIONS.map((c) => (
-                          <option
-                            key={c.code}
-                            value={c.code}
-                            className={
-                              isLight
-                                ? 'bg-white text-slate-900'
-                                : 'bg-[#0b131d] text-slate-100'
-                            }
-                          >
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Session Name & Strategy Tag */}
-                <div
-                  className={`grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t ${
-                    isLight ? 'border-slate-200' : 'border-white/10'
-                  }`}
-                >
-                  <div>
-                    <label
-                      className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                    >
-                      Session Name (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={sessionName}
-                      onChange={(e) => setSessionName(e.target.value)}
-                      placeholder={
-                        mode === 'PROP_FIRM'
-                          ? `e.g. ${propFirmRules.firmName} ${selectedAssets[0]} Challenge`
-                          : `e.g. ${selectedAssets[0]} Strategy Backtest`
-                      }
-                      className={`w-full px-3 py-1.5 ${inputSurface}`}
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className={`text-[10.5px] font-semibold ${mutedText}`}>
-                        Strategy Tag
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setIsCreatingStrategy(!isCreatingStrategy)}
-                        className={`text-[10.5px] font-semibold hover:underline flex items-center gap-0.5 ${
-                          isLight ? 'text-teal-700' : 'text-emerald-400'
-                        }`}
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>
-                          {isCreatingStrategy ? 'Select Existing' : 'New Strategy'}
-                        </span>
-                      </button>
-                    </div>
-                    {isCreatingStrategy ? (
-                      <div className="flex gap-1.5">
-                        <input
-                          type="text"
-                          value={newStrategyInput}
-                          onChange={(e) => setNewStrategyInput(e.target.value)}
-                          placeholder="Enter strategy name..."
-                          className={`flex-1 px-3 py-1.5 ${inputSurface}`}
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSaveNewStrategy}
-                          className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#19e5b0] to-[#00b7d5] text-[#04202a] text-xs font-extrabold"
-                        >
-                          Add
-                        </button>
-                      </div>
-                    ) : (
-                      <select
-                        value={selectedStrategy}
-                        onChange={(e) => setSelectedStrategy(e.target.value)}
-                        className={`w-full px-3 py-1.5 ${inputSurface}`}
-                      >
-                        {savedStrategies.map((strat) => (
-                          <option
-                            key={strat}
-                            value={strat}
-                            className={
-                              isLight
-                                ? 'bg-white text-slate-900'
-                                : 'bg-[#0b131d] text-slate-100'
-                            }
-                          >
-                            {strat}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* 5. PROP FIRM EVALUATION RULES */}
-              {mode === 'PROP_FIRM' && (
-                <div className={`${sectionCard} space-y-3`}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                {/* STEP 2: MARKET & DATES */}
+                {wizardStep === 2 && (
+                  <div data-tour="setup-market" className="space-y-6">
                     <div>
-                      <label
-                        className={`text-xs font-bold uppercase tracking-wider flex items-center gap-2 ${headingText}`}
-                      >
-                        <span className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-400 font-mono text-[11px] font-bold flex items-center justify-center">
-                          5
-                        </span>
-                        <ShieldCheck
-                          className={`w-4 h-4 ${
-                            isLight ? 'text-amber-600' : 'text-amber-400'
-                          }`}
-                        />
-                        <span>Step 5: Prop Firm &amp; Evaluation Rules</span>
-                      </label>
-                      <p className={`text-[11px] ${mutedText}`}>
-                        Select a prop firm preset or customize your target, daily
-                        loss, and drawdown rules below
+                      <h3 className={`text-xl sm:text-2xl font-extrabold tracking-tight ${headingText}`}>
+                        Choose your market &amp; start date
+                      </h3>
+                      <p className={`text-xs sm:text-sm mt-1 ${mutedText}`}>
+                        Pick an instrument and when your replay begins.
                       </p>
                     </div>
 
-                    {/* Firm Preset Buttons */}
-                    <div className="flex flex-wrap gap-1.5">
-                      {(
-                        [
-                          { id: 'FTMO', label: 'FTMO' },
-                          { id: 'FUNDED_NEXT', label: 'FundedNext' },
-                          { id: 'THE_5ERS', label: 'The 5%ers' },
-                          { id: 'TOPSTEP', label: 'Topstep' },
-                        ] as {
-                          id: Exclude<PropFirmPresetId, 'CUSTOM'>;
-                          label: string;
-                        }[]
-                      ).map((firm) => {
-                        const active = propFirmRules.presetId === firm.id;
+                    {/* Popular markets + All instruments tile */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      {POPULAR_MARKETS.map((sym) => {
+                        const isSelected = selectedAssets[0] === sym;
+                        const instCfg = getInstrumentConfig(sym);
                         return (
                           <button
-                            key={firm.id}
+                            key={sym}
                             type="button"
-                            onClick={() => handleSelectExampleProfile(firm.id)}
-                            className={`px-3 py-1 rounded-xl text-xs font-bold border transition ${
-                              active ? pillActive : pillIdle
+                            disabled={isInstrumentComingSoon(sym)}
+                            onClick={() => selectSinglePrimaryAsset(sym)}
+                            className={`p-3.5 rounded-2xl text-left border transition-all duration-200 hover:-translate-y-0.5 flex flex-col justify-between ${
+                              isSelected
+                                ? isLight
+                                  ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
+                                  : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white shadow-[0_0_20px_-6px_rgba(0,242,195,0.35)]'
+                                : pillIdle
                             }`}
                           >
-                            {firm.label}
+                            <div className="flex items-center justify-between w-full">
+                              <span className="text-sm font-extrabold font-mono">
+                                {sym}
+                              </span>
+                              {isSelected && (
+                                <span className="w-4 h-4 rounded-full bg-[#00f2c3] text-[#032221] flex items-center justify-center">
+                                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                </span>
+                              )}
+                            </div>
+                            <span className={`text-[11px] truncate mt-1 ${mutedText}`}>
+                              {isInstrumentComingSoon(sym)
+                                ? 'Coming soon'
+                                : instrumentDisplayName(sym, instCfg.name)}
+                            </span>
                           </button>
                         );
                       })}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPropFirmRules((prev) => ({
-                            ...prev,
-                            presetId: 'CUSTOM',
-                            firmName: 'Custom Prop Firm',
-                            isExamplePreset: false,
-                          }))
-                        }
-                        className={`px-3 py-1 rounded-xl text-xs font-bold border transition ${
-                          propFirmRules.presetId === 'CUSTOM'
-                            ? pillActive
-                            : pillIdle
-                        }`}
-                      >
-                        Custom Rules
-                      </button>
-                    </div>
-                  </div>
 
-                  {/* Custom Saved Profiles Row */}
-                  {customRuleProfiles.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                      <span className={`text-[11px] mr-1 ${mutedText}`}>
-                        Saved Profiles:
-                      </span>
-                      {customRuleProfiles.map((prof) => (
-                        <div
-                          key={prof.id}
-                          className={`inline-flex items-center rounded-xl border overflow-hidden ${pillIdle}`}
-                        >
+                      {/* All instruments tile (shows the selected one if it's not a popular market) */}
+                      {(() => {
+                        const otherSelected =
+                          selectedAssets[0] && !POPULAR_MARKETS.includes(selectedAssets[0])
+                            ? selectedAssets[0]
+                            : null;
+                        return (
                           <button
                             type="button"
-                            onClick={() => setPropFirmRules({ ...prof.rules })}
-                            className="px-2.5 py-1 text-[11px] font-semibold"
-                          >
-                            {prof.name}
-                          </button>
-                          {onDeleteCustomRuleProfile && (
-                            <button
-                              type="button"
-                              onClick={() => onDeleteCustomRuleProfile(prof.id)}
-                              className="px-1.5 py-1 hover:text-rose-400"
-                              title="Delete profile"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Evaluation Phase Selector */}
-                  <div
-                    className={`flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border ${
-                      isLight
-                        ? 'bg-slate-50 border-slate-200'
-                        : 'bg-[#09111a]/80 border-white/10'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[11px] font-bold ${mutedText}`}>
-                        Evaluation Phase:
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPropFirmRules((prev) => {
-                              const p1Target =
-                                prev.phase1ProfitTargetPct ??
-                                (prev.challengePhase === 'PHASE_2'
-                                  ? Math.min(20, prev.profitTargetPct * 2)
-                                  : prev.profitTargetPct) ??
-                                10;
-                              return {
-                                ...prev,
-                                challengePhase: 'PHASE_1',
-                                phase1ProfitTargetPct: p1Target,
-                                profitTargetPct: p1Target,
-                              };
-                            })
-                          }
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition ${
-                            propFirmRules.challengePhase === 'PHASE_1'
-                              ? pillActive
-                              : pillIdle
-                          }`}
-                        >
-                          Phase 1 (Evaluation)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPropFirmRules((prev) => {
-                              const p1Target =
-                                prev.phase1ProfitTargetPct ??
-                                (prev.challengePhase === 'PHASE_1'
-                                  ? prev.profitTargetPct
-                                  : 10);
-                              const p2Target =
-                                prev.phase2ProfitTargetPct ??
-                                Math.max(1, Number((p1Target * 0.5).toFixed(1)));
-                              return {
-                                ...prev,
-                                challengePhase: 'PHASE_2',
-                                phase1ProfitTargetPct: p1Target,
-                                phase2ProfitTargetPct: p2Target,
-                                profitTargetPct: p2Target,
-                              };
-                            })
-                          }
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition ${
-                            propFirmRules.challengePhase === 'PHASE_2'
-                              ? pillActive
-                              : pillIdle
-                          }`}
-                        >
-                          Phase 2 (Verification)
-                        </button>
-                      </div>
-                    </div>
-                    <span
-                      className={`text-[10px] font-mono ${
-                        isLight ? 'text-teal-700' : 'text-emerald-400'
-                      }`}
-                    >
-                      Passing Phase 1 automatically advances to Phase 2
-                    </span>
-                  </div>
-
-                  {/* Core Rules Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <div
-                      className={`p-2.5 rounded-xl border ${
-                        isLight
-                          ? 'bg-slate-50/70 border-slate-200'
-                          : 'bg-[#09111a]/70 border-white/10'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <label
-                          className={`text-[11px] font-bold flex items-center gap-1 ${mutedText}`}
-                        >
-                          <Target
-                            className={`w-3.5 h-3.5 ${
-                              isLight ? 'text-teal-700' : 'text-emerald-400'
+                            onClick={() => {
+                              setAssetSearch('');
+                              setShowMarketPopup(true);
+                            }}
+                            className={`p-3.5 rounded-2xl text-left border border-dashed transition-all duration-200 hover:-translate-y-0.5 flex flex-col justify-between ${
+                              otherSelected
+                                ? isLight
+                                  ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
+                                  : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white'
+                                : isLight
+                                ? 'bg-white border-slate-300 text-slate-700 hover:border-emerald-500'
+                                : 'bg-[#0d1522]/90 border-white/20 text-slate-200 hover:border-[#00f2c3]'
                             }`}
-                          />
-                          <span>Profit Target (%)</span>
-                        </label>
-                        <span
-                          className={`text-[11px] font-mono font-bold ${
-                            isLight ? 'text-teal-700' : 'text-emerald-400'
+                          >
+                            <div className="flex items-center justify-between w-full">
+                              <span className="text-sm font-extrabold font-mono">
+                                {otherSelected || 'All markets'}
+                              </span>
+                              <Search className="w-4 h-4 text-[#00f2c3]" />
+                            </div>
+                            <span className={`text-[11px] truncate mt-1 ${mutedText}`}>
+                              {otherSelected ? 'Tap to change' : 'Search every instrument'}
+                            </span>
+                          </button>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Date Range & Session Time */}
+                    <div data-tour="setup-schedule" className="space-y-3 pt-1">
+                      <label className={`block text-xs sm:text-sm font-bold ${headingText}`}>
+                        When do you want to start from?
+                      </label>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                        {DATE_RANGE_PRESETS.filter((p) => p.id !== '7D').map((preset) => {
+                          const active =
+                            selectedRangePresetId === preset.id ||
+                            (selectedRangePresetId !== null &&
+                              startDate === preset.startDate &&
+                              endDate === preset.endDate);
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedRangePresetId(preset.id);
+                                setStartDate(preset.startDate);
+                                setEndDate(preset.endDate);
+                                setScheduleNotice(null);
+                              }}
+                              className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
+                                active
+                                  ? isLight
+                                    ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
+                                    : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white'
+                                  : pillIdle
+                              }`}
+                            >
+                              <div className="flex items-center justify-between w-full">
+                                <span className="text-xs sm:text-sm font-extrabold">
+                                  {preset.label.replace(' → Now', '')}
+                                </span>
+                                {active && (
+                                  <Check className="w-3.5 h-3.5 text-[#00f2c3]" />
+                                )}
+                              </div>
+                              <span className={`text-[11px] font-mono mt-1 ${mutedText}`}>
+                                {preset.startDate}
+                              </span>
+                            </button>
+                          );
+                        })}
+
+                        {/* Custom range tile → opens date popup */}
+                        <button
+                          type="button"
+                          onClick={() => setShowDatePopup(true)}
+                          className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
+                            selectedRangePresetId === null
+                              ? isLight
+                                ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
+                                : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white'
+                              : pillIdle
                           }`}
                         >
-                          +{formatMoney(targetAmount, accountCurrency)}
-                        </span>
+                          <div className="flex items-center justify-between w-full">
+                            <span className="text-xs sm:text-sm font-extrabold">Custom</span>
+                            <Calendar className="w-3.5 h-3.5 text-[#00f2c3]" />
+                          </div>
+                          <span className={`text-[11px] font-mono mt-1 truncate ${mutedText}`}>
+                            {selectedRangePresetId === null
+                              ? `${startDate} → ${endDate}`
+                              : 'Pick dates'}
+                          </span>
+                        </button>
                       </div>
-                      <input
-                        type="number"
-                        min={0.5}
-                        max={100}
-                        step={0.5}
-                        value={propFirmRules.profitTargetPct}
-                        onChange={(e) =>
-                          setPropFirmRules((prev) => ({
-                            ...prev,
-                            presetId: 'CUSTOM',
-                            profitTargetPct: Math.max(
-                              0.5,
-                              parseFloat(e.target.value) || 0
-                            ),
-                          }))
-                        }
-                        className={`w-full px-2.5 py-1.5 font-mono ${inputSurface}`}
-                      />
-                    </div>
 
-                    <div
-                      className={`p-2.5 rounded-xl border ${
-                        isLight
-                          ? 'bg-slate-50/70 border-slate-200'
-                          : 'bg-[#09111a]/70 border-white/10'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <label className={`text-[11px] font-bold ${mutedText}`}>
-                          Max Daily Loss (%)
-                        </label>
-                        <span className="text-[11px] font-mono font-bold text-rose-400">
-                          -{formatMoney(dailyLossAmount, accountCurrency)}
+                      {/* Session Open Time Pills */}
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <span className={`text-xs font-semibold mr-1 ${mutedText}`}>
+                          Session open:
                         </span>
+                        {START_TIME_PRESETS.map((t) => (
+                          <button
+                            key={t.value}
+                            type="button"
+                            onClick={() => {
+                              setSelectedQuickStart(t.value);
+                              setReplayStartTime(t.value);
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-mono border transition ${
+                              replayStartTime === t.value
+                                ? `${pillActive} font-bold`
+                                : pillIdle
+                            }`}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
                       </div>
-                      <input
-                        type="number"
-                        min={0.5}
-                        max={50}
-                        step={0.5}
-                        value={propFirmRules.maxDailyDrawdownPct}
-                        onChange={(e) =>
-                          setPropFirmRules((prev) => ({
-                            ...prev,
-                            presetId: 'CUSTOM',
-                            maxDailyDrawdownPct: Math.max(
-                              0.5,
-                              parseFloat(e.target.value) || 0
-                            ),
-                          }))
-                        }
-                        className={`w-full px-2.5 py-1.5 font-mono ${inputSurface}`}
-                      />
-                    </div>
 
-                    <div
-                      className={`p-2.5 rounded-xl border ${
-                        isLight
-                          ? 'bg-slate-50/70 border-slate-200'
-                          : 'bg-[#09111a]/70 border-white/10'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <label className={`text-[11px] font-bold ${mutedText}`}>
-                          Max Total Drawdown (%)
-                        </label>
-                        <span className="text-[11px] font-mono font-bold text-rose-400">
-                          -{formatMoney(overallLossAmount, accountCurrency)}
-                        </span>
-                      </div>
-                      <input
-                        type="number"
-                        min={1}
-                        max={80}
-                        step={0.5}
-                        value={propFirmRules.maxTotalDrawdownPct}
-                        onChange={(e) =>
-                          setPropFirmRules((prev) => ({
-                            ...prev,
-                            presetId: 'CUSTOM',
-                            maxTotalDrawdownPct: Math.max(
-                              1,
-                              parseFloat(e.target.value) || 0
-                            ),
-                          }))
-                        }
-                        className={`w-full px-2.5 py-1.5 font-mono ${inputSurface}`}
-                      />
+                      {!dataValidation.valid && (
+                        <div className="text-xs text-rose-400 flex items-center gap-1.5 font-medium">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>{dataValidation.errors[0] || 'Invalid date range'}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
+                )}
 
-                  {/* Secondary Rules Row */}
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-                    <div>
-                      <label
-                        className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                      >
-                        Prop Firm Name
-                      </label>
-                      <input
-                        type="text"
-                        value={propFirmRules.firmName}
-                        onChange={(e) =>
-                          setPropFirmRules((prev) => ({
-                            ...prev,
-                            firmName: e.target.value,
-                          }))
-                        }
-                        className={`w-full px-2.5 py-1.5 ${inputSurface}`}
-                      />
-                    </div>
+                {/* STEP 3: REVIEW & START */}
+                {wizardStep === 3 && (
+                  <div data-tour="setup-details" className="space-y-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className={`text-xl sm:text-2xl font-extrabold tracking-tight ${headingText}`}>
+                          Review &amp; start your session
+                        </h3>
+                        <p className={`text-xs sm:text-sm mt-1 ${mutedText}`}>
+                          Choose your starting balance{mode === 'PROP_FIRM' ? ' and prop firm rules' : ''}, then launch the chart.
+                        </p>
+                      </div>
 
-                    <div>
-                      <label
-                        className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                      >
-                        Drawdown Type
-                      </label>
-                      <select
-                        value={propFirmRules.drawdownType}
-                        onChange={(e) =>
-                          setPropFirmRules((prev) => ({
-                            ...prev,
-                            presetId: 'CUSTOM',
-                            drawdownType: e.target.value as
-                              | 'STATIC'
-                              | 'TRAILING',
-                          }))
-                        }
-                        className={`w-full px-2.5 py-1.5 ${inputSurface}`}
-                      >
-                        <option
-                          value="STATIC"
-                          className={
-                            isLight
-                              ? 'bg-white text-slate-900'
-                              : 'bg-[#0b131d] text-slate-100'
-                          }
-                        >
-                          Static (Fixed Initial Floor)
-                        </option>
-                        <option
-                          value="TRAILING"
-                          className={
-                            isLight
-                              ? 'bg-white text-slate-900'
-                              : 'bg-[#0b131d] text-slate-100'
-                          }
-                        >
-                          Trailing (High-Water Mark)
-                        </option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label
-                        className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                      >
-                        Drawdown Basis
-                      </label>
-                      <select
-                        value={propFirmRules.calculationBasis}
-                        onChange={(e) =>
-                          setPropFirmRules((prev) => ({
-                            ...prev,
-                            presetId: 'CUSTOM',
-                            calculationBasis: e.target
-                              .value as ChallengeCalculationBasis,
-                          }))
-                        }
-                        className={`w-full px-2.5 py-1.5 ${inputSurface}`}
-                      >
-                        <option
-                          value="EQUITY"
-                          className={
-                            isLight
-                              ? 'bg-white text-slate-900'
-                              : 'bg-[#0b131d] text-slate-100'
-                          }
-                        >
-                          Equity (Includes Floating P&amp;L)
-                        </option>
-                        <option
-                          value="BALANCE"
-                          className={
-                            isLight
-                              ? 'bg-white text-slate-900'
-                              : 'bg-[#0b131d] text-slate-100'
-                          }
-                        >
-                          Balance (Closed Trades Only)
-                        </option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label
-                        className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                      >
-                        Min Trading Days
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={propFirmRules.minTradingDaysEnabled}
-                          onChange={(e) =>
-                            setPropFirmRules((prev) => ({
-                              ...prev,
-                              minTradingDaysEnabled: e.target.checked,
-                            }))
-                          }
-                          className="rounded accent-emerald-500"
-                        />
-                        <input
-                          type="number"
-                          min={1}
-                          max={60}
-                          disabled={!propFirmRules.minTradingDaysEnabled}
-                          value={propFirmRules.minTradingDays}
-                          onChange={(e) =>
-                            setPropFirmRules((prev) => ({
-                              ...prev,
-                              minTradingDays: Math.max(
-                                1,
-                                parseInt(e.target.value, 10) || 1
-                              ),
-                            }))
-                          }
-                          className={`w-full px-2.5 py-1.5 font-mono disabled:opacity-40 ${inputSurface}`}
-                        />
+                      {/* Currency Selector */}
+                      <div className="flex items-center gap-1.5">
+                        {CURRENCY_OPTIONS.map((c) => (
+                          <button
+                            key={c.code}
+                            type="button"
+                            onClick={() => setAccountCurrency(c.code)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono border transition ${
+                              accountCurrency === c.code ? pillActive : pillIdle
+                            }`}
+                          >
+                            {c.code}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                  </div>
 
-                  {/* Checkboxes + Save Custom Profile */}
-                  <div
-                    className={`flex flex-wrap items-center justify-between gap-3 pt-2 border-t ${
-                      isLight ? 'border-slate-200' : 'border-white/10'
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center gap-4">
-                      <label
-                        className={`flex items-center gap-2 text-xs cursor-pointer ${mutedText}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={propFirmRules.mandatoryStopLoss}
-                          onChange={(e) =>
-                            setPropFirmRules((prev) => ({
-                              ...prev,
-                              mandatoryStopLoss: e.target.checked,
-                            }))
-                          }
-                          className="rounded accent-emerald-500"
-                        />
-                        <span>Require Stop Loss (SL) on every order</span>
+                    {/* Starting Balance Row */}
+                    <div className="space-y-2">
+                      <label className={`block text-xs sm:text-sm font-bold ${headingText}`}>
+                        Starting balance
                       </label>
+                      <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
+                        {(accountCurrency === 'ZAR' ? ZAR_BALANCE_PRESETS : BALANCE_PRESETS).map((preset) => {
+                          const active =
+                            balanceMode === 'PRESET' &&
+                            selectedBalance === preset.value;
+                          const labelText =
+                            accountCurrency === 'ZAR'
+                              ? preset.label
+                              : `${CURRENCY_SYMBOLS[accountCurrency] || '$'}${preset.label}`;
+                          return (
+                            <button
+                              key={preset.value}
+                              type="button"
+                              onClick={() => {
+                                setBalanceMode('PRESET');
+                                setSelectedBalance(preset.value);
+                                setCustomBalanceStr(String(preset.value));
+                              }}
+                              className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold font-mono border transition ${
+                                active
+                                  ? isLight
+                                    ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
+                                    : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white'
+                                  : pillIdle
+                              }`}
+                            >
+                              {labelText}
+                            </button>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          onClick={() => setBalanceMode('CUSTOM')}
+                          className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold border transition ${
+                            balanceMode === 'CUSTOM' ? pillActive : pillIdle
+                          }`}
+                        >
+                          Custom
+                        </button>
+                      </div>
 
-                      <label
-                        className={`flex items-center gap-2 text-xs cursor-pointer ${mutedText}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={propFirmRules.maxDurationEnabled}
-                          onChange={(e) =>
-                            setPropFirmRules((prev) => ({
-                              ...prev,
-                              maxDurationEnabled: e.target.checked,
-                            }))
-                          }
-                          className="rounded accent-emerald-500"
-                        />
-                        <span>Max Challenge Days:</span>
-                        {propFirmRules.maxDurationEnabled && (
+                      {balanceMode === 'CUSTOM' && (
+                        <div className="pt-2 max-w-xs">
                           <input
                             type="number"
-                            min={1}
-                            max={365}
-                            value={propFirmRules.maxDurationDays}
-                            onChange={(e) =>
+                            min={100}
+                            step={500}
+                            value={customBalanceStr}
+                            onChange={(e) => setCustomBalanceStr(e.target.value)}
+                            placeholder="Enter custom balance..."
+                            className={`w-full px-3.5 py-2.5 font-mono text-sm ${inputSurface}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Prop Firm Preset Row (Only when Prop Challenge is selected) */}
+                    {mode === 'PROP_FIRM' && (
+                      <div className="space-y-3 pt-1">
+                        <label className={`block text-xs sm:text-sm font-bold ${headingText}`}>
+                          Prop firm
+                        </label>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          {(
+                            [
+                              { id: 'FTMO', label: 'FTMO' },
+                              { id: 'FUNDED_NEXT', label: 'FundedNext' },
+                              { id: 'THE_5ERS', label: 'The 5%ers' },
+                              { id: 'TOPSTEP', label: 'Topstep' },
+                            ] as {
+                              id: Exclude<PropFirmPresetId, 'CUSTOM'>;
+                              label: string;
+                            }[]
+                          ).map((firm) => {
+                            const active = propFirmRules.presetId === firm.id;
+                            return (
+                              <button
+                                key={firm.id}
+                                type="button"
+                                onClick={() => handleSelectExampleProfile(firm.id)}
+                                className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition ${
+                                  active
+                                    ? isLight
+                                      ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
+                                      : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white'
+                                    : pillIdle
+                                }`}
+                              >
+                                {firm.label}
+                              </button>
+                            );
+                          })}
+                          <button
+                            type="button"
+                            onClick={() => {
                               setPropFirmRules((prev) => ({
                                 ...prev,
-                                maxDurationDays: Math.max(
-                                  1,
-                                  parseInt(e.target.value, 10) || 30
+                                presetId: 'CUSTOM',
+                                firmName: 'Custom Prop Firm',
+                                isExamplePreset: false,
+                              }));
+                              setShowCustomPropRules(true);
+                            }}
+                            className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition ${
+                              propFirmRules.presetId === 'CUSTOM' ? pillActive : pillIdle
+                            }`}
+                          >
+                            Custom
+                          </button>
+                        </div>
+
+                        {/* Account type: One-step vs Two-step */}
+                        <div className="space-y-2">
+                          <label className={`block text-xs sm:text-sm font-bold ${headingText}`}>
+                            Account type
+                          </label>
+                          <div className="grid grid-cols-2 gap-2.5">
+                            {(
+                              [
+                                { steps: 1 as const, title: '1-Step', sub: 'Hit the target once to pass' },
+                                { steps: 2 as const, title: '2-Step', sub: 'Phase 1 → Phase 2 verification' },
+                              ]
+                            ).map((opt) => {
+                              const active = (propFirmRules.evaluationSteps ?? 2) === opt.steps;
+                              return (
+                                <button
+                                  key={opt.steps}
+                                  type="button"
+                                  onClick={() => handleSetEvaluationSteps(opt.steps)}
+                                  className={`p-3 rounded-xl text-left border transition flex items-center justify-between gap-3 ${
+                                    active
+                                      ? isLight
+                                        ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
+                                        : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white'
+                                      : pillIdle
+                                  }`}
+                                >
+                                  <div>
+                                    <div className="text-sm font-extrabold">{opt.title}</div>
+                                    <div className={`text-[11px] mt-0.5 ${mutedText}`}>{opt.sub}</div>
+                                  </div>
+                                  <span
+                                    className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
+                                      active
+                                        ? 'border-[#00f2c3] bg-[#00f2c3] text-[#032221]'
+                                        : isLight
+                                        ? 'border-slate-300'
+                                        : 'border-white/25'
+                                    }`}
+                                  >
+                                    {active && <Check className="w-3 h-3 stroke-[3]" />}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Rules row — always visible, one line */}
+                        {(() => {
+                          const isTwoStep = (propFirmRules.evaluationSteps ?? 2) === 2;
+                          const p1 = propFirmRules.phase1ProfitTargetPct ?? propFirmRules.profitTargetPct;
+                          const p2 =
+                            propFirmRules.phase2ProfitTargetPct ??
+                            Math.max(1, Number((p1 * 0.5).toFixed(1)));
+                          const money = (pct: number) =>
+                            formatMoney(Number(((effectiveBalance * pct) / 100).toFixed(2)), accountCurrency);
+                          const fields: {
+                            key: string;
+                            label: string;
+                            value: number;
+                            tone: 'gain' | 'loss';
+                            min: number;
+                            max: number;
+                            onChange: (v: number) => void;
+                          }[] = [
+                            {
+                              key: 'p1',
+                              label: isTwoStep ? 'Phase 1 target' : 'Profit target',
+                              value: p1,
+                              tone: 'gain',
+                              min: 0.5,
+                              max: 100,
+                              onChange: (v) =>
+                                setPropFirmRules((prev) => ({
+                                  ...prev,
+                                  presetId: 'CUSTOM',
+                                  phase1ProfitTargetPct: v,
+                                  profitTargetPct: prev.challengePhase === 'PHASE_2' ? prev.profitTargetPct : v,
+                                })),
+                            },
+                            ...(isTwoStep
+                              ? [
+                                  {
+                                    key: 'p2',
+                                    label: 'Phase 2 target',
+                                    value: p2,
+                                    tone: 'gain' as const,
+                                    min: 0.5,
+                                    max: 100,
+                                    onChange: (v: number) =>
+                                      setPropFirmRules((prev) => ({
+                                        ...prev,
+                                        presetId: 'CUSTOM',
+                                        phase2ProfitTargetPct: v,
+                                      })),
+                                  },
+                                ]
+                              : []),
+                            {
+                              key: 'daily',
+                              label: 'Max daily loss',
+                              value: propFirmRules.maxDailyDrawdownPct,
+                              tone: 'loss',
+                              min: 0.5,
+                              max: 50,
+                              onChange: (v) =>
+                                setPropFirmRules((prev) => ({ ...prev, presetId: 'CUSTOM', maxDailyDrawdownPct: v })),
+                            },
+                            {
+                              key: 'dd',
+                              label: 'Max drawdown',
+                              value: propFirmRules.maxTotalDrawdownPct,
+                              tone: 'loss',
+                              min: 1,
+                              max: 80,
+                              onChange: (v) =>
+                                setPropFirmRules((prev) => ({ ...prev, presetId: 'CUSTOM', maxTotalDrawdownPct: v })),
+                            },
+                          ];
+                          return (
+                            <div className="space-y-2.5">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <label className={`text-xs sm:text-sm font-bold ${headingText}`}>
+                                  Challenge rules
+                                </label>
+                                <div
+                                  className={`inline-flex rounded-xl border p-0.5 ${
+                                    isLight ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-[#0a111c]'
+                                  }`}
+                                >
+                                  {(['TRAILING', 'STATIC'] as const).map((t) => (
+                                    <button
+                                      key={t}
+                                      type="button"
+                                      onClick={() =>
+                                        setPropFirmRules((prev) => ({ ...prev, drawdownType: t }))
+                                      }
+                                      className={`px-3 py-1 rounded-lg text-[11px] font-bold transition ${
+                                        propFirmRules.drawdownType === t
+                                          ? 'bg-[#00f2c3] text-[#032221]'
+                                          : mutedText
+                                      }`}
+                                    >
+                                      {t === 'TRAILING' ? 'Trailing drawdown' : 'Static drawdown'}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className={`grid grid-cols-2 gap-2.5 ${isTwoStep ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                                {fields.map((f) => (
+                                  <div
+                                    key={f.key}
+                                    className={`rounded-xl border p-3 transition focus-within:border-[#00f2c3] ${
+                                      isLight ? 'bg-white border-slate-200' : 'bg-[#0c1422] border-white/10'
+                                    }`}
+                                  >
+                                    <div className={`text-[10.5px] font-bold uppercase tracking-wider ${mutedText}`}>
+                                      {f.label}
+                                    </div>
+                                    <div className="mt-1 flex items-baseline gap-1">
+                                      <input
+                                        type="number"
+                                        min={f.min}
+                                        max={f.max}
+                                        step={0.5}
+                                        value={f.value}
+                                        onChange={(e) =>
+                                          f.onChange(Math.min(f.max, Math.max(f.min, parseFloat(e.target.value) || 0)))
+                                        }
+                                        className={`w-full bg-transparent text-lg font-extrabold font-mono focus:outline-none ${headingText}`}
+                                      />
+                                      <span className={`text-sm font-bold ${mutedText}`}>%</span>
+                                    </div>
+                                    <div
+                                      className={`text-[11px] font-mono font-semibold mt-0.5 ${
+                                        f.tone === 'gain'
+                                          ? isLight
+                                            ? 'text-teal-700'
+                                            : 'text-[#00f2c3]'
+                                          : 'text-rose-400'
+                                      }`}
+                                    >
+                                      {f.tone === 'gain' ? '+' : '−'}
+                                      {money(f.value)}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <p className={`text-[11px] ${mutedText}`}>
+                                {propFirmRules.drawdownType === 'TRAILING'
+                                  ? 'Trailing: your max drawdown floor moves up with your highest equity, and the daily loss resets each trading day.'
+                                  : 'Static: your max drawdown floor stays fixed at your starting balance; daily loss resets each trading day.'}
+                              </p>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {/* Clean Compact Summary Row + Optional Additionals Toggle */}
+                    <div
+                      className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ${
+                        isLight
+                          ? 'bg-white border-slate-200'
+                          : 'bg-[#0c1422]/90 border-white/10'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm">
+                        <span className={`font-extrabold ${headingText}`}>
+                          {mode === 'PROP_FIRM' ? propFirmRules.firmName : 'Backtest'}
+                        </span>
+                        <span className={mutedText}>·</span>
+                        <span className="font-mono font-extrabold text-[#00f2c3]">
+                          {selectedAssets[0]}
+                        </span>
+                        <span className={mutedText}>·</span>
+                        <span className={`font-mono font-bold ${headingText}`}>
+                          {formatMoney(effectiveBalance, accountCurrency)}
+                        </span>
+                        <span className={mutedText}>·</span>
+                        <span className={`font-mono ${mutedText}`}>
+                          {startDate} ({replayStartTime})
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowAdvanced(!showAdvanced)}
+                        className={`text-xs font-semibold flex items-center gap-1 ${
+                          isLight ? 'text-teal-700' : 'text-[#00f2c3]'
+                        }`}
+                      >
+                        <Settings2 className="w-3.5 h-3.5" />
+                        <span>{showAdvanced ? 'Hide additionals' : 'Additionals'}</span>
+                      </button>
+                    </div>
+
+                    {showAdvanced && (
+                      <div
+                        className={`p-4 rounded-2xl border grid grid-cols-1 sm:grid-cols-3 gap-3 ${
+                          isLight
+                            ? 'bg-white border-slate-200'
+                            : 'bg-[#0c1422]/90 border-white/10'
+                        }`}
+                      >
+                        <div>
+                          <label className={`block text-xs font-semibold mb-1 ${mutedText}`}>
+                            Chart layout
+                          </label>
+                          <select
+                            value={chartLayout}
+                            onChange={(e) =>
+                              setChartLayout(
+                                e.target.value as 'SINGLE' | 'SPLIT_2'
+                              )
+                            }
+                            className={`w-full px-3 py-2 ${inputSurface}`}
+                          >
+                            <option value="SINGLE">Single Chart</option>
+                            <option value="SPLIT_2">Dual Split Chart (HTF + LTF)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className={`block text-xs font-semibold mb-1 ${mutedText}`}>
+                            Leverage
+                          </label>
+                          <select
+                            value={moreOptions.leverage}
+                            onChange={(e) =>
+                              setMoreOptions((prev) => ({
+                                ...prev,
+                                leverage: (parseInt(e.target.value, 10) ||
+                                  100) as SessionAdvancedOptions['leverage'],
+                              }))
+                            }
+                            className={`w-full px-3 py-2 ${inputSurface}`}
+                          >
+                            {[30, 50, 100, 200, 500].map((lev) => (
+                              <option key={lev} value={lev}>
+                                1:{lev}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className={`block text-xs font-semibold mb-1 ${mutedText}`}>
+                            Commission / Lot ($)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            value={moreOptions.commissionPerLotUsd}
+                            onChange={(e) =>
+                              setMoreOptions((prev) => ({
+                                ...prev,
+                                commissionPerLotUsd: Math.max(
+                                  0,
+                                  parseFloat(e.target.value) || 0
                                 ),
                               }))
                             }
-                            className={`w-16 px-2 py-0.5 font-mono ${inputSurface}`}
+                            className={`w-full px-3 py-2 font-mono ${inputSurface}`}
                           />
-                        )}
-                      </label>
-                    </div>
-
-                    {onSaveCustomRuleProfile && (
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="text"
-                          value={customProfileName}
-                          onChange={(e) => setCustomProfileName(e.target.value)}
-                          placeholder="Profile name (optional)"
-                          className={`px-2.5 py-1 text-[11px] ${inputSurface}`}
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSaveNewCustomProfile}
-                          className={`px-2.5 py-1 rounded-xl border text-[11px] font-semibold flex items-center gap-1 transition ${pillIdle}`}
-                        >
-                          <BookmarkPlus
-                            className={`w-3.5 h-3.5 ${
-                              isLight ? 'text-teal-700' : 'text-emerald-400'
-                            }`}
-                          />
-                          <span>Save Rules</span>
-                        </button>
+                        </div>
                       </div>
                     )}
-                  </div>
-
-                  {profileSavedToast && (
-                    <div
-                      className={`text-xs font-semibold flex items-center gap-1.5 ${
-                        isLight ? 'text-teal-700' : 'text-emerald-400'
-                      }`}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>{profileSavedToast}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* COLLAPSIBLE ADVANCED EXECUTION & SPREAD SETTINGS */}
-              <div className={`${sectionCard} !p-0 overflow-hidden`}>
-                <button
-                  type="button"
-                  onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="w-full px-4 py-2.5 flex items-center justify-between text-left transition"
-                >
-                  <div
-                    className={`flex items-center gap-2 text-xs font-bold ${mutedText}`}
-                  >
-                    <Settings2 className="w-3.5 h-3.5" />
-                    <span>
-                      Optional: Advanced Execution Settings (Spread, Commission,
-                      Leverage, Layout)
-                    </span>
-                  </div>
-                  {showAdvanced ? (
-                    <ChevronUp className={`w-4 h-4 ${mutedText}`} />
-                  ) : (
-                    <ChevronDown className={`w-4 h-4 ${mutedText}`} />
-                  )}
-                </button>
-
-                {showAdvanced && (
-                  <div
-                    className={`p-3.5 border-t grid grid-cols-1 sm:grid-cols-4 gap-3 ${
-                      isLight ? 'border-slate-200' : 'border-white/10'
-                    }`}
-                  >
-                    <div>
-                      <label
-                        className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                      >
-                        Spread Mode
-                      </label>
-                      <select
-                        value={moreOptions.spreadMode}
-                        onChange={(e) =>
-                          setMoreOptions((prev) => ({
-                            ...prev,
-                            spreadMode: e.target.value as 'DEFAULT' | 'CUSTOM',
-                          }))
-                        }
-                        className={`w-full px-2.5 py-1.5 ${inputSurface}`}
-                      >
-                        <option
-                          value="DEFAULT"
-                          className={
-                            isLight
-                              ? 'bg-white text-slate-900'
-                              : 'bg-[#0b131d] text-slate-100'
-                          }
-                        >
-                          Instrument Default
-                        </option>
-                        <option
-                          value="CUSTOM"
-                          className={
-                            isLight
-                              ? 'bg-white text-slate-900'
-                              : 'bg-[#0b131d] text-slate-100'
-                          }
-                        >
-                          Custom Spread (Pips)
-                        </option>
-                      </select>
-                    </div>
-
-                    {moreOptions.spreadMode === 'CUSTOM' && (
-                      <div>
-                        <label
-                          className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                        >
-                          Custom Spread (Pips)
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.1}
-                          value={moreOptions.customSpreadPips}
-                          onChange={(e) =>
-                            setMoreOptions((prev) => ({
-                              ...prev,
-                              customSpreadPips: Math.max(
-                                0,
-                                parseFloat(e.target.value) || 0
-                              ),
-                            }))
-                          }
-                          className={`w-full px-2.5 py-1.5 font-mono ${inputSurface}`}
-                        />
-                      </div>
-                    )}
-
-                    <div>
-                      <label
-                        className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                      >
-                        Commission / Lot ($)
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        value={moreOptions.commissionPerLotUsd}
-                        onChange={(e) =>
-                          setMoreOptions((prev) => ({
-                            ...prev,
-                            commissionPerLotUsd: Math.max(
-                              0,
-                              parseFloat(e.target.value) || 0
-                            ),
-                          }))
-                        }
-                        className={`w-full px-2.5 py-1.5 font-mono ${inputSurface}`}
-                      />
-                    </div>
-
-                    <div>
-                      <label
-                        className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                      >
-                        Account Leverage (1:X)
-                      </label>
-                      <select
-                        value={moreOptions.leverage}
-                        onChange={(e) =>
-                          setMoreOptions((prev) => ({
-                            ...prev,
-                            leverage: (parseInt(e.target.value, 10) ||
-                              100) as SessionAdvancedOptions['leverage'],
-                          }))
-                        }
-                        className={`w-full px-2.5 py-1.5 ${inputSurface}`}
-                      >
-                        {[30, 50, 100, 200, 500].map((lev) => (
-                          <option
-                            key={lev}
-                            value={lev}
-                            className={
-                              isLight
-                                ? 'bg-white text-slate-900'
-                                : 'bg-[#0b131d] text-slate-100'
-                            }
-                          >
-                            1:{lev}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label
-                        className={`block text-[10.5px] font-semibold mb-1 ${mutedText}`}
-                      >
-                        Workspace Chart Layout
-                      </label>
-                      <select
-                        value={chartLayout}
-                        onChange={(e) =>
-                          setChartLayout(
-                            e.target.value as 'SINGLE' | 'SPLIT_2'
-                          )
-                        }
-                        className={`w-full px-2.5 py-1.5 ${inputSurface}`}
-                      >
-                        <option
-                          value="SINGLE"
-                          className={
-                            isLight
-                              ? 'bg-white text-slate-900'
-                              : 'bg-[#0b131d] text-slate-100'
-                          }
-                        >
-                          Single Chart
-                        </option>
-                        <option
-                          value="SPLIT_2"
-                          className={
-                            isLight
-                              ? 'bg-white text-slate-900'
-                              : 'bg-[#0b131d] text-slate-100'
-                          }
-                        >
-                          Dual Split Chart (HTF + LTF)
-                        </option>
-                      </select>
-                    </div>
                   </div>
                 )}
               </div>
-            </>
+            </div>
           )}
         </div>
 
-        {/* Modal Footer */}
-        <div
-          className={`session-gradient-footer px-5 py-3 border-t flex flex-wrap items-center justify-between gap-3 shrink-0 ${
-            isLight
-              ? 'border-emerald-500/20 bg-gradient-to-r from-emerald-50/70 via-white to-sky-50/70'
-              : 'border-emerald-500/20 bg-gradient-to-r from-[#0a131c] via-[#0d1824] to-[#101828]'
-          }`}
-        >
-          <div className={`text-xs flex flex-wrap items-center gap-2 ${mutedText}`}>
-            <span className={`font-semibold ${headingText}`}>
-              {mode === 'PROP_FIRM' ? propFirmRules.firmName : 'Normal Backtest'}
-            </span>
-            <span>•</span>
-            <span
-              className={`font-mono font-bold ${
-                isLight ? 'text-teal-700' : 'text-emerald-400'
+        {/* All-markets search popup */}
+        {showMarketPopup && (
+          <div
+            className="absolute inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-6"
+            style={{ animation: 'wizardFadeIn 180ms ease-out' }}
+            onClick={() => setShowMarketPopup(false)}
+          >
+            <style>{`
+              @keyframes wizardFadeIn { from { opacity: 0 } to { opacity: 1 } }
+              @keyframes wizardPopIn { from { opacity: 0; transform: translateY(18px) scale(0.98) } to { opacity: 1; transform: translateY(0) scale(1) } }
+            `}</style>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ animation: 'wizardPopIn 240ms cubic-bezier(0.16, 1, 0.3, 1)' }}
+              className={`w-full sm:max-w-xl max-h-[80%] flex flex-col rounded-t-2xl sm:rounded-2xl border shadow-2xl ${
+                isLight ? 'bg-white border-slate-200' : 'bg-[#0b131f] border-white/10'
               }`}
             >
-              {selectedAssets.join(', ')}
-            </span>
-            <span>•</span>
-            <span className={`font-mono font-semibold ${headingText}`}>
-              {formatMoney(effectiveBalance, accountCurrency)}
-            </span>
-            <span>•</span>
-            <span className="font-mono">
-              {startDate} ({replayStartTime}) → {endDate}
-            </span>
+              <div className="p-4 flex items-center justify-between gap-3">
+                <h4 className={`text-base font-extrabold ${headingText}`}>All markets</h4>
+                <button
+                  type="button"
+                  onClick={() => setShowMarketPopup(false)}
+                  className={`p-1.5 rounded-lg border ${pillIdle}`}
+                  aria-label="Close markets"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="px-4 space-y-2.5">
+                <div className="relative">
+                  <Search className={`w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 ${mutedText}`} />
+                  <input
+                    type="text"
+                    autoFocus
+                    value={assetSearch}
+                    onChange={(e) => setAssetSearch(e.target.value)}
+                    placeholder="Search e.g. Gold, NAS100, GBPJPY..."
+                    className={`w-full pl-9 pr-3 py-2.5 text-sm ${inputSurface}`}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(['ALL', 'FOREX', 'METALS', 'INDICES', 'ENERGIES', 'CRYPTO'] as InstrumentCategory[]).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setAssetCategory(cat)}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border transition ${
+                        assetCategory === cat ? pillActive : pillIdle
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="p-4 overflow-y-auto custom-scrollbar grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {filteredInstruments.length === 0 && (
+                  <p className={`text-sm col-span-full text-center py-6 ${mutedText}`}>No markets found.</p>
+                )}
+                {filteredInstruments.map((inst) => {
+                  const isSelected = selectedAssets[0] === inst.symbol;
+                  const soon = isInstrumentComingSoon(inst.symbol);
+                  return (
+                    <button
+                      key={inst.symbol}
+                      type="button"
+                      disabled={soon}
+                      onClick={() => {
+                        selectSinglePrimaryAsset(inst.symbol);
+                        setShowMarketPopup(false);
+                      }}
+                      className={`p-3 rounded-xl border text-left transition flex items-center justify-between gap-2 disabled:opacity-40 ${
+                        isSelected ? pillActive : pillIdle
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-extrabold font-mono">{inst.symbol}</div>
+                        <div className={`text-[11px] truncate ${mutedText}`}>
+                          {soon ? 'Coming soon' : instrumentDisplayName(inst.symbol, inst.name)}
+                        </div>
+                      </div>
+                      {isSelected && <Check className="w-4 h-4 text-[#00f2c3] shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
+        )}
 
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={onClose}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition ${pillIdle}`}
+        {/* Custom date range popup */}
+        {showDatePopup && (
+          <div
+            className="absolute inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-6"
+            style={{ animation: 'wizardFadeIn 180ms ease-out' }}
+            onClick={() => setShowDatePopup(false)}
+          >
+            <style>{`
+              @keyframes wizardFadeIn { from { opacity: 0 } to { opacity: 1 } }
+              @keyframes wizardPopIn { from { opacity: 0; transform: translateY(18px) scale(0.98) } to { opacity: 1; transform: translateY(0) scale(1) } }
+            `}</style>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ animation: 'wizardPopIn 240ms cubic-bezier(0.16, 1, 0.3, 1)' }}
+              className={`w-full sm:max-w-xl max-h-[85%] overflow-y-auto custom-scrollbar rounded-t-2xl sm:rounded-2xl border shadow-2xl p-5 space-y-4 ${
+                isLight ? 'bg-white border-slate-200' : 'bg-[#0b131f] border-white/10'
+              }`}
             >
-              Cancel
-            </button>
+              <div className="flex items-center justify-between gap-3">
+                <h4 className={`text-base font-extrabold ${headingText}`}>Custom date range</h4>
+                <button
+                  type="button"
+                  onClick={() => setShowDatePopup(false)}
+                  className={`p-1.5 rounded-lg border ${pillIdle}`}
+                  aria-label="Close dates"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
 
-            {activeView === 'setup' && (
-              <button
-                type="button"
-                disabled={
-                  !dataValidation.valid ||
-                  selectedAssets.some(isInstrumentComingSoon)
-                }
-                onClick={handleCreateAndOpenChart}
-                className={`px-5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition ${
-                  dataValidation.valid
-                    ? 'bg-gradient-to-r from-[#19e5b0] to-[#00b7d5] text-[#04202a] border border-teal-300/40 shadow-[0_8px_24px_-8px_rgba(0,221,195,0.55)] hover:brightness-105'
-                    : 'bg-white/5 text-slate-500 border border-white/10 cursor-not-allowed'
-                }`}
-              >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Create &amp; Open Chart</span>
-              </button>
-            )}
+              <SessionScheduleFields
+                variant="hero"
+                symbol={primarySelectedAsset}
+                start={startDate}
+                end={endDate}
+                time={replayStartTime}
+                timezone={displayTimezone}
+                zones={TIMEZONE_OPTIONS}
+                scheduleNotice={scheduleNotice}
+                onScheduleNotice={setScheduleNotice}
+                theme={theme}
+                onStart={(value) => {
+                  setSelectedRangePresetId(null);
+                  const snapped = snapToOpenTradingDate(value, primarySelectedAsset, 'forward');
+                  setStartDate(snapped.date);
+                  if (endDate < snapped.date) setEndDate(snapped.date);
+                  setScheduleNotice(snapped.adjusted && snapped.reason ? snapped.reason : null);
+                }}
+                onEnd={(value) => {
+                  setSelectedRangePresetId(null);
+                  setEndDate(value);
+                }}
+                onTime={(value) => {
+                  setReplayStartTime(value);
+                  setCustomStartTime(value);
+                  setSelectedQuickStart(null);
+                }}
+                onTimezone={setDisplayTimezone}
+              />
+
+              {!dataValidation.valid && (
+                <div className="text-xs text-rose-400 flex items-center gap-1.5 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{dataValidation.errors[0] || 'Invalid date range'}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  disabled={!dataValidation.valid}
+                  onClick={() => {
+                    setSelectedRangePresetId(null);
+                    setShowDatePopup(false);
+                  }}
+                  className="px-6 py-2.5 rounded-xl text-sm font-extrabold bg-[#00f2c3] text-[#032221] disabled:opacity-40"
+                >
+                  Apply dates
+                </button>
+              </div>
+            </div>
           </div>
+        )}
+
+        {/* Strategy saved toast */}
+        {strategySavedToast && (
+          <div
+            className="absolute top-20 left-1/2 -translate-x-1/2 z-[75] px-4 py-2 rounded-xl bg-[#00f2c3] text-[#032221] text-xs font-extrabold shadow-lg flex items-center gap-1.5"
+            style={{ animation: 'wizardSlideInRight 220ms ease-out' }}
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            {strategySavedToast}
+          </div>
+        )}
+
+        {/* Minimal Modal Footer Matching Reference Screenshot */}
+        <div
+          className={`session-gradient-footer px-6 py-4 border-t flex items-center justify-between gap-3 shrink-0 ${
+            isLight
+              ? 'border-slate-200 bg-white'
+              : 'border-white/10 bg-[#09101b]'
+          }`}
+        >
+          <div className="flex flex-col gap-1.5">
+            {activeView === 'setup' && (
+              <span className={`text-[11px] font-medium ${mutedText}`}>
+                Step {wizardStep} of 3
+              </span>
+            )}
+            <div className="flex items-center gap-2">
+              {activeView === 'setup' && wizardStep > 1 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    goToStep(Math.max(1, wizardStep - 1) as 1 | 2 | 3)
+                  }
+                  className={`px-4 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 ${pillIdle}`}
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${pillIdle}`}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+
+          {activeView === 'setup' && (
+            <div className="flex items-center gap-2.5">
+              {wizardStep < 3 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (wizardStep === 1 && isCreatingStrategy && newStrategyInput.trim()) {
+                      handleSaveNewStrategy();
+                    }
+                    goToStep(Math.min(3, wizardStep + 1) as 1 | 2 | 3);
+                  }}
+                  className="px-7 py-3 rounded-xl text-sm font-extrabold bg-[#00f2c3] text-[#032221] shadow-[0_8px_24px_-6px_rgba(0,242,195,0.5)] hover:brightness-105 transition flex items-center gap-2"
+                >
+                  <span>Continue</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={
+                    !dataValidation.valid ||
+                    selectedAssets.some(isInstrumentComingSoon)
+                  }
+                  onClick={handleCreateAndOpenChart}
+                  className={`px-7 py-3 rounded-xl text-sm font-extrabold flex items-center gap-2 transition ${
+                    dataValidation.valid
+                      ? 'bg-[#00f2c3] text-[#032221] shadow-[0_8px_24px_-6px_rgba(0,242,195,0.55)] hover:brightness-105'
+                      : 'bg-white/5 text-slate-500 border border-white/10 cursor-not-allowed'
+                  }`}
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Start session</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

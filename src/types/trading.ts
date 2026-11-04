@@ -170,6 +170,8 @@ export interface PropFirmRules {
   firmName: string;
   isExamplePreset?: boolean;
   challengePhase: 'PHASE_1' | 'PHASE_2' | 'FUNDED';
+  /** 1 = One-step evaluation (passing Phase 1 completes the challenge), 2 = Two-step (Phase 1 → Phase 2). Defaults to 2. */
+  evaluationSteps?: 1 | 2;
   profitTargetPct: number; // e.g., 10% for Phase 1, 5% for Phase 2
   phase1ProfitTargetPct?: number; // Stored Phase 1 target (e.g., 10%)
   phase2ProfitTargetPct?: number; // Stored Phase 2 target (e.g., 5%)

@@ -1,5 +1,5 @@
 const RESEND_API_URL = 'https://api.resend.com/emails';
-const DEFAULT_FROM_EMAIL = 'Chart Replay <noreply@chartreplay.co.za>';
+const DEFAULT_FROM_EMAIL = 'Cheslin from Chart Replay <noreply@chartreplay.co.za>';
 const DEFAULT_REPLY_TO = 'info@voomay.co.za';
 const DEFAULT_APP_URL = 'https://chartreplay.co.za';
 const WELCOME_BANNER_URL = 'https://chartreplay.co.za/email-welcome-banner.png';
@@ -897,15 +897,43 @@ export const DEFAULT_NEWSLETTER_TEMPLATES = [
     id: 'newsletter-day-1',
     dayNumber: 1,
     cadence: 'daily',
-    phaseLabel: 'Beginning · Daily Habit (Day 1)',
-    badgeText: 'Day 1 · Daily Trader Motivation',
-    subject: 'Hi {{firstName}} — Welcome to the 1% Club: Process Over Profits Today',
-    headline: 'Hi {{firstName}}, every professional trader started with one disciplined routine.',
+    category: 'prop_firm',
+    phaseLabel: 'Prop Firm Evaluation Playbook',
+    badgeText: 'Prop Firm Playbook · 5 Steps',
+    subject: 'Hi {{firstName}} — 5 Steps How to Pass a Prop Firm Challenge Without Stress',
+    headline: 'Hi {{firstName}}, consistency beats home runs in every prop firm evaluation.',
     bodyText:
-      'Most retail traders wake up looking for quick money. Professional traders wake up looking for clean execution of their edge.\n\nOn Chart Replay, your goal today is not to predict every candle — it is to follow {{tradingPlanName}} with 100% discipline. You currently have {{sessionCount}} practice sessions and {{tradeCount}} logged trades on the platform. Every bar you step through builds the pattern recognition that separates calm professionals from emotional gamblers.',
+      'Most traders fail prop firm challenges because they try to pass in two days.\n\nFunded professionals pass because they protect their drawdown first and compound steady base hits using {{tradingPlanName}}.\n\n1. Protect Your Daily Drawdown First — Treat your daily loss limit as an unbreakable wall by risking 0.25% to 0.5% per setup so one bad session never ends your evaluation.\n2. Focus on 1–2 Liquid Pairs in Your Killzone — Master Gold (XAU/USD), NAS100, or EUR/USD during the London or New York open instead of forcing trades across ten different charts.\n3. Pin Your Sticky Trading Plan on the Chart — Keep your entry checklist visible right on your chart so you never improvise while candles are moving.\n4. Aim for Steady 1:2 R Base Hits — You do not need a 90% win rate to get funded. Three to four clean 1:2 R setups are enough to pass safely without emotional swings.\n5. Rehearse in the Chart Replay Prop Simulator First — Validate 20+ setups bar-by-bar under real 1-Step and 2-Step drawdown rules on Chart Replay before risking evaluation fees.',
+    steps: [
+      {
+        title: 'Protect Your Daily Drawdown First',
+        description:
+          'Treat your daily loss limit as an unbreakable wall by risking 0.25% to 0.5% per setup so one bad session never ends your evaluation.',
+      },
+      {
+        title: 'Focus on 1–2 Liquid Pairs in Your Killzone',
+        description:
+          'Master Gold (XAU/USD), NAS100, or EUR/USD during the London or New York open instead of forcing trades across ten different charts.',
+      },
+      {
+        title: 'Pin Your Sticky Trading Plan on the Chart',
+        description:
+          'Keep your entry checklist visible right on your chart so you never improvise while candles are moving.',
+      },
+      {
+        title: 'Aim for Steady 1:2 R Base Hits',
+        description:
+          'You do not need a 90% win rate to get funded. Three to four clean 1:2 R setups are enough to pass safely without emotional swings.',
+      },
+      {
+        title: 'Rehearse in the Chart Replay Prop Simulator First',
+        description:
+          'Validate 20+ setups bar-by-bar under real 1-Step and 2-Step drawdown rules on Chart Replay before risking evaluation fees.',
+      },
+    ],
     actionTip:
-      'Open one replay session today, pin your trading plan on the chart, and take only 1 to 2 A+ setups where every single rule on your checklist is met.',
-    ctaText: 'Start Today’s Replay Session →',
+      'Open a Prop Firm Challenge session on Chart Replay today, pin your trading plan on the chart, and execute 3 textbook trades with zero drawdown rule violations.',
+    ctaText: 'Open Prop Firm Simulator →',
     status: 'pending_approval',
     approved: false,
     approvedBy: null,
@@ -920,15 +948,43 @@ export const DEFAULT_NEWSLETTER_TEMPLATES = [
     id: 'newsletter-day-2',
     dayNumber: 2,
     cadence: 'daily',
-    phaseLabel: 'Beginning · Daily Habit (Day 2)',
-    badgeText: 'Day 2 · Daily Trader Motivation',
-    subject: '{{firstName}}, your Trading Plan is your business plan — never trade without it',
-    headline: 'Treat your trading like a high-performance business, {{firstName}}.',
+    category: 'psychology',
+    phaseLabel: 'Trading Psychology & Emotional Control',
+    badgeText: 'Trading Psychology · 5 Steps',
+    subject: 'Hi {{firstName}} — 5 Steps to Eliminate Revenge Trading Before the Next Candle Closes',
+    headline: 'Your response to a red trade defines your trading career, {{firstName}}.',
     bodyText:
-      'Amateur traders improvise while price is moving. Professional traders decide what they will do before the session even opens.\n\nWhen you have {{tradingPlanName}} visible right on your chart, hesitation disappears. Either price gives you your exact setup at your key level, or you protect your capital by staying flat. Both are winning decisions.',
+      'A loss that followed {{tradingPlanName}} is still a good trade — it is simply the cost of doing business in probability. The danger is never the first loss; it is the impulsive revenge trade taken two minutes later to "make it back."\n\n1. Accept a Rule-Following Loss as Business Overhead — Even the best institutional edge loses 30% to 45% of the time. Judge yourself by rule execution, never by a single candle outcome.\n2. Enforce a Mandatory 60-Second Chart Pause — After any stop-out, take your hand off the mouse for 60 seconds so adrenaline cannot hijack your next decision.\n3. Never Double Your Lot Size to "Win It Back" — Keep your risk percentage fixed on every order ticket. Oversized recovery trades are the #1 destroyer of funded accounts.\n4. Check In With Coach Michael & Log Your State — Use the mindset check-in on Chart Replay to pause, reset your breathing, and record one honest note in your journal.\n5. Set a Hard 2-Loss Session Stop Rule — If you take two consecutive losses in one session, close the workspace and review the replay with fresh eyes tomorrow.',
+    steps: [
+      {
+        title: 'Accept a Rule-Following Loss as Business Overhead',
+        description:
+          'Even the best institutional edge loses 30% to 45% of the time. Judge yourself by rule execution, never by a single candle outcome.',
+      },
+      {
+        title: 'Enforce a Mandatory 60-Second Chart Pause',
+        description:
+          'After any stop-out, take your hand off the mouse for 60 seconds so adrenaline cannot hijack your next decision.',
+      },
+      {
+        title: 'Never Double Your Lot Size to "Win It Back"',
+        description:
+          'Keep your risk percentage fixed on every order ticket. Oversized recovery trades are the #1 destroyer of funded accounts.',
+      },
+      {
+        title: 'Check In With Coach Michael & Log Your State',
+        description:
+          'Use the mindset check-in on Chart Replay to pause, reset your breathing, and record one honest note in your journal.',
+      },
+      {
+        title: 'Set a Hard 2-Loss Session Stop Rule',
+        description:
+          'If you take two consecutive losses in one session, close the workspace and review the replay with fresh eyes tomorrow.',
+      },
+    ],
     actionTip:
-      'Before clicking Buy or Sell today, read your sticky trading plan out loud. If the candle does not match your rules, step forward one bar and wait.',
-    ctaText: 'Review My Trading Plan & Practice →',
+      'Make a personal rule today: after any losing trade in replay, pause for 30 seconds, take a deep breath, and verify market structure before looking for another entry.',
+    ctaText: 'Practice Emotional Discipline →',
     status: 'pending_approval',
     approved: false,
     approvedBy: null,
@@ -943,21 +999,39 @@ export const DEFAULT_NEWSLETTER_TEMPLATES = [
     id: 'newsletter-day-3',
     dayNumber: 3,
     cadence: 'daily',
-    phaseLabel: 'Beginning · Daily Habit (Day 3)',
-    badgeText: 'Day 3 · Daily Trader Motivation',
-    subject: 'Patience is a position, {{firstName}} — waiting for the A+ setup',
-    headline: 'Hi {{firstName}}, sitting on your hands is how institutions make their edge.',
+    category: 'reengagement',
+    phaseLabel: 'Comeback Motivation · Inactive 2–3+ Days',
+    badgeText: 'We Missed You · 3 Steps to Return',
+    subject: 'Hi {{firstName}} — We missed you on Chart Replay! 3 steps to get back in rhythm',
+    headline: 'Hi {{firstName}}, it has been a few days — let’s get your chart rhythm back.',
     bodyText:
-      'One of the hardest transitions in becoming a consistently profitable trader is realizing that 80% of market noise is not meant for you.\n\nYou have been on Chart Replay for {{daysOnPlatform}} and logged {{tradeCount}} trades across {{sessionCount}} sessions. Use the bar-by-bar fast-forward tool to skip choppy consolidation and train your eyes to strike only when liquidity and structure align.',
+      'Stepping away from the charts for two or three days happens to every trader, but real consistency comes from how quickly you reconnect with your process. Your Chart Replay workspace and {{tradingPlanName}} are ready whenever you are — with zero financial risk.\n\n1. Run a Quick 10-Minute Warm-Up Replay — Do not pressure yourself to trade for hours. Open your favorite pair and step through 30 historical candles at your own pace.\n2. Refresh Your On-Chart Sticky Trading Plan — Read your core entry rules on the chart so your eyes immediately lock onto clean market structure and liquidity sweeps.\n3. Execute One Clean A+ Setup Today — Place just one well-planned simulated trade following every rule on your checklist to reignite your momentum.',
+    steps: [
+      {
+        title: 'Run a Quick 10-Minute Warm-Up Replay',
+        description:
+          'Do not pressure yourself to trade for hours. Open your favorite pair and step through 30 historical candles at your own pace.',
+      },
+      {
+        title: 'Refresh Your On-Chart Sticky Trading Plan',
+        description:
+          'Read your core entry rules on the chart so your eyes immediately lock onto clean market structure and liquidity sweeps.',
+      },
+      {
+        title: 'Execute One Clean A+ Setup Today',
+        description:
+          'Place just one well-planned simulated trade following every rule on your checklist to reignite your momentum.',
+      },
+    ],
     actionTip:
-      'Practice skipping at least 20 candles of sideways chop in your replay session today until a clean London or New York session setup forms.',
-    ctaText: 'Practice Patience on the Chart →',
+      'Jump back into Chart Replay for just 10 minutes today and complete one focused bar-by-bar session on Gold (XAU/USD) or NAS100.',
+    ctaText: 'Jump Back Into Your Workspace →',
     status: 'pending_approval',
     approved: false,
     approvedBy: null,
     approvedAt: null,
     scheduledFor: null,
-    targetAudience: 'all',
+    targetAudience: 'inactive_2_3_days',
     selectedRecipients: [],
     sentAt: null,
     sentCount: 0,
@@ -966,15 +1040,43 @@ export const DEFAULT_NEWSLETTER_TEMPLATES = [
     id: 'newsletter-day-4',
     dayNumber: 4,
     cadence: 'daily',
-    phaseLabel: 'Beginning · Daily Habit (Day 4)',
-    badgeText: 'Day 4 · Daily Trader Motivation',
-    subject: '{{firstName}}, protect your drawdown first — profits take care of themselves',
-    headline: 'Risk management is the oxygen of a professional trader, {{firstName}}.',
+    category: 'execution',
+    phaseLabel: 'Institutional Patience & Setup Selection',
+    badgeText: 'Execution & Edge · 5 Steps',
+    subject: '{{firstName}}, 5 steps to stop overtrading and wait for your A+ setup',
+    headline: 'Sitting on your hands until structure aligns is your biggest edge, {{firstName}}.',
     bodyText:
-      'Any trader can hit a lucky winning streak, but only professionals keep their gains when the market shifts. Whether you are trading a Prop Firm evaluation or building your personal track record, surviving a losing trade with a controlled 0.5% to 1% risk keeps you in control.\n\nWhen your stop-loss is respected without emotion, no single trade can ever shake your confidence.',
+      'One of the biggest breakthroughs in becoming a consistently profitable trader is realizing that 80% of market noise is not meant for you. Professional traders wait calmly for price to enter their session window and trigger {{tradingPlanName}}.\n\n1. Define What a "No-Trade Market" Looks Like — Write down the exact tight-range or low-volume conditions where you commit to staying 100% flat.\n2. Fast-Forward Past Choppy Consolidation — Use Chart Replay’s bar-by-bar stepping controls to skip low-probability chop until London or New York momentum arrives.\n3. Let Price Come to Your Key Level First — Mark your higher-timeframe liquidity and supply/demand zones before stepping forward, and never chase mid-range candles.\n4. Read Your Sticky Plan Out Loud Before Clicking — If even one condition on your checklist is missing, advance one candle and wait.\n5. Measure Success by Bad Trades Avoided — Protecting your capital during messy price action is a winning session.',
+    steps: [
+      {
+        title: 'Define What a "No-Trade Market" Looks Like',
+        description:
+          'Write down the exact tight-range or low-volume conditions where you commit to staying 100% flat.',
+      },
+      {
+        title: 'Fast-Forward Past Choppy Consolidation',
+        description:
+          'Use Chart Replay’s bar-by-bar stepping controls to skip low-probability chop until London or New York momentum arrives.',
+      },
+      {
+        title: 'Let Price Come to Your Key Level First',
+        description:
+          'Mark your higher-timeframe liquidity and supply/demand zones before stepping forward, and never chase mid-range candles.',
+      },
+      {
+        title: 'Read Your Sticky Plan Out Loud Before Clicking',
+        description:
+          'If even one condition on your checklist is missing, advance one candle and wait.',
+      },
+      {
+        title: 'Measure Success by Bad Trades Avoided',
+        description:
+          'Protecting your simulated capital during messy price action is a winning session.',
+      },
+    ],
     actionTip:
-      'Use the Order Ticket calculator on Chart Replay to size your position strictly by risk percentage before entering your next trade.',
-    ctaText: 'Practice Strict Risk Sizing →',
+      'Practice skipping at least 20 candles of sideways chop in your replay session today until a textbook London or New York setup forms.',
+    ctaText: 'Practice Patience on the Chart →',
     status: 'pending_approval',
     approved: false,
     approvedBy: null,
@@ -989,14 +1091,37 @@ export const DEFAULT_NEWSLETTER_TEMPLATES = [
     id: 'newsletter-day-5',
     dayNumber: 5,
     cadence: 'daily',
-    phaseLabel: 'Beginning · Daily Habit (Day 5)',
-    badgeText: 'Day 5 · Daily Trader Motivation',
-    subject: 'Hi {{firstName}} — Stop trading money, start trading R-Multiples',
-    headline: 'Detach from the currency value and master execution quality, {{firstName}}.',
+    category: 'risk',
+    phaseLabel: 'Risk Management & R-Multiples',
+    badgeText: 'Risk Management · 4 Steps',
+    subject: 'Hi {{firstName}} — 4 steps to detach from money and trade in R-Multiples',
+    headline: 'Master execution quality by measuring every trade in R-Multiples, {{firstName}}.',
     bodyText:
-      'When you stare at dollar or rand fluctuations while a trade is open, fear makes you close winners too early and hope makes you hold losers too long.\n\nProfessional traders measure everything in R-Multiples (Risk Units). A well-executed 1:2.5 R trade on {{tradingPlanName}} is the exact same skill whether you are risking $50 or $5,000.',
+      'When you stare at dollar or rand fluctuations while a trade is open, fear makes you close winners too early and hope makes you hold losers too long. Professional traders measure {{tradingPlanName}} strictly in R-Multiples (Risk Units).\n\n1. Think in 1R Risk Units, Not Currency — Whether 1R is $50 or $5,000, the chart structure and execution discipline are 100% identical.\n2. Size Every Position by Stop-Loss Distance — Use the Chart Replay Order Ticket calculator so a wider structural stop automatically adjusts your lot size.\n3. Target Clean 1:2 to 1:3 R Setups — With a 2.5R average winner, you only need a 40% win rate to grow your account equity curve steadily.\n4. Let the Replay Bars Play Out Without Touching Your Stop — Set your stop-loss and take-profit before entry, then step the candles forward to +R or -1R with total composure.',
+    steps: [
+      {
+        title: 'Think in 1R Risk Units, Not Currency',
+        description:
+          'Whether 1R is $50 or $5,000, the chart structure and execution discipline are 100% identical.',
+      },
+      {
+        title: 'Size Every Position by Stop-Loss Distance',
+        description:
+          'Use the Chart Replay Order Ticket calculator so a wider structural stop automatically adjusts your lot size.',
+      },
+      {
+        title: 'Target Clean 1:2 to 1:3 R Setups',
+        description:
+          'With a 2.5R average winner, you only need a 40% win rate to grow your account equity curve steadily.',
+      },
+      {
+        title: 'Let the Replay Bars Play Out Without Touching Your Stop',
+        description:
+          'Set your stop-loss and take-profit before entry, then step the candles forward to +R or -1R with total composure.',
+      },
+    ],
     actionTip:
-      'Set your stop-loss and take-profit before entering, then let the bars play out to either +R or -1R without moving your stop-loss.',
+      'Set your stop-loss and take-profit before entering your next replay trade, then let the bars play out to +R or -1R without moving your stop-loss.',
     ctaText: 'Build R-Multiple Consistency →',
     status: 'pending_approval',
     approved: false,
@@ -1010,14 +1135,93 @@ export const DEFAULT_NEWSLETTER_TEMPLATES = [
   },
   {
     id: 'newsletter-day-7',
+    dayNumber: 6,
+    cadence: 'every_second_day',
+    category: 'playbook',
+    phaseLabel: 'Rule-Based Trading Playbook',
+    badgeText: 'Trading Playbook · 5 Steps',
+    subject: '{{firstName}}, 5 steps to treat your Trading Plan like a high-performance business',
+    headline: 'Amateur traders improvise; professionals execute a written checklist, {{firstName}}.',
+    bodyText:
+      'Every consistently profitable trader operates from a concise, repeatable playbook. When {{tradingPlanName}} is visible right on your chart, hesitation disappears.\n\n1. Keep Your Rules Short Enough for a Sticky Note — Simplify your strategy into 3 to 5 objective chart conditions you can verify in 10 seconds.\n2. Define Your Exact Session Killzone — Specify whether you trade London Open, New York Open, or Silver Bullet hours so you only practice high-volume setups.\n3. Pre-Define Your Invalidations — Know the exact candle closure that invalidates your setup before opening the order ticket.\n4. Log a 1-Sentence Reason for Every Entry — Record why you took each trade so you can review your best-performing patterns in Analytics.\n5. Audit 10 Replay Trades Against Your Checklist — Check how many of your last 10 trades followed your plan 100% and aim for a 95%+ compliance score.',
+    steps: [
+      {
+        title: 'Keep Your Rules Short Enough for a Sticky Note',
+        description:
+          'Simplify your strategy into 3 to 5 objective chart conditions you can verify in 10 seconds.',
+      },
+      {
+        title: 'Define Your Exact Session Killzone',
+        description:
+          'Specify whether you trade London Open, New York Open, or Silver Bullet hours so you only practice high-volume setups.',
+      },
+      {
+        title: 'Pre-Define Your Invalidations',
+        description:
+          'Know the exact candle closure that invalidates your setup before opening the order ticket.',
+      },
+      {
+        title: 'Log a 1-Sentence Reason for Every Entry',
+        description:
+          'Record why you took each trade so you can review your best-performing patterns in Analytics.',
+      },
+      {
+        title: 'Audit 10 Replay Trades Against Your Checklist',
+        description:
+          'Check how many of your last 10 trades followed your plan 100% and aim for a 95%+ compliance score.',
+      },
+    ],
+    actionTip:
+      'Open your chart workspace, click My Plan, and make sure your top 3 entry rules are pinned clearly before placing your next trade.',
+    ctaText: 'Review My Trading Plan & Practice →',
+    status: 'pending_approval',
+    approved: false,
+    approvedBy: null,
+    approvedAt: null,
+    scheduledFor: null,
+    targetAudience: 'all',
+    selectedRecipients: [],
+    sentAt: null,
+    sentCount: 0,
+  },
+  {
+    id: 'newsletter-day-9',
     dayNumber: 7,
     cadence: 'every_second_day',
-    phaseLabel: 'Every 2nd Day · Pro Progression (Day 7)',
-    badgeText: 'Day 7 · Every 2nd Day Coaching',
-    subject: '{{firstName}}, how to compress 6 months of market experience into one week',
-    headline: 'Deliberate practice is your unfair advantage, {{firstName}}.',
+    category: 'practice',
+    phaseLabel: 'Deliberate Bar-by-Bar Practice',
+    badgeText: 'Deliberate Practice · 5 Steps',
+    subject: '{{firstName}}, 5 steps to compress 6 months of market experience into one week',
+    headline: 'Deliberate bar-by-bar practice is your unfair advantage, {{firstName}}.',
     bodyText:
-      'Waiting for live candles takes months to see 50 examples of your setup. On Chart Replay, you can step through 50 setups in a single weekend.\n\nWith {{sessionCount}} sessions and {{tradeCount}} trades under your belt so far, every session you complete sharpens your intuition on Gold (XAU/USD), NAS100, and Forex majors.',
+      'Waiting for live candles takes months to see 50 examples of your setup. On Chart Replay, you can step through 50 real historical setups on Gold (XAU/USD), NAS100, and Forex majors in a single weekend.\n\n1. Lock In One Instrument for 20 Straight Trades — Build deep intuition on how one market sweeps liquidity and reacts at key session highs and lows.\n2. Step Bar-by-Bar Without Peeking Ahead — Train your eyes to read live candle formation on the right edge of the chart.\n3. Mark Higher-Timeframe Structure First — Start on the 4H and 1H chart to map directional bias before dropping to the 15m or 5m execution chart.\n4. Review Win Rate & Profit Factor After Each Session — Use the Performance Overview dashboard to see whether long or short setups perform best for you.\n5. Refine One Filter at a Time — Tweak a single rule in {{tradingPlanName}} and run another 10-trade replay sample to verify the improvement.',
+    steps: [
+      {
+        title: 'Lock In One Instrument for 20 Straight Trades',
+        description:
+          'Build deep intuition on how one market sweeps liquidity and reacts at key session highs and lows.',
+      },
+      {
+        title: 'Step Bar-by-Bar Without Peeking Ahead',
+        description:
+          'Train your eyes to read live candle formation on the right edge of the chart.',
+      },
+      {
+        title: 'Mark Higher-Timeframe Structure First',
+        description:
+          'Start on the 4H and 1H chart to map directional bias before dropping to the 15m or 5m execution chart.',
+      },
+      {
+        title: 'Review Win Rate & Profit Factor After Each Session',
+        description:
+          'Use the Performance Overview dashboard to see whether long or short setups perform best for you.',
+      },
+      {
+        title: 'Refine One Filter at a Time',
+        description:
+          'Tweak a single rule in {{tradingPlanName}} and run another 10-trade replay sample to verify the improvement.',
+      },
+    ],
     actionTip:
       'Run a focused 15-minute replay session on your favorite pair today and log a short note on why you entered each trade.',
     ctaText: 'Launch a Backtest Session →',
@@ -1032,41 +1236,36 @@ export const DEFAULT_NEWSLETTER_TEMPLATES = [
     sentCount: 0,
   },
   {
-    id: 'newsletter-day-9',
-    dayNumber: 9,
-    cadence: 'every_second_day',
-    phaseLabel: 'Every 2nd Day · Pro Progression (Day 9)',
-    badgeText: 'Day 9 · Every 2nd Day Coaching',
-    subject: 'Hi {{firstName}} — Eliminating revenge trading before the next candle closes',
-    headline: 'Your response to a red trade defines your career, {{firstName}}.',
-    bodyText:
-      'A loss that followed {{tradingPlanName}} is a good trade — it is simply the cost of doing business in probability. The danger is never the first loss; it is the impulsive revenge trade taken two minutes later to "make it back."\n\nUse Coach Michael and your mindset check-ins on Chart Replay to pause after any loss.',
-    actionTip:
-      'Make a personal rule today: after any losing trade, pause the replay for 30 seconds, take a breath, and verify market structure before looking for another entry.',
-    ctaText: 'Practice Emotional Discipline →',
-    status: 'pending_approval',
-    approved: false,
-    approvedBy: null,
-    approvedAt: null,
-    scheduledFor: null,
-    targetAudience: 'all',
-    selectedRecipients: [],
-    sentAt: null,
-    sentCount: 0,
-  },
-  {
     id: 'newsletter-day-11',
-    dayNumber: 11,
+    dayNumber: 8,
     cadence: 'every_second_day',
-    phaseLabel: 'Every 2nd Day · Pro Progression (Day 11)',
-    badgeText: 'Day 11 · Every 2nd Day Coaching',
-    subject: '{{firstName}}, the secret to passing Prop Firm Challenges without stress',
-    headline: 'Consistency beats home runs in every prop evaluation, {{firstName}}.',
+    category: 'reengagement',
+    phaseLabel: '3-Step Momentum Reset',
+    badgeText: 'Trader Momentum · 3 Steps',
+    subject: 'Hi {{firstName}} — 3 quick steps to sharpen your chart execution today',
+    headline: 'Keep your pattern recognition sharp on Chart Replay, {{firstName}}.',
     bodyText:
-      'Traders fail prop firm challenges because they try to pass in two days. Funded professionals pass because they aim for steady base hits while keeping their daily drawdown untouched.\n\nBy practicing inside the Chart Replay Prop Firm Simulator, you train yourself to respect daily loss limits automatically.',
+      'Just like an athlete in the gym, staying connected to the charts a few times a week keeps your execution sharp and hesitation-free when live markets open.\n\n1. Review Your Last Replay Session’s Best Setup — Remind your eyes what a clean, effortless A+ entry on {{tradingPlanName}} looks like.\n2. Complete a 15-Minute Prop or Backtest Session — Step through one London or New York session focusing purely on risk management.\n3. Commit to Zero Impulse Entries on Your Next 5 Trades — Respect your stop-loss 100% and let the math of your edge do the heavy lifting.',
+    steps: [
+      {
+        title: 'Review Your Last Replay Session’s Best Setup',
+        description:
+          'Remind your eyes what a clean, effortless A+ entry on {{tradingPlanName}} looks like.',
+      },
+      {
+        title: 'Complete a 15-Minute Prop or Backtest Session',
+        description:
+          'Step through one London or New York session focusing purely on risk management.',
+      },
+      {
+        title: 'Commit to Zero Impulse Entries on Your Next 5 Trades',
+        description:
+          'Respect your stop-loss 100% and let the math of your edge do the heavy lifting.',
+      },
+    ],
     actionTip:
-      'Open or continue a Prop Firm Challenge session on Chart Replay and aim for 3 textbook trades with zero drawdown rule violations.',
-    ctaText: 'Open Prop Firm Simulator →',
+      'Open Chart Replay for 15 minutes today and complete 3 disciplined trades with zero rule violations.',
+    ctaText: 'Open Your Trading Workspace →',
     status: 'pending_approval',
     approved: false,
     approvedBy: null,
@@ -1085,6 +1284,14 @@ export function formatDaysOnPlatformLabel(joinedAt, nowMs = Date.now()) {
   if (!Number.isFinite(parsed)) return '1 day';
   const days = Math.max(1, Math.floor(Math.max(0, nowMs - parsed) / 86400000) + 1);
   return `${days} ${days === 1 ? 'day' : 'days'}`;
+}
+
+export function stripLegacyDayPrefix(text) {
+  return String(text ?? '')
+    .replace(/^Day\s+\d+\s*[·•:\-–—]\s*/i, '')
+    .replace(/\bDaily\s+Trader\s+Motivation\b/gi, 'Trader Coaching')
+    .replace(/\bEvery\s+2nd\s+Day\s+Coaching\b/gi, 'Pro Trader Coaching')
+    .trim();
 }
 
 export function personalizeNewsletterText(templateText, recipient = {}, nowMs = Date.now()) {
@@ -1111,10 +1318,102 @@ export function personalizeNewsletterText(templateText, recipient = {}, nowMs = 
     .replace(/\{\{\s*daysOnPlatform\s*\}\}/gi, daysOnPlatform);
 }
 
+export function extractNewsletterStepsAndIntro(newsletter = {}, recipient = {}, nowMs = Date.now()) {
+  const rawBody = personalizeNewsletterText(
+    newsletter.bodyText ||
+      'Every disciplined session on Chart Replay brings you closer to professional consistency.',
+    recipient,
+    nowMs
+  )
+    .replace(/([.!?"]\s*)((?:Step\s*)?1[.):]\s+[A-Z])/g, '$1\n\n$2')
+    .replace(/([.!?"]\s*)((?:Step\s*)?[2-9][.):]\s+[A-Z])/g, '$1\n$2');
+
+  const lines = rawBody.split(/\r?\n/);
+  const parsedSteps = [];
+  const introLines = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const stepMatch = trimmed.match(/^(?:Step\s*)?(\d+)[.):]\s*(.+)$/i);
+    if (stepMatch) {
+      const rest = stepMatch[2].trim();
+      const sepMatch = rest.match(/^([^—–\-:]+?)\s*(?:—|–|\s-\s|:)\s*(.+)$/);
+      if (sepMatch) {
+        parsedSteps.push({
+          title: sepMatch[1].trim(),
+          description: sepMatch[2].trim(),
+        });
+      } else {
+        parsedSteps.push({
+          title: `Step ${parsedSteps.length + 1}`,
+          description: rest,
+        });
+      }
+    } else {
+      introLines.push(line);
+    }
+  }
+
+  let steps = [];
+  if (parsedSteps.length > 0) {
+    steps = parsedSteps;
+  } else if (Array.isArray(newsletter.steps) && newsletter.steps.length > 0) {
+    steps = newsletter.steps
+      .map((s, idx) => {
+        if (typeof s === 'string') {
+          const text = personalizeNewsletterText(s, recipient, nowMs);
+          const sepMatch = text.match(/^([^—–\-:]+?)\s*(?:—|–|\s-\s|:)\s*(.+)$/);
+          return sepMatch
+            ? { title: sepMatch[1].trim(), description: sepMatch[2].trim() }
+            : { title: `Step ${idx + 1}`, description: text.trim() };
+        }
+        return {
+          title: personalizeNewsletterText(s?.title || `Step ${idx + 1}`, recipient, nowMs),
+          description: personalizeNewsletterText(s?.description || '', recipient, nowMs),
+        };
+      })
+      .filter((s) => s.title || s.description);
+  }
+
+  const rawIntroBlocks = introLines
+    .join('\n')
+    .split(/\r?\n\r?\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const introParagraphs = [];
+  for (const block of rawIntroBlocks) {
+    const sentences = block.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g);
+    if (rawIntroBlocks.length === 1 && sentences && sentences.length >= 2) {
+      const firstSentence = sentences[0].trim();
+      const remaining = sentences.slice(1).join(' ').trim();
+      if (firstSentence) introParagraphs.push(firstSentence);
+      if (remaining) introParagraphs.push(remaining);
+    } else {
+      introParagraphs.push(block);
+    }
+  }
+
+  return {
+    introParagraphs,
+    steps,
+    fullBodyText: rawBody,
+  };
+}
+
+const STEP_BADGE_STYLES = [
+  'background-color:#ecfdf5;border:1px solid #a7f3d0;color:#047857;',
+  'background-color:#f0f9ff;border:1px solid #bae6fd;color:#0369a1;',
+  'background-color:#f5f3ff;border:1px solid #ddd6fe;color:#6d28d9;',
+  'background-color:#fffbeb;border:1px solid #fde68a;color:#b45309;',
+  'background-color:#fff1f2;border:1px solid #fecdd3;color:#be123c;',
+];
+
 export function buildPersonalizedNewsletterEmail({
   newsletter = {},
   recipient = {},
   unsubscribeUrl,
+  trackingId = '',
   appUrl = DEFAULT_APP_URL,
   nowMs = Date.now(),
 }) {
@@ -1127,34 +1426,42 @@ export function buildPersonalizedNewsletterEmail({
   const targetUnsubscribeUrl =
     String(unsubscribeUrl || '').trim() || buildUnsubscribeUrl(rawEmail, officialUrl);
   const safeUnsubscribeUrl = escapeHtml(targetUnsubscribeUrl);
-  const sessionCount = Number(recipient?.sessionCount ?? 0);
-  const tradeCount = Number(recipient?.tradeCount ?? 0);
-  const planDisplay =
-    typeof recipient?.tradingPlanName === 'string' && recipient.tradingPlanName.trim()
-      ? recipient.tradingPlanName.trim()
-      : recipient?.hasTradingPlan
-      ? 'Active Trading Plan'
-      : 'Pin your plan on chart';
-  const daysLabel = formatDaysOnPlatformLabel(recipient?.joinedAt, nowMs);
 
+  const cleanTrackingId = String(trackingId || '').trim();
+  const openTrackingUrl = cleanTrackingId
+    ? `${officialUrl}/api/platform?action=newsletter-open&logId=${encodeURIComponent(
+        cleanTrackingId
+      )}&email=${encodeURIComponent(rawEmail)}`
+    : '';
+  const clickTrackingUrl = cleanTrackingId
+    ? `${officialUrl}/api/platform?action=newsletter-click&logId=${encodeURIComponent(
+        cleanTrackingId
+      )}&email=${encodeURIComponent(rawEmail)}`
+    : officialUrl;
+  const safeCtaUrl = escapeHtml(clickTrackingUrl);
+
+  const rawBadge = stripLegacyDayPrefix(
+    newsletter.badgeText || 'Trader Playbook · Chart Replay'
+  );
   const badgeText = personalizeNewsletterText(
-    newsletter.badgeText || 'Daily Trader Motivation · Chart Replay',
+    rawBadge || 'Trader Playbook · Chart Replay',
     recipient,
     nowMs
   );
-  const subject = personalizeNewsletterText(
-    newsletter.subject || `Hi ${firstName} — Stay Disciplined & Build Your Trading Edge`,
-    recipient,
-    nowMs
+  const subject = stripLegacyDayPrefix(
+    personalizeNewsletterText(
+      newsletter.subject || `Hi ${firstName} — Stay Disciplined & Build Your Trading Edge`,
+      recipient,
+      nowMs
+    )
   );
   const headline = personalizeNewsletterText(
     newsletter.headline || `Hi ${firstName}, keep building your professional edge.`,
     recipient,
     nowMs
   );
-  const bodyText = personalizeNewsletterText(
-    newsletter.bodyText ||
-      'Every disciplined session on Chart Replay brings you closer to professional consistency.',
+  const { introParagraphs, steps, fullBodyText } = extractNewsletterStepsAndIntro(
+    newsletter,
     recipient,
     nowMs
   );
@@ -1170,39 +1477,89 @@ export function buildPersonalizedNewsletterEmail({
     nowMs
   );
 
-  const paragraphsHtml = bodyText
-    .split(/\r?\n\r?\n/)
-    .map((p) => p.trim())
-    .filter(Boolean)
+  const paragraphsHtml = introParagraphs
     .map(
       (p) =>
-        `<p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#cbd5e1;">${escapeHtml(
+        `<p style="margin:0 0 16px 0;font-size:15px;line-height:1.75;color:#334155;">${escapeHtml(
           p
         ).replace(/\r?\n/g, '<br/>')}</p>`
     )
     .join('');
+
+  const stepsHtml =
+    steps.length > 0
+      ? `
+          <!-- Step-by-Step Action Breakdown -->
+          <tr>
+            <td style="padding:4px 34px 24px 34px;background-color:#ffffff;">
+              <div style="margin:0 0 12px 0;font-size:11px;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;color:#0284c7;">
+                ${steps.length}-Step Trader Playbook
+              </div>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+                ${steps
+                  .map((step, idx) => {
+                    const isLast = idx === steps.length - 1;
+                    const badgeStyle = STEP_BADGE_STYLES[idx % STEP_BADGE_STYLES.length];
+                    return `
+                <tr>
+                  <td style="padding:16px 20px;${isLast ? '' : 'border-bottom:1px solid #e2e8f0;'}">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td width="38" valign="top" style="padding-right:14px;">
+                          <div style="width:28px;height:28px;line-height:28px;text-align:center;border-radius:8px;${badgeStyle}font-size:13px;font-weight:800;">${
+                      idx + 1
+                    }</div>
+                        </td>
+                        <td valign="top">
+                          <div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px;">${escapeHtml(
+                            step.title
+                          )}</div>
+                          <div style="font-size:13.5px;line-height:1.6;color:#475569;">${escapeHtml(
+                            step.description
+                          )}</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>`;
+                  })
+                  .join('')}
+              </table>
+            </td>
+          </tr>`
+      : '';
+
+  const stepsTextLines =
+    steps.length > 0
+      ? [
+          '',
+          `${steps.length}-Step Trader Playbook:`,
+          ...steps.map((s, idx) => `${idx + 1}. ${s.title} — ${s.description}`),
+        ]
+      : [];
 
   const text = [
     subject,
     '',
     headline,
     '',
-    bodyText,
+    ...(introParagraphs.length > 0 ? [introParagraphs.join('\n\n')] : [fullBodyText]),
+    ...stepsTextLines,
     '',
-    `--- Your Chart Replay Progress (${rawName}) ---`,
-    `• Trading Plan: ${planDisplay}`,
-    `• Practice Sessions: ${sessionCount}`,
-    `• Trades Logged: ${tradeCount}`,
-    `• Time on Platform: ${daysLabel}`,
-    '',
-    `Today's Pro-Trader Focus:`,
+    `✓ Key Action Focus:`,
     actionTip,
     '',
     `${ctaText}: ${officialUrl}`,
     '',
-    `Chart Replay · https://chartreplay.co.za · Sent to ${rawEmail}`,
+    `Cheslin from Chart Replay · https://chartreplay.co.za · Sent to ${rawEmail}`,
     `Unsubscribe from emails: ${targetUnsubscribeUrl}`,
   ].join('\n');
+
+  const trackingPixelHtml = openTrackingUrl
+    ? `<img src="${escapeHtml(
+        openTrackingUrl
+      )}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;opacity:0;" />`
+    : '';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -1211,15 +1568,15 @@ export function buildPersonalizedNewsletterEmail({
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(subject)}</title>
 </head>
-<body style="margin:0;padding:0;background-color:#050811;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e2e8f0;-webkit-font-smoothing:antialiased;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#050811;padding:34px 14px;">
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9;padding:34px 14px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#0b111e;border:1px solid #1e293b;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,0.65);">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:22px;overflow:hidden;box-shadow:0 16px 40px rgba(15,23,42,0.08);">
           <!-- Top Brand Banner -->
           <tr>
-            <td style="padding:0;background-color:#080d18;border-bottom:1px solid #1e293b;">
-              <a href="${safeAppUrl}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;">
+            <td style="padding:0;background-color:#ffffff;border-bottom:1px solid #e2e8f0;">
+              <a href="${safeCtaUrl}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;">
                 <img src="${WELCOME_BANNER_URL}" alt="Chart Replay — Professional Trader Development" width="600" style="width:100%;max-width:600px;height:auto;display:block;border:0;" />
               </a>
             </td>
@@ -1227,56 +1584,26 @@ export function buildPersonalizedNewsletterEmail({
 
           <!-- Badge & Personalized Headline -->
           <tr>
-            <td style="padding:30px 34px 16px 34px;background:linear-gradient(180deg,#0f1829 0%,#0b111e 100%);">
-              <div style="display:inline-block;padding:5px 14px;border-radius:999px;background-color:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.35);color:#34d399;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">
+            <td style="padding:30px 34px 12px 34px;background-color:#ffffff;">
+              <div style="display:inline-block;padding:5px 14px;border-radius:999px;background-color:#ecfdf5;border:1px solid #a7f3d0;color:#047857;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">
                 ${escapeHtml(badgeText)}
               </div>
-              <h1 style="margin:16px 0 12px 0;font-size:24px;line-height:1.3;font-weight:800;color:#ffffff;letter-spacing:-0.02em;">
+              <h1 style="margin:16px 0 14px 0;font-size:23px;line-height:1.35;font-weight:800;color:#0f172a;letter-spacing:-0.02em;">
                 ${escapeHtml(headline)}
               </h1>
               ${paragraphsHtml}
             </td>
           </tr>
+          ${stepsHtml}
 
-          <!-- Personalized Trader Snapshot Card -->
+          <!-- Pro-Trader Action Focus -->
           <tr>
-            <td style="padding:0 34px 22px 34px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#080d17;border:1px solid #1e293b;border-radius:16px;overflow:hidden;">
-                <tr>
-                  <td colspan="4" style="padding:12px 18px;border-bottom:1px solid #162032;font-size:11px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#38bdf8;">
-                    Personal Trader Snapshot · ${escapeHtml(rawName)}
-                  </td>
-                </tr>
-                <tr>
-                  <td width="25%" style="padding:14px 12px;border-right:1px solid #162032;text-align:center;">
-                    <div style="font-size:10px;color:#64748b;text-transform:uppercase;">Sessions</div>
-                    <div style="margin-top:4px;font-size:16px;font-weight:800;color:#34d399;">${sessionCount}</div>
-                  </td>
-                  <td width="25%" style="padding:14px 12px;border-right:1px solid #162032;text-align:center;">
-                    <div style="font-size:10px;color:#64748b;text-transform:uppercase;">Trades</div>
-                    <div style="margin-top:4px;font-size:16px;font-weight:800;color:#38bdf8;">${tradeCount}</div>
-                  </td>
-                  <td width="25%" style="padding:14px 12px;border-right:1px solid #162032;text-align:center;">
-                    <div style="font-size:10px;color:#64748b;text-transform:uppercase;">Journey</div>
-                    <div style="margin-top:4px;font-size:13px;font-weight:700;color:#a78bfa;">${escapeHtml(daysLabel)}</div>
-                  </td>
-                  <td width="25%" style="padding:14px 12px;text-align:center;">
-                    <div style="font-size:10px;color:#64748b;text-transform:uppercase;">Trading Plan</div>
-                    <div style="margin-top:4px;font-size:11px;font-weight:700;color:#fbbf24;">${escapeHtml(planDisplay)}</div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Pro-Trader Daily Action Focus -->
-          <tr>
-            <td style="padding:0 34px 24px 34px;">
-              <div style="padding:18px 20px;background:linear-gradient(135deg,rgba(16,185,129,0.10) 0%,rgba(56,189,248,0.08) 100%);border:1px solid rgba(16,185,129,0.32);border-radius:16px;">
-                <div style="font-size:11px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#34d399;margin-bottom:6px;">
-                  ✓ Today’s Professional Habit Focus
+            <td style="padding:0 34px 24px 34px;background-color:#ffffff;">
+              <div style="padding:18px 20px;background-color:#ecfdf5;border:1px solid #6ee7b7;border-radius:16px;">
+                <div style="font-size:11px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#047857;margin-bottom:6px;">
+                  ✓ Pro-Trader Action Focus
                 </div>
-                <div style="font-size:14px;line-height:1.65;color:#f1f5f9;">
+                <div style="font-size:14px;line-height:1.65;color:#064e3b;font-weight:500;">
                   ${escapeHtml(actionTip)}
                 </div>
               </div>
@@ -1285,11 +1612,11 @@ export function buildPersonalizedNewsletterEmail({
 
           <!-- Primary CTA Button -->
           <tr>
-            <td style="padding:0 34px 30px 34px;">
+            <td style="padding:0 34px 30px 34px;background-color:#ffffff;">
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
-                  <td align="center" style="border-radius:14px;background:linear-gradient(90deg,#10b981 0%,#0ea5e9 55%,#2563eb 100%);box-shadow:0 10px 25px rgba(16,185,129,0.28);">
-                    <a href="${safeAppUrl}" target="_blank" rel="noopener noreferrer" style="display:block;padding:16px 28px;font-size:15px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:0.01em;border-radius:14px;">
+                  <td align="center" style="border-radius:14px;background:linear-gradient(90deg,#059669 0%,#0284c7 100%);box-shadow:0 8px 20px rgba(5,150,105,0.22);">
+                    <a href="${safeCtaUrl}" target="_blank" rel="noopener noreferrer" style="display:block;padding:16px 28px;font-size:15px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:0.01em;border-radius:14px;">
                       ${escapeHtml(ctaText)}
                     </a>
                   </td>
@@ -1300,10 +1627,11 @@ export function buildPersonalizedNewsletterEmail({
 
           <!-- Footer -->
           <tr>
-            <td style="padding:22px 34px;background-color:#070b14;border-top:1px solid #1e293b;font-size:11px;line-height:1.7;color:#64748b;text-align:center;">
-              <strong style="color:#94a3b8;">Chart Replay Trader Newsletter</strong> · Personalized for <span style="color:#cbd5e1;">${escapeHtml(rawName)} (${safeEmail})</span><br/>
-              Built for deliberate trader development · Questions? Reply or email <a href="mailto:info@voomay.co.za" style="color:#34d399;text-decoration:underline;">info@voomay.co.za</a> · <a href="${safeAppUrl}" style="color:#38bdf8;text-decoration:underline;">chartreplay.co.za</a><br/>
-              <span style="color:#475569;">Don't want to receive these emails?</span> <a href="${safeUnsubscribeUrl}" target="_blank" rel="noopener noreferrer" style="color:#94a3b8;text-decoration:underline;font-weight:600;">Unsubscribe</a>
+            <td style="padding:22px 34px;background-color:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;line-height:1.7;color:#64748b;text-align:center;">
+              <strong style="color:#0f172a;">Cheslin from Chart Replay</strong> · Sent to <span style="color:#334155;font-weight:600;">${escapeHtml(rawName)} (${safeEmail})</span><br/>
+              Built for deliberate trader development · Questions? Reply or email <a href="mailto:info@voomay.co.za" style="color:#059669;text-decoration:underline;font-weight:600;">info@voomay.co.za</a> · <a href="${safeAppUrl}" style="color:#0284c7;text-decoration:underline;font-weight:600;">chartreplay.co.za</a><br/>
+              <span style="color:#64748b;">Don't want to receive these emails?</span> <a href="${safeUnsubscribeUrl}" target="_blank" rel="noopener noreferrer" style="color:#475569;text-decoration:underline;font-weight:600;">Unsubscribe</a>
+              ${trackingPixelHtml}
             </td>
           </tr>
         </table>
@@ -1317,23 +1645,28 @@ export function buildPersonalizedNewsletterEmail({
     subject,
     headline,
     badgeText,
-    bodyText,
+    bodyText: fullBodyText,
+    steps,
+    introParagraphs,
     actionTip,
     ctaText,
     html,
     text,
     unsubscribeUrl: targetUnsubscribeUrl,
+    openTrackingUrl,
+    clickTrackingUrl,
   };
 }
 
 export async function sendPersonalizedNewsletterEmail(
-  { newsletter, recipient, origin, nowMs = Date.now() },
+  { newsletter, recipient, trackingId = '', origin, nowMs = Date.now() },
   { env = process.env, request = fetch } = {}
 ) {
   const appUrl = resolvePublicAppUrl(origin, env);
   const content = buildPersonalizedNewsletterEmail({
     newsletter,
     recipient,
+    trackingId,
     appUrl,
     nowMs,
   });
@@ -1351,5 +1684,39 @@ export async function sendPersonalizedNewsletterEmail(
     ...result,
     subject: content.subject,
   };
+}
+
+export async function fetchResendEmailStatus(
+  emailId,
+  { env = process.env, request = fetch } = {}
+) {
+  const cfg = resolveResendConfig(env);
+  const cleanId = String(emailId || '').trim();
+  if (!cfg || !cleanId) return null;
+  try {
+    const response = await request(
+      `${RESEND_API_URL}/${encodeURIComponent(cleanId)}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${cfg.apiKey}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(6000),
+      }
+    );
+    if (!response.ok) return null;
+    const data = await response.json().catch(() => null);
+    if (!data || typeof data !== 'object') return null;
+    const lastEvent = String(data.last_event || '').toLowerCase();
+    return {
+      id: cleanId,
+      lastEvent,
+      opened: lastEvent === 'opened' || lastEvent === 'clicked',
+      clicked: lastEvent === 'clicked',
+    };
+  } catch {
+    return null;
+  }
 }
 

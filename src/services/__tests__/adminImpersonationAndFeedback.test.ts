@@ -85,7 +85,12 @@ function createInMemoryTestStore(adminConfig: {
       return newsletterLogs;
     },
     async recordNewsletterLog(entry: any) {
-      newsletterLogs.unshift(entry);
+      const idx = newsletterLogs.findIndex((item) => item.id === entry.id);
+      if (idx >= 0) {
+        newsletterLogs[idx] = { ...newsletterLogs[idx], ...entry };
+      } else {
+        newsletterLogs.unshift(entry);
+      }
       return entry;
     },
   };
@@ -374,7 +379,7 @@ describe('Administrator user impersonation & trader feedback system', () => {
     expect(adminViewUser.platformMemberDurationSeconds).toBeGreaterThan(0);
   });
 
-  it('personalizes motivational trader newsletters, requires administrator approval before scheduling/sending, and supports daily then every-second-day scheduling', async () => {
+  it('personalizes 3-to-5-step trader playbooks without Personal Trader Snapshot or Day 1 labels, supports bulk & 2-3+ day inactive sends, and tracks email opens/clicks', async () => {
     expect(DEFAULT_NEWSLETTER_TEMPLATES.length).toBeGreaterThanOrEqual(8);
 
     const sampleRecipient = {
@@ -390,11 +395,25 @@ describe('Administrator user impersonation & trader feedback system', () => {
     const personalized = buildPersonalizedNewsletterEmail({
       newsletter: DEFAULT_NEWSLETTER_TEMPLATES[0],
       recipient: sampleRecipient,
+      trackingId: 'nl-log-test-123',
     });
     expect(personalized.subject).toContain('Sipho');
+    expect(personalized.subject).toContain('5 Steps How to Pass a Prop Firm');
     expect(personalized.headline).toContain('Sipho');
+    expect(personalized.badgeText).not.toMatch(/Day\s+\d+/i);
+    expect(personalized.badgeText).not.toContain('Daily Trader Motivation');
     expect(personalized.html).toContain('London Breakout Plan');
-    expect(personalized.html).toContain('Personal Trader Snapshot · Sipho Ndlovu');
+    expect(personalized.html).toContain('5-Step Trader Playbook');
+    expect(personalized.html).toContain('background-color:#ffffff');
+    expect(personalized.html).toContain('Cheslin from Chart Replay');
+    expect(personalized.html).not.toContain('Personal Trader Snapshot');
+    expect(personalized.text).not.toContain('Personal Trader Snapshot');
+    expect(personalized.introParagraphs.length).toBeGreaterThanOrEqual(2);
+    expect(personalized.introParagraphs.join(' ')).not.toContain('1. Protect Your Daily Drawdown');
+    expect(personalized.steps).toHaveLength(5);
+    expect(personalized.openTrackingUrl).toContain('action=newsletter-open');
+    expect(personalized.openTrackingUrl).toContain('nl-log-test-123');
+    expect(personalized.clickTrackingUrl).toContain('action=newsletter-click');
 
     const adminConfig = {
       email: 'admin@chartreplay.co.za',
@@ -431,7 +450,7 @@ describe('Administrator user impersonation & trader feedback system', () => {
     });
     expect(unapprovedSchedule.status).toBe(400);
 
-    // 3. Administrator approves Day 1 newsletter
+    // 3. Administrator approves playbook newsletter
     const approveRes = await callHandler(handler, {
       method: 'POST',
       action: 'approve-newsletter',
@@ -442,7 +461,7 @@ describe('Administrator user impersonation & trader feedback system', () => {
     expect(approveRes.data.newsletter.approved).toBe(true);
     expect(approveRes.data.newsletter.approvedBy).toBe('admin@chartreplay.co.za');
 
-    // 4. Administrator schedules approved Day 1 newsletter
+    // 4. Administrator schedules approved playbook newsletter
     const scheduleRes = await callHandler(handler, {
       method: 'POST',
       action: 'schedule-newsletter',
@@ -458,7 +477,7 @@ describe('Administrator user impersonation & trader feedback system', () => {
     expect(scheduleRes.data.newsletter.status).toBe('scheduled');
     expect(scheduleRes.data.newsletter.scheduledFor).toBe('2026-11-05T07:00:00.000Z');
 
-    // 5. Administrator schedules full series (Daily in beginning Days 1-5, then Every 2nd Day)
+    // 5. Administrator schedules full series
     const seriesRes = await callHandler(handler, {
       method: 'POST',
       action: 'schedule-newsletter-series',
@@ -476,13 +495,15 @@ describe('Administrator user impersonation & trader feedback system', () => {
     expect(scheduledList[0].cadence).toBe('daily');
     expect(scheduledList[5].cadence).toBe('every_second_day');
 
-    // 6. Administrator sends an approved newsletter immediately
+    // 6. Administrator sends a bulk or comeback newsletter and tracks opens
     const sendRes = await callHandler(handler, {
       method: 'POST',
       action: 'send-newsletter',
       cookie: adminCookie,
       body: {
         id: 'newsletter-day-1',
+        targetAudience: 'inactive_2_3_days',
+        isBulk: true,
       },
     });
     expect(sendRes.status).toBe(200);
@@ -490,5 +511,47 @@ describe('Administrator user impersonation & trader feedback system', () => {
     expect(sendRes.data.results).toHaveLength(1);
     expect(sendRes.data.results[0].email).toBe('sipho@example.com');
     expect(sendRes.data.results[0].subject).toContain('Sipho');
+    const dispatchedLogId = sendRes.data.results[0].logId;
+    expect(dispatchedLogId).toBeTruthy();
+
+    // 7. Simulate recipient opening the email via tracking pixel
+    const openReq: any = {
+      method: 'GET',
+      url: `/api/platform?action=newsletter-open&logId=${encodeURIComponent(dispatchedLogId)}&email=sipho%40example.com`,
+      headers: { host: 'localhost:3007' },
+      socket: { remoteAddress: '127.0.0.1' },
+    };
+    let openStatus = 200;
+    const openHeaders: Record<string, string> = {};
+    const openResObj: any = {
+      setHeader(k: string, v: string) {
+        openHeaders[k.toLowerCase()] = v;
+      },
+      get statusCode() {
+        return openStatus;
+      },
+      set statusCode(val: number) {
+        openStatus = val;
+      },
+      end() {},
+    };
+    await handler(openReq, openResObj);
+    expect(openStatus).toBe(200);
+    expect(openHeaders['content-type']).toBe('image/gif');
+
+    // 8. Verify Admin Dashboard sees who opened the email
+    const afterOpenRes = await callHandler(handler, {
+      method: 'GET',
+      action: 'newsletters',
+      cookie: adminCookie,
+    });
+    expect(afterOpenRes.status).toBe(200);
+    const trackedLog = afterOpenRes.data.logs.find(
+      (l: any) => l.id === dispatchedLogId
+    );
+    expect(trackedLog).toBeTruthy();
+    expect(trackedLog.opened).toBe(true);
+    expect(trackedLog.openCount).toBe(1);
+    expect(trackedLog.openedAt).toBeTruthy();
   });
 });

@@ -530,6 +530,7 @@ export type NewsletterCadence =
 
 export type NewsletterTargetAudience =
   | 'all'
+  | 'inactive_2_3_days'
   | 'active'
   | 'new_starters'
   | 'selected';
@@ -544,11 +545,13 @@ export interface NewsletterEditionItem {
   id: string;
   dayNumber: number;
   cadence: NewsletterCadence;
+  category?: string;
   phaseLabel: string;
   badgeText: string;
   subject: string;
   headline: string;
   bodyText: string;
+  steps?: NewsletterStepItem[];
   actionTip: string;
   ctaText: string;
   status: NewsletterStatus;
@@ -567,12 +570,23 @@ export interface NewsletterDeliveryLogItem {
   id: string;
   newsletterId: string;
   dayNumber: number;
+  badgeText?: string;
+  category?: string;
   subject: string;
   userEmail: string;
   userName: string;
   sentBy: string;
   deliveryStatus: string;
   sentAt: string;
+  isBulk?: boolean;
+  resendEmailId?: string | null;
+  opened?: boolean;
+  openedAt?: string | null;
+  firstOpenedAt?: string | null;
+  openCount?: number;
+  clicked?: boolean;
+  clickedAt?: string | null;
+  clickCount?: number;
 }
 
 export const DEFAULT_CLIENT_NEWSLETTER_TEMPLATES: NewsletterEditionItem[] = [
@@ -580,15 +594,23 @@ export const DEFAULT_CLIENT_NEWSLETTER_TEMPLATES: NewsletterEditionItem[] = [
     id: 'newsletter-day-1',
     dayNumber: 1,
     cadence: 'daily',
-    phaseLabel: 'Beginning · Daily Habit (Day 1)',
-    badgeText: 'Day 1 · Daily Trader Motivation',
-    subject: 'Hi {{firstName}} — Welcome to the 1% Club: Process Over Profits Today',
-    headline: 'Hi {{firstName}}, every professional trader started with one disciplined routine.',
+    category: 'Prop Firm Playbook',
+    phaseLabel: 'Prop Firm Playbook · 5 Steps',
+    badgeText: 'Prop Firm Playbook · 5 Steps',
+    subject: 'Hi {{firstName}} — 5 Steps How to Pass a Prop Firm Challenge Without Stress',
+    headline: '5 Steps to Pass Your Next Prop Firm Evaluation With Calm Precision, {{firstName}}.',
     bodyText:
-      'Most retail traders wake up looking for quick money. Professional traders wake up looking for clean execution of their edge.\n\nOn Chart Replay, your goal today is not to predict every candle — it is to follow {{tradingPlanName}} with 100% discipline. You currently have {{sessionCount}} practice sessions and {{tradeCount}} logged trades on the platform. Every bar you step through builds the pattern recognition that separates calm professionals from emotional gamblers.',
+      'Traders fail prop firm challenges because they try to pass in two days. Funded professionals pass because they treat the evaluation like a structured checklist.\n\n1. Lock In Your Daily Risk Cap (0.5% to 1% Max): Decide your exact risk per trade before the session opens so a single stop-out never threatens your daily drawdown limit.\n2. Trade Only One Liquidity Window: Focus exclusively on London Open or New York Open on XAU/USD, NAS100, or EUR/USD instead of chasing choppy mid-day candles.\n3. Require 3 Checklist Confluences Before Clicking: Pin {{tradingPlanName}} onto your chart and demand structure, liquidity sweep, and clean session timing before entering.\n4. Protect Your Mental Capital After Any Trade: Whether the trade hits +2R or -1R, pause for 60 seconds and log why you took the setup before looking for another candle.\n5. Stop at 2 Wins or 2 Losses Per Session: Consistency beats home runs — bank your progress inside the Prop Firm Simulator and return fresh tomorrow.',
+    steps: [
+      'Lock In Your Daily Risk Cap (0.5% to 1% Max): Decide your exact risk per trade before the session opens so a single stop-out never threatens your daily drawdown limit.',
+      'Trade Only One Liquidity Window: Focus exclusively on London Open or New York Open on XAU/USD, NAS100, or EUR/USD instead of chasing choppy mid-day candles.',
+      'Require 3 Checklist Confluences Before Clicking: Pin {{tradingPlanName}} onto your chart and demand structure, liquidity sweep, and clean session timing before entering.',
+      'Protect Your Mental Capital After Any Trade: Whether the trade hits +2R or -1R, pause for 60 seconds and log why you took the setup before looking for another candle.',
+      'Stop at 2 Wins or 2 Losses Per Session: Consistency beats home runs — bank your progress inside the Prop Firm Simulator and return fresh tomorrow.',
+    ],
     actionTip:
-      'Open one replay session today, pin your trading plan on the chart, and take only 1 to 2 A+ setups where every single rule on your checklist is met.',
-    ctaText: 'Start Today’s Replay Session →',
+      'Open a Prop Firm Challenge session on Chart Replay today and execute 3 textbook trades following these 5 steps with zero drawdown violations.',
+    ctaText: 'Open Prop Firm Simulator →',
     status: 'pending_approval',
     approved: false,
     approvedBy: null,
@@ -603,15 +625,23 @@ export const DEFAULT_CLIENT_NEWSLETTER_TEMPLATES: NewsletterEditionItem[] = [
     id: 'newsletter-day-2',
     dayNumber: 2,
     cadence: 'daily',
-    phaseLabel: 'Beginning · Daily Habit (Day 2)',
-    badgeText: 'Day 2 · Daily Trader Motivation',
-    subject: '{{firstName}}, your Trading Plan is your business plan — never trade without it',
-    headline: 'Treat your trading like a high-performance business, {{firstName}}.',
+    category: 'Trading Psychology',
+    phaseLabel: 'Trading Psychology · 5 Steps',
+    badgeText: 'Trading Psychology · 5 Steps',
+    subject: 'Hi {{firstName}} — 5 Steps to Eliminate Revenge Trading Before the Next Candle Closes',
+    headline: 'Your response to a red trade defines your trading career, {{firstName}}.',
     bodyText:
-      'Amateur traders improvise while price is moving. Professional traders decide what they will do before the session even opens.\n\nWhen you have {{tradingPlanName}} visible right on your chart, hesitation disappears. Either price gives you your exact setup at your key level, or you protect your capital by staying flat. Both are winning decisions.',
+      'A loss that followed {{tradingPlanName}} is still a good trade — it is simply the cost of doing business in probability. The account killer is never the first loss; it is the emotional revenge trade taken two minutes later.\n\n1. Accept the -1R Before You Enter: Size your position with the Order Ticket calculator so if price hits your stop-loss, you feel zero emotional shock.\n2. Hands Off the Mouse for 60 Seconds: The moment a stop-loss triggers, pause the chart replay and take a breath before advancing the next bar.\n3. Grade Rule Execution, Not Outcome: Ask yourself one question — did this trade follow {{tradingPlanName}}? If yes, log it as a disciplined execution.\n4. Never Double Lot Size to "Make It Back": Keep your next trade at the exact same risk percentage or cut risk in half until your rhythm returns.\n5. Demand a Fresh Structural Setup: Wait for price to form a brand-new session high/low sweep before taking another entry.',
+    steps: [
+      'Accept the -1R Before You Enter: Size your position with the Order Ticket calculator so if price hits your stop-loss, you feel zero emotional shock.',
+      'Hands Off the Mouse for 60 Seconds: The moment a stop-loss triggers, pause the chart replay and take a breath before advancing the next bar.',
+      'Grade Rule Execution, Not Outcome: Ask yourself one question — did this trade follow {{tradingPlanName}}? If yes, log it as a disciplined execution.',
+      'Never Double Lot Size to "Make It Back": Keep your next trade at the exact same risk percentage or cut risk in half until your rhythm returns.',
+      'Demand a Fresh Structural Setup: Wait for price to form a brand-new session high/low sweep before taking another entry.',
+    ],
     actionTip:
-      'Before clicking Buy or Sell today, read your sticky trading plan out loud. If the candle does not match your rules, step forward one bar and wait.',
-    ctaText: 'Review My Trading Plan & Practice →',
+      'Make a personal rule today: after any losing trade in replay, pause for 30 seconds, verify higher-timeframe structure, and never increase risk on the next trade.',
+    ctaText: 'Practice Emotional Discipline →',
     status: 'pending_approval',
     approved: false,
     approvedBy: null,
@@ -626,21 +656,27 @@ export const DEFAULT_CLIENT_NEWSLETTER_TEMPLATES: NewsletterEditionItem[] = [
     id: 'newsletter-day-3',
     dayNumber: 3,
     cadence: 'daily',
-    phaseLabel: 'Beginning · Daily Habit (Day 3)',
-    badgeText: 'Day 3 · Daily Trader Motivation',
-    subject: 'Patience is a position, {{firstName}} — waiting for the A+ setup',
-    headline: 'Hi {{firstName}}, sitting on your hands is how institutions make their edge.',
+    category: 'Comeback Motivation (2–3+ Days Inactive)',
+    phaseLabel: 'We Missed You · 3 Steps to Return',
+    badgeText: 'Comeback Playbook · 3 Steps',
+    subject: 'Hi {{firstName}} — We missed you on Chart Replay! 3 steps to get back in rhythm',
+    headline: 'It only takes 15 focused minutes to sharpen your edge again, {{firstName}}.',
     bodyText:
-      'One of the hardest transitions in becoming a consistently profitable trader is realizing that 80% of market noise is not meant for you.\n\nYou have been on Chart Replay for {{daysOnPlatform}} and logged {{tradeCount}} trades across {{sessionCount}} sessions. Use the bar-by-bar fast-forward tool to skip choppy consolidation and train your eyes to strike only when liquidity and structure align.',
+      'Stepping away from the charts for a couple of days happens to every trader — what matters is how cleanly you step back into your routine without forcing trades.\n\n1. Open a 15-Minute Warm-Up Replay: Pick your favorite instrument (Gold XAU/USD, NAS100, or GBP/USD) and step through 20 bars just reading market structure.\n2. Pin Your Trading Plan on the Chart: Review {{tradingPlanName}} before placing a single order so your eyes know the exact A+ setup to look for.\n3. Take Just 1 High-Conviction Setup: Execute one textbook trade with a pre-set stop-loss and take-profit to rebuild momentum effortlessly.',
+    steps: [
+      'Open a 15-Minute Warm-Up Replay: Pick your favorite instrument (Gold XAU/USD, NAS100, or GBP/USD) and step through 20 bars just reading market structure.',
+      'Pin Your Trading Plan on the Chart: Review {{tradingPlanName}} before placing a single order so your eyes know the exact A+ setup to look for.',
+      'Take Just 1 High-Conviction Setup: Execute one textbook trade with a pre-set stop-loss and take-profit to rebuild momentum effortlessly.',
+    ],
     actionTip:
-      'Practice skipping at least 20 candles of sideways chop in your replay session today until a clean London or New York session setup forms.',
-    ctaText: 'Practice Patience on the Chart →',
+      'Jump back into Chart Replay for just 15 minutes today and complete one clean warm-up trade following your plan.',
+    ctaText: 'Resume My Practice Session →',
     status: 'pending_approval',
     approved: false,
     approvedBy: null,
     approvedAt: null,
     scheduledFor: null,
-    targetAudience: 'all',
+    targetAudience: 'inactive_2_3_days',
     selectedRecipients: [],
     sentAt: null,
     sentCount: 0,
@@ -649,15 +685,23 @@ export const DEFAULT_CLIENT_NEWSLETTER_TEMPLATES: NewsletterEditionItem[] = [
     id: 'newsletter-day-4',
     dayNumber: 4,
     cadence: 'daily',
-    phaseLabel: 'Beginning · Daily Habit (Day 4)',
-    badgeText: 'Day 4 · Daily Trader Motivation',
-    subject: '{{firstName}}, protect your drawdown first — profits take care of themselves',
-    headline: 'Risk management is the oxygen of a professional trader, {{firstName}}.',
+    category: 'Institutional Patience',
+    phaseLabel: 'Execution & Edge · 5 Steps',
+    badgeText: 'Execution & Edge · 5 Steps',
+    subject: 'Hi {{firstName}} — 5 Steps to Stop Overtrading and Wait for Your A+ Setup',
+    headline: 'Sitting on your hands is how institutions build their edge, {{firstName}}.',
     bodyText:
-      'Any trader can hit a lucky winning streak, but only professionals keep their gains when the market shifts. Whether you are trading a Prop Firm evaluation or building your personal track record, surviving a losing trade with a controlled 0.5% to 1% risk keeps you in control.\n\nWhen your stop-loss is respected without emotion, no single trade can ever shake your confidence.',
+      '80% of market movement is low-probability consolidation. The fastest way to grow your win rate is learning how to skip the chop and strike only when liquidity and structure align.\n\n1. Mark Higher-Timeframe Liquidity First: Before stepping forward on the 5m or 15m chart, mark the previous day high/low and session key levels on the 1H/4H chart.\n2. Fast-Forward Through Asian & Mid-Day Chop: Use the bar-by-bar forward button on Chart Replay to skip sideways ranges where spreads and fakeouts trap impatient traders.\n3. Wait for the Liquidity Sweep + Displacement: Let price raid an obvious high or low and close back inside structure before preparing your order ticket.\n4. Verify Minimum 1:2 Risk-to-Reward: If the next opposing liquidity pool does not offer at least 2R of clean room, pass on the trade.\n5. Log Every Trade You Filtered Out: Celebrating the bad trades you skipped builds institutional patience faster than anything else.',
+    steps: [
+      'Mark Higher-Timeframe Liquidity First: Before stepping forward on the 5m or 15m chart, mark the previous day high/low and session key levels on the 1H/4H chart.',
+      'Fast-Forward Through Asian & Mid-Day Chop: Use the bar-by-bar forward button on Chart Replay to skip sideways ranges where spreads and fakeouts trap impatient traders.',
+      'Wait for the Liquidity Sweep + Displacement: Let price raid an obvious high or low and close back inside structure before preparing your order ticket.',
+      'Verify Minimum 1:2 Risk-to-Reward: If the next opposing liquidity pool does not offer at least 2R of clean room, pass on the trade.',
+      'Log Every Trade You Filtered Out: Celebrating the bad trades you skipped builds institutional patience faster than anything else.',
+    ],
     actionTip:
-      'Use the Order Ticket calculator on Chart Replay to size your position strictly by risk percentage before entering your next trade.',
-    ctaText: 'Practice Strict Risk Sizing →',
+      'Practice skipping at least 20 candles of sideways chop in your replay session today until a clean London or New York setup forms.',
+    ctaText: 'Practice Patience on the Chart →',
     status: 'pending_approval',
     approved: false,
     approvedBy: null,
@@ -672,14 +716,21 @@ export const DEFAULT_CLIENT_NEWSLETTER_TEMPLATES: NewsletterEditionItem[] = [
     id: 'newsletter-day-5',
     dayNumber: 5,
     cadence: 'daily',
-    phaseLabel: 'Beginning · Daily Habit (Day 5)',
-    badgeText: 'Day 5 · Daily Trader Motivation',
-    subject: 'Hi {{firstName}} — Stop trading money, start trading R-Multiples',
-    headline: 'Detach from the currency value and master execution quality, {{firstName}}.',
+    category: 'Risk & R-Multiples',
+    phaseLabel: 'Risk Management · 4 Steps',
+    badgeText: 'Risk Management · 4 Steps',
+    subject: 'Hi {{firstName}} — 4 Steps to Detach From Money and Trade in R-Multiples',
+    headline: 'Master execution quality by thinking in Risk Units (R), {{firstName}}.',
     bodyText:
-      'When you stare at dollar or rand fluctuations while a trade is open, fear makes you close winners too early and hope makes you hold losers too long.\n\nProfessional traders measure everything in R-Multiples (Risk Units). A well-executed 1:2.5 R trade on {{tradingPlanName}} is the exact same skill whether you are risking $50 or $5,000.',
+      'When you stare at currency fluctuations while a trade is open, fear makes you close winners at +0.4R and hope makes you hold losers past your stop-loss.\n\n1. Define 1R Before Clicking Buy or Sell: Use the Chart Replay Order Ticket to lock in a fixed risk percentage so every trade carries identical weight.\n2. Place Stop-Loss at Structural Invalidation: Set your stop where your trade idea is objectively wrong — never widen it once price starts moving.\n3. Let Winners Run to Pre-Planned Targets: Allow the bars to play out to your +2R or +3R target without panic-closing on the first pullback candle.\n4. Measure Weekly Progress in Net R: A +5R week following {{tradingPlanName}} is the exact same skill whether 1R equals $25 or $2,500.',
+    steps: [
+      'Define 1R Before Clicking Buy or Sell: Use the Chart Replay Order Ticket to lock in a fixed risk percentage so every trade carries identical weight.',
+      'Place Stop-Loss at Structural Invalidation: Set your stop where your trade idea is objectively wrong — never widen it once price starts moving.',
+      'Let Winners Run to Pre-Planned Targets: Allow the bars to play out to your +2R or +3R target without panic-closing on the first pullback candle.',
+      'Measure Weekly Progress in Net R: A +5R week following {{tradingPlanName}} is the exact same skill whether 1R equals $25 or $2,500.',
+    ],
     actionTip:
-      'Set your stop-loss and take-profit before entering, then let the bars play out to either +R or -1R without moving your stop-loss.',
+      'Set your stop-loss and take-profit before entering today, then let the candles play out to either +R or -1R without touching your stop.',
     ctaText: 'Build R-Multiple Consistency →',
     status: 'pending_approval',
     approved: false,
@@ -693,14 +744,53 @@ export const DEFAULT_CLIENT_NEWSLETTER_TEMPLATES: NewsletterEditionItem[] = [
   },
   {
     id: 'newsletter-day-7',
+    dayNumber: 6,
+    cadence: 'every_second_day',
+    category: 'Trading Plan Mastery',
+    phaseLabel: 'Trading Playbook · 5 Steps',
+    badgeText: 'Trading Playbook · 5 Steps',
+    subject: '{{firstName}}, 5 Steps to Treat Your Trading Plan Like a High-Performance Business',
+    headline: 'Amateur traders improvise while price moves — professionals execute a written checklist, {{firstName}}.',
+    bodyText:
+      'When you have {{tradingPlanName}} visible right on your chart, hesitation disappears. Either price gives you your exact setup at your key level, or you stay flat.\n\n1. Pin Your Sticky Trading Plan on the Chart: Keep your core entry rules visible on screen during every replay session.\n2. Define Your Exact Session & Pair Focus: Stick to 1 or 2 markets you know intimately instead of jumping across 10 random pairs.\n3. Check Off Every Entry Criterion Out Loud: Confirm trend direction, key level reaction, and stop-loss placement before submitting your order.\n4. Screenshot or Journal Your Entry Reason: Write one clear sentence explaining why the setup qualified under your rules.\n5. Review Your Session Equity & Rule Score: End your session by checking whether you followed 100% of your plan regardless of win or loss.',
+    steps: [
+      'Pin Your Sticky Trading Plan on the Chart: Keep your core entry rules visible on screen during every replay session.',
+      'Define Your Exact Session & Pair Focus: Stick to 1 or 2 markets you know intimately instead of jumping across 10 random pairs.',
+      'Check Off Every Entry Criterion Out Loud: Confirm trend direction, key level reaction, and stop-loss placement before submitting your order.',
+      'Screenshot or Journal Your Entry Reason: Write one clear sentence explaining why the setup qualified under your rules.',
+      'Review Your Session Equity & Rule Score: End your session by checking whether you followed 100% of your plan regardless of win or loss.',
+    ],
+    actionTip:
+      'Before clicking Buy or Sell today, read your sticky trading plan checklist. If the candle does not match your rules, step forward one bar and wait.',
+    ctaText: 'Review My Trading Plan & Practice →',
+    status: 'pending_approval',
+    approved: false,
+    approvedBy: null,
+    approvedAt: null,
+    scheduledFor: null,
+    targetAudience: 'all',
+    selectedRecipients: [],
+    sentAt: null,
+    sentCount: 0,
+  },
+  {
+    id: 'newsletter-day-9',
     dayNumber: 7,
     cadence: 'every_second_day',
-    phaseLabel: 'Every 2nd Day · Pro Progression (Day 7)',
-    badgeText: 'Day 7 · Every 2nd Day Coaching',
-    subject: '{{firstName}}, how to compress 6 months of market experience into one week',
-    headline: 'Deliberate practice is your unfair advantage, {{firstName}}.',
+    category: 'Accelerated Backtesting',
+    phaseLabel: 'Deliberate Practice · 5 Steps',
+    badgeText: 'Deliberate Practice · 5 Steps',
+    subject: '{{firstName}}, 5 Steps to Compress 6 Months of Market Experience Into One Week',
+    headline: 'Deliberate practice on Chart Replay is your unfair advantage, {{firstName}}.',
     bodyText:
-      'Waiting for live candles takes months to see 50 examples of your setup. On Chart Replay, you can step through 50 setups in a single weekend.\n\nWith {{sessionCount}} sessions and {{tradeCount}} trades under your belt so far, every session you complete sharpens your intuition on Gold (XAU/USD), NAS100, and Forex majors.',
+      'Waiting for live candles takes months to see 50 examples of your setup. On Chart Replay, you can step through 50 high-quality setups in a single week and build unshakable pattern recognition.\n\n1. Choose One Setup to Master This Week: Focus on a single repeatable pattern (such as a London sweep & break of structure on XAU/USD).\n2. Run a Focused 20-Minute Replay Block: Eliminate distractions and step candle-by-candle through historical price action.\n3. Execute With Real Position Sizing: Always calculate exact lot sizes so your muscle memory matches live market execution.\n4. Track Win Rate and Average R-Multiple: Let the platform analytics show you objectively where your edge is strongest.\n5. Refine One Rule at a Time: Use your replay data to tighten your stop placement or take-profit targets with statistical confidence.',
+    steps: [
+      'Choose One Setup to Master This Week: Focus on a single repeatable pattern (such as a London sweep & break of structure on XAU/USD).',
+      'Run a Focused 20-Minute Replay Block: Eliminate distractions and step candle-by-candle through historical price action.',
+      'Execute With Real Position Sizing: Always calculate exact lot sizes so your muscle memory matches live market execution.',
+      'Track Win Rate and Average R-Multiple: Let the platform analytics show you objectively where your edge is strongest.',
+      'Refine One Rule at a Time: Use your replay data to tighten your stop placement or take-profit targets with statistical confidence.',
+    ],
     actionTip:
       'Run a focused 15-minute replay session on your favorite pair today and log a short note on why you entered each trade.',
     ctaText: 'Launch a Backtest Session →',
@@ -715,41 +805,24 @@ export const DEFAULT_CLIENT_NEWSLETTER_TEMPLATES: NewsletterEditionItem[] = [
     sentCount: 0,
   },
   {
-    id: 'newsletter-day-9',
-    dayNumber: 9,
-    cadence: 'every_second_day',
-    phaseLabel: 'Every 2nd Day · Pro Progression (Day 9)',
-    badgeText: 'Day 9 · Every 2nd Day Coaching',
-    subject: 'Hi {{firstName}} — Eliminating revenge trading before the next candle closes',
-    headline: 'Your response to a red trade defines your career, {{firstName}}.',
-    bodyText:
-      'A loss that followed {{tradingPlanName}} is a good trade — it is simply the cost of doing business in probability. The danger is never the first loss; it is the impulsive revenge trade taken two minutes later to "make it back."\n\nUse Coach Michael and your mindset check-ins on Chart Replay to pause after any loss.',
-    actionTip:
-      'Make a personal rule today: after any losing trade, pause the replay for 30 seconds, take a breath, and verify market structure before looking for another entry.',
-    ctaText: 'Practice Emotional Discipline →',
-    status: 'pending_approval',
-    approved: false,
-    approvedBy: null,
-    approvedAt: null,
-    scheduledFor: null,
-    targetAudience: 'all',
-    selectedRecipients: [],
-    sentAt: null,
-    sentCount: 0,
-  },
-  {
     id: 'newsletter-day-11',
-    dayNumber: 11,
+    dayNumber: 8,
     cadence: 'every_second_day',
-    phaseLabel: 'Every 2nd Day · Pro Progression (Day 11)',
-    badgeText: 'Day 11 · Every 2nd Day Coaching',
-    subject: '{{firstName}}, the secret to passing Prop Firm Challenges without stress',
-    headline: 'Consistency beats home runs in every prop evaluation, {{firstName}}.',
+    category: 'Bulk Broadcast / Custom Playbook',
+    phaseLabel: 'Community Broadcast · 3 Steps',
+    badgeText: 'Trader Momentum · 3 Steps',
+    subject: 'Hi {{firstName}} — 3 Quick Steps to Sharpen Your Chart Execution Today',
+    headline: 'Small daily improvements compound into funded consistency, {{firstName}}.',
     bodyText:
-      'Traders fail prop firm challenges because they try to pass in two days. Funded professionals pass because they aim for steady base hits while keeping their daily drawdown untouched.\n\nBy practicing inside the Chart Replay Prop Firm Simulator, you train yourself to respect daily loss limits automatically.',
+      'Every time you step onto the chart with a clear checklist, you separate yourself from the 90% of traders who trade on impulse.\n\n1. Map Your Key Session Levels Before Pressing Play: Identify where stops are resting above highs and below lows before advancing the candles.\n2. Wait for Your Exact Trigger Candle: Let the market come to your price level and confirm direction before risking capital.\n3. Protect Your Risk and Log the Outcome: Keep risk strictly capped at 1% and review your execution inside Chart Replay.',
+    steps: [
+      'Map Your Key Session Levels Before Pressing Play: Identify where stops are resting above highs and below lows before advancing the candles.',
+      'Wait for Your Exact Trigger Candle: Let the market come to your price level and confirm direction before risking capital.',
+      'Protect Your Risk and Log the Outcome: Keep risk strictly capped at 1% and review your execution inside Chart Replay.',
+    ],
     actionTip:
-      'Open or continue a Prop Firm Challenge session on Chart Replay and aim for 3 textbook trades with zero drawdown rule violations.',
-    ctaText: 'Open Prop Firm Simulator →',
+      'Take 15 minutes on Chart Replay today to practice these 3 steps on Gold (XAU/USD), NAS100, or your favorite forex pair.',
+    ctaText: 'Start Replay Session Now →',
     status: 'pending_approval',
     approved: false,
     approvedBy: null,
@@ -761,6 +834,110 @@ export const DEFAULT_CLIENT_NEWSLETTER_TEMPLATES: NewsletterEditionItem[] = [
     sentCount: 0,
   },
 ];
+
+export function stripClientLegacyDayPrefix(text: string): string {
+  const cleaned = String(text ?? '')
+    .replace(/^Day\s+\d+\s*[·•\-:|]\s*/i, '')
+    .replace(/\(Day\s+\d+\)/gi, '')
+    .replace(/Daily\s+Trader\s+Motivation/gi, 'Trader Playbook')
+    .replace(/Every\s+2nd\s+Day\s+Coaching/gi, 'Trader Playbook')
+    .trim();
+  return cleaned || 'Trader Playbook';
+}
+
+export type NewsletterStepItem = string | { title?: string; description?: string };
+
+export function extractClientNewsletterStepsAndIntro(
+  bodyText: string,
+  explicitSteps?: NewsletterStepItem[]
+): { introParagraphs: string[]; steps: string[] } {
+  const normalizedBody = String(bodyText ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/([.!?"]\s*)((?:Step\s*)?1[.):]\s+[A-Z])/g, '$1\n\n$2')
+    .replace(/([.!?"]\s*)((?:Step\s*)?[2-9][.):]\s+[A-Z])/g, '$1\n$2');
+
+  const lines = normalizedBody.split(/\n/);
+  const parsedSteps: string[] = [];
+  const introLines: string[] = [];
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const stepMatch = trimmed.match(/^(?:Step\s*\d+[:.)\-]|\d+[.):\-])\s+(.+)$/i);
+    if (stepMatch) {
+      parsedSteps.push(stepMatch[1].trim());
+    } else {
+      introLines.push(rawLine);
+    }
+  }
+
+  const rawIntroBlocks = introLines
+    .join('\n')
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const introParagraphs: string[] = [];
+  for (const block of rawIntroBlocks) {
+    const sentences = block.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g);
+    if (rawIntroBlocks.length === 1 && sentences && sentences.length >= 2) {
+      const firstSentence = sentences[0].trim();
+      const restSentences = sentences.slice(1).join(' ').trim();
+      if (firstSentence) introParagraphs.push(firstSentence);
+      if (restSentences) introParagraphs.push(restSentences);
+    } else {
+      introParagraphs.push(block);
+    }
+  }
+
+  const normalizedExplicit = Array.isArray(explicitSteps)
+    ? explicitSteps
+        .map((s) => {
+          if (typeof s === 'string') return s.trim();
+          if (s && typeof s === 'object') {
+            const t = String(s.title || '').trim();
+            const d = String(s.description || '').trim();
+            return t && d ? `${t}: ${d}` : t || d;
+          }
+          return '';
+        })
+        .filter(Boolean)
+    : [];
+
+  const finalSteps = parsedSteps.length > 0 ? parsedSteps : normalizedExplicit;
+
+  return {
+    introParagraphs,
+    steps: finalSteps,
+  };
+}
+
+export function getTraderDaysSinceActive(
+  user: Partial<AdminUser> | null | undefined,
+  nowMs = Date.now()
+): number {
+  const lastSeenMs = user?.lastSeenAt ? Date.parse(user.lastSeenAt) : NaN;
+  const lastLoginMs = user?.lastLoginAt ? Date.parse(user.lastLoginAt) : NaN;
+  const joinedMs = user?.joinedAt ? Date.parse(user.joinedAt) : NaN;
+  const latestActivityMs = [lastSeenMs, lastLoginMs, joinedMs]
+    .filter((ms) => Number.isFinite(ms))
+    .reduce((max, ms) => Math.max(max, ms), 0);
+  if (!latestActivityMs) return 3;
+  return Math.max(0, Math.floor((nowMs - latestActivityMs) / 86400000));
+}
+
+export function isTraderInactive2To3PlusDays(
+  user: Partial<AdminUser> | null | undefined,
+  nowMs = Date.now()
+): boolean {
+  const lastSeenMs = user?.lastSeenAt ? Date.parse(user.lastSeenAt) : NaN;
+  const lastLoginMs = user?.lastLoginAt ? Date.parse(user.lastLoginAt) : NaN;
+  const joinedMs = user?.joinedAt ? Date.parse(user.joinedAt) : NaN;
+  const latestActivityMs = [lastSeenMs, lastLoginMs, joinedMs]
+    .filter((ms) => Number.isFinite(ms))
+    .reduce((max, ms) => Math.max(max, ms), 0);
+  if (!latestActivityMs) return true;
+  return nowMs - latestActivityMs >= 2 * 86400000;
+}
 
 export function formatPlatformDurationLabel(seconds: number | null | undefined): string {
   const sec = Math.max(0, Math.round(Number(seconds || 0)));
@@ -813,15 +990,78 @@ export function personalizeClientNewsletterText(
 let previewNewslettersState: NewsletterEditionItem[] = DEFAULT_CLIENT_NEWSLETTER_TEMPLATES.map(
   (item, idx) => ({
     ...item,
-    approved: idx < 2,
-    approvedBy: idx < 2 ? 'admin@chartreplay.co.za' : null,
-    approvedAt: idx < 2 ? new Date(Date.now() - 3600000 * 4).toISOString() : null,
-    status: idx === 0 ? 'scheduled' : idx === 1 ? 'approved' : 'pending_approval',
+    approved: idx < 3,
+    approvedBy: idx < 3 ? 'admin@chartreplay.co.za' : null,
+    approvedAt: idx < 3 ? new Date(Date.now() - 3600000 * 4).toISOString() : null,
+    status: idx === 0 ? 'sent' : idx === 1 ? 'scheduled' : idx === 2 ? 'approved' : 'pending_approval',
+    sentAt: idx === 0 ? new Date(Date.now() - 3600000 * 6).toISOString() : null,
+    sentCount: idx === 0 ? 3 : 0,
     scheduledFor:
-      idx === 0 ? new Date(Date.now() + 3600000 * 12).toISOString() : null,
+      idx === 1 ? new Date(Date.now() + 3600000 * 12).toISOString() : null,
   })
 );
-let previewNewsletterLogsState: NewsletterDeliveryLogItem[] = [];
+let previewNewsletterLogsState: NewsletterDeliveryLogItem[] = [
+  {
+    id: 'preview-nl-log-seed-1',
+    newsletterId: 'newsletter-day-1',
+    dayNumber: 1,
+    badgeText: 'Prop Firm Playbook · 5 Steps',
+    category: 'Prop Firm Playbook',
+    subject: 'Hi Lerato — 5 Steps How to Pass a Prop Firm Challenge Without Stress',
+    userEmail: 'lerato@example.com',
+    userName: 'Lerato Mokoena',
+    sentBy: 'Cheslin (Admin)',
+    deliveryStatus: 'sent',
+    sentAt: new Date(Date.now() - 3600000 * 6).toISOString(),
+    opened: true,
+    firstOpenedAt: new Date(Date.now() - 3600000 * 5.2).toISOString(),
+    openedAt: new Date(Date.now() - 3600000 * 4.8).toISOString(),
+    openCount: 2,
+    clicked: true,
+    clickedAt: new Date(Date.now() - 3600000 * 4.8).toISOString(),
+    clickCount: 1,
+  },
+  {
+    id: 'preview-nl-log-seed-2',
+    newsletterId: 'newsletter-day-1',
+    dayNumber: 1,
+    badgeText: 'Prop Firm Playbook · 5 Steps',
+    category: 'Prop Firm Playbook',
+    subject: 'Hi Thabo — 5 Steps How to Pass a Prop Firm Challenge Without Stress',
+    userEmail: 'thabo@example.com',
+    userName: 'Thabo Nkosi',
+    sentBy: 'Cheslin (Admin)',
+    deliveryStatus: 'sent',
+    sentAt: new Date(Date.now() - 3600000 * 6).toISOString(),
+    opened: true,
+    firstOpenedAt: new Date(Date.now() - 3600000 * 3.5).toISOString(),
+    openedAt: new Date(Date.now() - 3600000 * 3.5).toISOString(),
+    openCount: 1,
+    clicked: false,
+    clickedAt: null,
+    clickCount: 0,
+  },
+  {
+    id: 'preview-nl-log-seed-3',
+    newsletterId: 'newsletter-day-3',
+    dayNumber: 3,
+    badgeText: 'Comeback Playbook · 3 Steps',
+    category: 'Comeback Motivation (2–3+ Days Inactive)',
+    subject: 'Hi Anele — We missed you on Chart Replay! 3 steps to get back in rhythm',
+    userEmail: 'anele@example.com',
+    userName: 'Anele Dlamini',
+    sentBy: 'Cheslin (Admin)',
+    deliveryStatus: 'sent',
+    sentAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+    opened: false,
+    firstOpenedAt: null,
+    openedAt: null,
+    openCount: 0,
+    clicked: false,
+    clickedAt: null,
+    clickCount: 0,
+  },
+];
 
 export async function loadAdminNewsletters(preview = false): Promise<{
   ok: boolean;
@@ -1056,6 +1296,8 @@ export async function sendAdminNewsletterNow(
   input: {
     id: string;
     recipients?: Array<{ email: string; name: string }>;
+    targetAudience?: NewsletterTargetAudience;
+    isBulk?: boolean;
     approveAndSend?: boolean;
   },
   preview = false
@@ -1064,7 +1306,7 @@ export async function sendAdminNewsletterNow(
   newsletter?: NewsletterEditionItem;
   newsletters?: NewsletterEditionItem[];
   logs?: NewsletterDeliveryLogItem[];
-  results?: Array<{ email: string; name: string; subject: string; sent: boolean }>;
+  results?: Array<{ email: string; name: string; subject: string; sent: boolean; logId?: string }>;
   error?: string;
 }> {
   if (preview) {
@@ -1074,17 +1316,27 @@ export async function sendAdminNewsletterNow(
     const recs =
       input.recipients && input.recipients.length > 0
         ? input.recipients
-        : [{ email: 'trader1@example.invalid', name: 'Lerato Mokoena' }];
+        : [{ email: 'lerato@example.com', name: 'Lerato Mokoena' }];
     const newLogs: NewsletterDeliveryLogItem[] = recs.map((r, idx) => ({
       id: `preview-nl-log-${Date.now()}-${idx}`,
       newsletterId: target.id,
       dayNumber: target.dayNumber,
+      badgeText: stripClientLegacyDayPrefix(target.badgeText),
+      category: target.category || target.phaseLabel,
       subject: personalizeClientNewsletterText(target.subject, r),
       userEmail: r.email,
       userName: r.name,
-      sentBy: 'Dashboard preview',
+      sentBy: 'Cheslin (Admin)',
       deliveryStatus: 'sent',
       sentAt: nowIso,
+      isBulk: Boolean(input.isBulk || recs.length > 1),
+      opened: false,
+      openedAt: null,
+      firstOpenedAt: null,
+      openCount: 0,
+      clicked: false,
+      clickedAt: null,
+      clickCount: 0,
     }));
     previewNewsletterLogsState = [...newLogs, ...previewNewsletterLogsState];
     let updated: NewsletterEditionItem | undefined;
@@ -1093,7 +1345,7 @@ export async function sendAdminNewsletterNow(
       updated = {
         ...item,
         approved: true,
-        approvedBy: item.approvedBy || 'Dashboard preview',
+        approvedBy: item.approvedBy || 'Cheslin (Admin)',
         approvedAt: item.approvedAt || nowIso,
         status: 'sent',
         sentAt: nowIso,
@@ -1112,6 +1364,7 @@ export async function sendAdminNewsletterNow(
         name: l.userName,
         subject: l.subject,
         sent: true,
+        logId: l.id,
       })),
     };
   }

@@ -1792,12 +1792,23 @@ export async function saveSupabaseNewsletterLog(
     id: String(logEntry.id || ''),
     newsletterId: String(logEntry.newsletterId || ''),
     dayNumber: Number(logEntry.dayNumber || 1),
+    badgeText: String(logEntry.badgeText || ''),
+    category: String(logEntry.category || ''),
+    isBulk: Boolean(logEntry.isBulk),
     subject: String(logEntry.subject || ''),
     userEmail: String(logEntry.userEmail || '').toLowerCase(),
     userName: String(logEntry.userName || 'Trader'),
     sentBy: String(logEntry.sentBy || 'admin'),
     deliveryStatus: String(logEntry.deliveryStatus || 'sent'),
     sentAt: logEntry.sentAt || new Date().toISOString(),
+    resendEmailId: logEntry.resendEmailId ? String(logEntry.resendEmailId) : null,
+    opened: Boolean(logEntry.opened),
+    openedAt: logEntry.openedAt || null,
+    firstOpenedAt: logEntry.firstOpenedAt || logEntry.openedAt || null,
+    openCount: Math.max(0, Number(logEntry.openCount || (logEntry.opened ? 1 : 0))),
+    clicked: Boolean(logEntry.clicked),
+    clickedAt: logEntry.clickedAt || null,
+    clickCount: Math.max(0, Number(logEntry.clickCount || (logEntry.clicked ? 1 : 0))),
   };
 
   let existingItems = [];

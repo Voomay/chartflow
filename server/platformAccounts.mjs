@@ -1,6 +1,6 @@
 import {readAdminWaitlist} from './waitlistStore.mjs';
 import {createSupabaseAccountStore,hasSqlInjectionPattern,isSafeEmailFormat,isSafeIdentifier} from './supabaseStore.mjs';
-import {sendWelcomeEmail,sendPasswordResetEmail,sendFirstTradeFeedbackEmail,sendContactInquiryEmail,sendFeedbackNotificationEmail,DEFAULT_NEWSLETTER_TEMPLATES,buildPersonalizedNewsletterEmail,sendPersonalizedNewsletterEmail,CONTACT_INQUIRY_RECIPIENT,formatContactCategoryLabel,resolvePublicAppUrl,isResendConfigured} from './resendMail.mjs';
+import {sendWelcomeEmail,sendPasswordResetEmail,sendFirstTradeFeedbackEmail,sendContactInquiryEmail,sendFeedbackNotificationEmail,DEFAULT_NEWSLETTER_TEMPLATES,buildPersonalizedNewsletterEmail,sendPersonalizedNewsletterEmail,stripLegacyDayPrefix,fetchResendEmailStatus,CONTACT_INQUIRY_RECIPIENT,formatContactCategoryLabel,resolvePublicAppUrl,isResendConfigured} from './resendMail.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
@@ -66,6 +66,17 @@ function isSafeLogoUrl(url){
 function cleanText(value,fallback,max=120){
  if(typeof value!=='string')return fallback;
  const cleaned=value.replace(/[\x00-\x1f\x7f]/g,'').trim();
+ return cleaned?cleaned.slice(0,max):fallback;
+}
+function cleanMultilineText(value,fallback,max=4000){
+ if(typeof value!=='string')return fallback;
+ const cleaned=value
+  .replace(/\r\n/g,'\n')
+  .replace(/\r/g,'\n')
+  .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g,'')
+  .replace(/([.!?"]\s*)((?:Step\s*)?1[.):]\s+[A-Z])/g,'$1\n\n$2')
+  .replace(/([.!?"]\s*)((?:Step\s*)?[2-9][.):]\s+[A-Z])/g,'$1\n$2')
+  .trim();
  return cleaned?cleaned.slice(0,max):fallback;
 }
 export function sanitizeSponsorship(raw,updatedBy='admin',nowMs=Date.now()){
@@ -187,6 +198,8 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
  const findUserById=async id=>typeof store.findById==='function'?store.findById(id):(await store.read()).find(u=>u.id===id)||null;
  const findUserByEmail=async email=>typeof store.findByEmail==='function'?store.findByEmail(email):(await store.read()).find(u=>u.email===email)||null;
  const updateUserPassword=async(userId,passwordHash,nowIso)=>typeof store.updatePassword==='function'?store.updatePassword(userId,passwordHash,nowIso):store.change(users=>{const u=users.find(item=>item.id===userId);if(!u)return null;u.passwordHash=passwordHash;u.lastSeenAt=nowIso;return u;});
+ const TRANSPARENT_GIF_BUFFER=Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7','base64');
+ const isLegacyDayCopy=val=>typeof val==='string'&&(/^Day\s+\d+\s*[·•:\-–—]/i.test(val.trim())||/\bDaily\s+Trader\s+Motivation\b/i.test(val)||/\bEvery\s+2nd\s+Day\s+Coaching\b/i.test(val)||/^Beginning\s*·\s*Daily\s+Habit/i.test(val.trim())||/^Every\s+2nd\s+Day\s*·\s*Pro\s+Progression/i.test(val.trim()));
  const sanitizeNewsletterItem=(raw,fallback={})=>{
   const obj=raw&&typeof raw==='object'?raw:{};
   const base=fallback&&typeof fallback==='object'?fallback:{};
@@ -198,19 +211,46 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    status=approved?'approved':'pending_approval';
   }
   if(!approved&&status==='scheduled')status='pending_approval';
-  const targetAudience=['all','active','new_starters','selected'].includes(obj.targetAudience)?obj.targetAudience:(base.targetAudience||'all');
+  const allowedAudiences=['all','active','new_starters','inactive_2_3_days','selected'];
+  const targetAudience=allowedAudiences.includes(obj.targetAudience)?obj.targetAudience:(allowedAudiences.includes(base.targetAudience)?base.targetAudience:'all');
   const selectedRecipients=Array.isArray(obj.selectedRecipients)?obj.selectedRecipients.map(e=>String(e||'').trim().toLowerCase()).filter(Boolean).slice(0,500):Array.isArray(base.selectedRecipients)?base.selectedRecipients:[];
+  const hasLegacyStoredBadge=isLegacyDayCopy(obj.badgeText)||isLegacyDayCopy(obj.phaseLabel);
+  const rawPhase=hasLegacyStoredBadge&&base.phaseLabel?base.phaseLabel:(obj.phaseLabel||base.phaseLabel||'Trader Playbook & Coaching');
+  const rawBadge=hasLegacyStoredBadge&&base.badgeText?base.badgeText:(obj.badgeText||base.badgeText||'Trader Playbook · Chart Replay');
+  const rawSubject=hasLegacyStoredBadge&&base.subject?base.subject:(obj.subject||base.subject||'Hi {{firstName}} — Trader Playbook & Execution Focus');
+  const rawHeadline=hasLegacyStoredBadge&&base.headline?base.headline:(obj.headline||base.headline||'Hi {{firstName}}, stay disciplined and trade your plan.');
+  const rawBody=hasLegacyStoredBadge&&base.bodyText?base.bodyText:(obj.bodyText||base.bodyText||'Every session on Chart Replay builds your edge.');
+  const rawActionTip=hasLegacyStoredBadge&&base.actionTip?base.actionTip:(obj.actionTip||base.actionTip||'Review your sticky trading plan before placing your first trade today.');
+  const rawCta=hasLegacyStoredBadge&&base.ctaText?base.ctaText:(obj.ctaText||base.ctaText||'Open Your Trading Workspace →');
+  const rawSteps=Array.isArray(obj.steps)&&obj.steps.length>0&&!hasLegacyStoredBadge?obj.steps:(Array.isArray(base.steps)?base.steps:[]);
+  const steps=rawSteps
+   .map((s,idx)=>{
+    if(typeof s==='string'){
+     const sep=s.match(/^([^—–\-:]+?)\s*(?:—|–|\s-\s|:)\s*(.+)$/);
+     return sep
+      ?{title:cleanText(sep[1],`Step ${idx+1}`,140),description:cleanText(sep[2],'',600)}
+      :{title:`Step ${idx+1}`,description:cleanText(s,'',600)};
+    }
+    return {
+     title:cleanText(s?.title,`Step ${idx+1}`,140),
+     description:cleanText(s?.description,'',600),
+    };
+   })
+   .filter(s=>s.title||s.description)
+   .slice(0,8);
   return {
    id:cleanText(obj.id,base.id||`newsletter-${randomUUID()}`,100),
    dayNumber,
    cadence:cadenceVal,
-   phaseLabel:cleanText(obj.phaseLabel,base.phaseLabel||(cadenceVal==='daily'?`Beginning · Daily Habit (Day ${dayNumber})`:`Every 2nd Day · Pro Progression (Day ${dayNumber})`),120),
-   badgeText:cleanText(obj.badgeText,base.badgeText||`Day ${dayNumber} · Trader Motivation`,100),
-   subject:cleanText(obj.subject,base.subject||'Hi {{firstName}} — Daily Trader Motivation',200),
-   headline:cleanText(obj.headline,base.headline||'Hi {{firstName}}, stay disciplined and trade your plan.',240),
-   bodyText:cleanText(obj.bodyText,base.bodyText||'Every session on Chart Replay builds your edge.',4000),
-   actionTip:cleanText(obj.actionTip,base.actionTip||'Review your sticky trading plan before placing your first trade today.',1000),
-   ctaText:cleanText(obj.ctaText,base.ctaText||'Open Your Trading Workspace →',100),
+   category:cleanText(obj.category,base.category||'playbook',40),
+   phaseLabel:stripLegacyDayPrefix(cleanText(rawPhase,'Trader Playbook & Coaching',120))||'Trader Playbook & Coaching',
+   badgeText:stripLegacyDayPrefix(cleanText(rawBadge,'Trader Playbook · Chart Replay',100))||'Trader Playbook · Chart Replay',
+   subject:stripLegacyDayPrefix(cleanText(rawSubject,'Hi {{firstName}} — Trader Playbook & Execution Focus',200)),
+   headline:cleanText(rawHeadline,'Hi {{firstName}}, stay disciplined and trade your plan.',240),
+   bodyText:cleanMultilineText(rawBody,'Every session on Chart Replay builds your edge.',4000),
+   steps,
+   actionTip:cleanMultilineText(rawActionTip,'Review your sticky trading plan before placing your first trade today.',1000),
+   ctaText:cleanText(rawCta,'Open Your Trading Workspace →',100),
    status,
    approved,
    approvedBy:approved?cleanText(obj.approvedBy,base.approvedBy||'admin',120):null,
@@ -239,6 +279,18 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
   }
   return Array.from(byId.values()).sort((a,b)=>(a.dayNumber||0)-(b.dayNumber||0));
  };
+ const isUserInactive2To3PlusDays=(u,curMs=now())=>{
+  const lastSeenMs=u?.lastSeenAt?Date.parse(String(u.lastSeenAt)):NaN;
+  const lastLoginMs=u?.lastLoginAt?Date.parse(String(u.lastLoginAt)):NaN;
+  const joinedMs=u?.joinedAt?Date.parse(String(u.joinedAt)):NaN;
+  const latestActivityMs=Math.max(
+   Number.isFinite(lastSeenMs)?lastSeenMs:0,
+   Number.isFinite(lastLoginMs)?lastLoginMs:0,
+   Number.isFinite(joinedMs)?joinedMs:0
+  );
+  if(latestActivityMs<=0)return true;
+  return curMs-latestActivityMs>=2*86400000;
+ };
  const resolveNewsletterRecipients=(newsletter,allUsers,explicitRecipients)=>{
   const unsubscribedEmails=new Set(allUsers.filter(u=>u&&u.emailUnsubscribed).map(u=>String(u.email||'').toLowerCase()));
   if(Array.isArray(explicitRecipients)&&explicitRecipients.length>0){
@@ -265,12 +317,16 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
      };
     })
     .filter(Boolean)
-    .slice(0,200);
+    .slice(0,500);
   }
   const pubUsers=allUsers.filter(u=>!u?.emailUnsubscribed).map(publicAccount).filter(u=>u.email&&!u.emailUnsubscribed&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(u.email));
   if(newsletter.targetAudience==='selected'&&Array.isArray(newsletter.selectedRecipients)&&newsletter.selectedRecipients.length>0){
    const set=new Set(newsletter.selectedRecipients.map(e=>e.toLowerCase()));
    return pubUsers.filter(u=>set.has(u.email.toLowerCase()));
+  }
+  if(newsletter.targetAudience==='inactive_2_3_days'){
+   const curMs=now();
+   return pubUsers.filter(u=>isUserInactive2To3PlusDays(u,curMs));
   }
   if(newsletter.targetAudience==='new_starters'){
    const sevenDaysAgo=now()-7*86400000;
@@ -281,31 +337,44 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
   }
   return pubUsers;
  };
- const dispatchNewsletterItem=async(newsletter,allUsers,{explicitRecipients,sentBy='admin',origin}={})=>{
+ const dispatchNewsletterItem=async(newsletter,allUsers,{explicitRecipients,sentBy='admin',origin,isBulk=false}={})=>{
   const recipients=resolveNewsletterRecipients(newsletter,allUsers,explicitRecipients);
   const results=[];
   const nowIso=new Date(now()).toISOString();
   for(const recipient of recipients){
+   const logId=randomUUID();
    let sentResult={sent:false,reason:'RESEND_NOT_CONFIGURED'};
-   const previewMail=buildPersonalizedNewsletterEmail({newsletter,recipient,nowMs:now()});
+   const previewMail=buildPersonalizedNewsletterEmail({newsletter,recipient,trackingId:logId,nowMs:now()});
    if(isResendConfigured(env)){
-    sentResult=await sendPersonalizedNewsletterEmail({newsletter,recipient,origin,nowMs:now()},{env,request}).catch(err=>({sent:false,error:err?.message||String(err)}));
+    sentResult=await sendPersonalizedNewsletterEmail({newsletter,recipient,trackingId:logId,origin,nowMs:now()},{env,request}).catch(err=>({sent:false,error:err?.message||String(err)}));
    }
    const logEntry={
-    id:randomUUID(),
+    id:logId,
     newsletterId:newsletter.id,
     dayNumber:newsletter.dayNumber,
+    badgeText:previewMail.badgeText,
+    category:newsletter.category||'playbook',
+    isBulk:Boolean(isBulk),
     subject:previewMail.subject,
     userEmail:recipient.email,
     userName:recipient.name,
     sentBy,
     deliveryStatus:sentResult.sent?'sent':isResendConfigured(env)?'failed':'queued_ready',
     sentAt:nowIso,
+    resendEmailId:sentResult.id||null,
+    opened:false,
+    openedAt:null,
+    firstOpenedAt:null,
+    openCount:0,
+    clicked:false,
+    clickedAt:null,
+    clickCount:0,
    };
    if(typeof store.recordNewsletterLog==='function'){
     await store.recordNewsletterLog(logEntry).catch(()=>{});
    }
    results.push({
+    logId,
     email:recipient.email,
     name:recipient.name,
     subject:previewMail.subject,
@@ -315,6 +384,72 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    });
   }
   return {results,sentAt:nowIso,sentCount:results.length};
+ };
+ const markNewsletterEngagement=async({logId,email,resendEmailId,clicked=false}={})=>{
+  if(typeof store.readNewsletterLogs!=='function'||typeof store.recordNewsletterLog!=='function')return null;
+  const logs=await store.readNewsletterLogs().catch(()=>[]);
+  if(!Array.isArray(logs)||logs.length===0)return null;
+  const cleanLogId=String(logId||'').trim();
+  const cleanEmail=String(email||'').trim().toLowerCase();
+  const cleanResendId=String(resendEmailId||'').trim();
+  const target=logs.find(item=>{
+   if(!item)return false;
+   if(cleanLogId&&item.id===cleanLogId)return true;
+   if(cleanResendId&&item.resendEmailId===cleanResendId)return true;
+   return false;
+  })||(cleanEmail?logs.find(item=>item&&String(item.userEmail||'').toLowerCase()===cleanEmail):null);
+  if(!target)return null;
+  const nowIso=new Date(now()).toISOString();
+  const updated={
+   ...target,
+   opened:true,
+   firstOpenedAt:target.firstOpenedAt||target.openedAt||nowIso,
+   openedAt:nowIso,
+   openCount:Math.max(1,Number(target.openCount||0)+1),
+   ...(clicked
+    ?{
+       clicked:true,
+       clickedAt:nowIso,
+       clickCount:Math.max(1,Number(target.clickCount||0)+1),
+      }
+    :{}),
+  };
+  await store.recordNewsletterLog(updated).catch(()=>{});
+  return updated;
+ };
+ const syncResendOpenStatuses=async(logs)=>{
+  if(!isResendConfigured(env)||!Array.isArray(logs)||logs.length===0)return logs;
+  const candidates=logs.filter(l=>l&&l.resendEmailId&&!l.opened).slice(0,12);
+  if(candidates.length===0)return logs;
+  const updatesById=new Map();
+  await Promise.allSettled(
+   candidates.map(async log=>{
+    const status=await fetchResendEmailStatus(log.resendEmailId,{env,request});
+    if(status&&status.opened){
+     const nowIso=new Date(now()).toISOString();
+     const updated={
+      ...log,
+      opened:true,
+      firstOpenedAt:log.firstOpenedAt||log.openedAt||nowIso,
+      openedAt:log.openedAt||nowIso,
+      openCount:Math.max(1,Number(log.openCount||0)),
+      ...(status.clicked
+       ?{
+          clicked:true,
+          clickedAt:log.clickedAt||nowIso,
+          clickCount:Math.max(1,Number(log.clickCount||0)),
+         }
+       :{}),
+     };
+     updatesById.set(log.id,updated);
+     if(typeof store.recordNewsletterLog==='function'){
+      await store.recordNewsletterLog(updated).catch(()=>{});
+     }
+    }
+   })
+  );
+  if(updatesById.size===0)return logs;
+  return logs.map(l=>updatesById.get(l.id)||l);
  };
  const processDueNewsletters=async(newsletters,origin,adminEmail='scheduler')=>{
   const curMs=now();
@@ -403,7 +538,27 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    if(!subRes.ok)return send(400,{error:subRes.error});
    return send(200,{...subRes,scope});
   }
-  if(!enabled&&action!=='submit-feedback'&&action!=='submit-contact'&&action!=='unsubscribe'&&action!=='resubscribe')return send(503,{error:'The local administrator service is not configured.'});
+  if(req.method==='GET'&&action==='newsletter-open'){
+   const logId=url.searchParams.get('logId')||'';
+   const emailParam=url.searchParams.get('email')||'';
+   await markNewsletterEngagement({logId,email:emailParam,clicked:false}).catch(()=>{});
+   res.statusCode=200;
+   res.setHeader('Content-Type','image/gif');
+   res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');
+   res.end(TRANSPARENT_GIF_BUFFER);
+   return;
+  }
+  if(req.method==='GET'&&action==='newsletter-click'){
+   const logId=url.searchParams.get('logId')||'';
+   const emailParam=url.searchParams.get('email')||'';
+   await markNewsletterEngagement({logId,email:emailParam,clicked:true}).catch(()=>{});
+   const targetAppUrl=resolvePublicAppUrl(req.headers.origin,env);
+   res.statusCode=302;
+   res.setHeader('Location',targetAppUrl);
+   res.end('');
+   return;
+  }
+  if(!enabled&&action!=='submit-feedback'&&action!=='submit-contact'&&action!=='unsubscribe'&&action!=='resubscribe'&&action!=='resend-webhook')return send(503,{error:'The local administrator service is not configured.'});
   const cookie=String(req.headers.cookie||'').split(';').map(part=>part.trim()).find(part=>part.startsWith('chart_replay_admin='))?.slice('chart_replay_admin='.length);
   const admin=hasAdmin&&validAdminSession(cookie,config,now());
   if(req.method==='GET'&&action==='session')return admin?send(200,{admin:{email:config.email}}):send(401,{error:'Administrator sign-in required.'});
@@ -415,7 +570,8 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    try{
     const initialNewsletters=await loadMergedNewsletters();
     const newsletters=await processDueNewsletters(initialNewsletters,req.headers.origin,config?.email||'admin');
-    const logs=typeof store.readNewsletterLogs==='function'?await store.readNewsletterLogs().catch(()=>[]):[];
+    const rawLogs=typeof store.readNewsletterLogs==='function'?await store.readNewsletterLogs().catch(()=>[]):[];
+    const logs=await syncResendOpenStatuses(rawLogs||[]);
     return send(200,{ok:true,newsletters,logs:logs||[],resendConfigured:isResendConfigured(env),scope});
    }catch{
     return send(503,{error:'Newsletter records are temporarily unavailable.'});
@@ -423,13 +579,27 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
   }
   if(req.method!=='POST'){res.setHeader('Allow','GET, POST');return send(405,{error:'Method not allowed.'});}
   try{
-   if(!req.headers.origin||new URL(req.headers.origin).host!==req.headers.host)return send(403,{error:'Please use this website to continue.'});
+   if(action!=='resend-webhook'&&(!req.headers.origin||new URL(req.headers.origin).host!==req.headers.host))return send(403,{error:'Please use this website to continue.'});
    if(!String(req.headers['content-type']||'').startsWith('application/json'))return send(415,{error:'Use the sign-in form.'});
    const bodyLimit=action==='sponsorship'?1572864:action==='activity'||action.includes('newsletter')?131072:16384;
    let body=req.body;
    if(body===undefined){let raw='';for await(const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>bodyLimit)return send(413,{error:'Request too large.'});}body=raw;}
    if(typeof body==='string'){if(Buffer.byteLength(body)>bodyLimit)return send(413,{error:'Request too large.'});try{body=JSON.parse(body);}catch{return send(400,{error:'Invalid form data.'});}}
    if(!body||typeof body!=='object'||Array.isArray(body)||Buffer.byteLength(JSON.stringify(body))>bodyLimit)return send(400,{error:'Invalid form data.'});
+   if(action==='resend-webhook'){
+    const evtType=String(body.type||'').toLowerCase();
+    const evtData=body.data&&typeof body.data==='object'?body.data:{};
+    const resendEmailId=evtData.email_id||evtData.id||body.email_id||'';
+    const toField=Array.isArray(evtData.to)?evtData.to[0]:evtData.to||'';
+    if(evtType==='email.opened'||evtType==='email.clicked'){
+     await markNewsletterEngagement({
+      resendEmailId,
+      email:toField,
+      clicked:evtType==='email.clicked',
+     }).catch(()=>{});
+    }
+    return send(200,{ok:true});
+   }
    const secure=req.socket?.encrypted||req.headers['x-forwarded-proto']==='https';
    const cookieOptions=`Path=/api/platform; HttpOnly; SameSite=Strict${secure?'; Secure':''}`;
    const userCookieOptions=`Path=/api/platform; HttpOnly; SameSite=Strict${secure?'; Secure':''}`;
@@ -510,7 +680,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     }
     const scheduledFor=typeof body.scheduledFor==='string'&&Number.isFinite(Date.parse(body.scheduledFor))?new Date(Date.parse(body.scheduledFor)).toISOString():new Date(now()+86400000).toISOString();
     const cadence=['daily','every_second_day','daily_then_every_second_day'].includes(body.cadence)?body.cadence:existing.cadence||'daily';
-    const targetAudience=['all','active','new_starters','selected'].includes(body.targetAudience)?body.targetAudience:existing.targetAudience||'all';
+    const targetAudience=['all','active','new_starters','inactive_2_3_days','selected'].includes(body.targetAudience)?body.targetAudience:existing.targetAudience||'all';
     const selectedRecipients=Array.isArray(body.selectedRecipients)?body.selectedRecipients.map(e=>String(e||'').trim().toLowerCase()).filter(Boolean):existing.selectedRecipients||[];
     const nowIso=new Date(now()).toISOString();
     const updatedItem=sanitizeNewsletterItem({
@@ -537,7 +707,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     const cadenceMode=['daily','every_second_day','daily_then_every_second_day'].includes(body.cadence)?body.cadence:'daily_then_every_second_day';
     const dailyDaysCount=Math.max(1,Math.min(14,Number(body.dailyDaysCount)||5));
     const startMs=typeof body.startAt==='string'&&Number.isFinite(Date.parse(body.startAt))?Date.parse(body.startAt):now()+3600000;
-    const targetAudience=['all','active','new_starters','selected'].includes(body.targetAudience)?body.targetAudience:'all';
+    const targetAudience=['all','active','new_starters','inactive_2_3_days','selected'].includes(body.targetAudience)?body.targetAudience:'all';
     const selectedRecipients=Array.isArray(body.selectedRecipients)?body.selectedRecipients.map(e=>String(e||'').trim().toLowerCase()).filter(Boolean):[];
     const approveAll=body.approveAll!==false;
     const nowIso=new Date(now()).toISOString();
@@ -584,12 +754,15 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     if(!existing.approved&&!body.approveAndSend){
      return send(400,{error:'Please approve this newsletter before sending it to traders.'});
     }
+    const effectiveAudience=['all','active','new_starters','inactive_2_3_days','selected'].includes(body.targetAudience)?body.targetAudience:existing.targetAudience||'all';
+    const newsletterForDispatch={...existing,targetAudience:effectiveAudience};
     const allUsers=await store.read().catch(()=>[]);
     const explicitRecipients=Array.isArray(body.recipients)&&body.recipients.length>0?body.recipients:null;
-    const dispatchRes=await dispatchNewsletterItem(existing,allUsers,{
+    const dispatchRes=await dispatchNewsletterItem(newsletterForDispatch,allUsers,{
      explicitRecipients,
      sentBy:config?.email||'admin',
      origin:req.headers.origin,
+     isBulk:Boolean(body.isBulk||(!explicitRecipients&&effectiveAudience==='all')),
     });
     const nowIso=dispatchRes.sentAt;
     const updatedItem=sanitizeNewsletterItem({

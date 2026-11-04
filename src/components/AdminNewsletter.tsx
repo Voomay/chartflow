@@ -7,6 +7,9 @@ import {
   Edit3,
   Eye,
   Mail,
+  MailCheck,
+  MailOpen,
+  MousePointerClick,
   Newspaper,
   Plus,
   RefreshCw,
@@ -15,6 +18,7 @@ import {
   ShieldCheck,
   Smartphone,
   Sparkles,
+  UserCheck,
   Users,
   Monitor,
 } from 'lucide-react';
@@ -25,13 +29,17 @@ import {
   NewsletterEditionItem,
   NewsletterTargetAudience,
   approveAdminNewsletter,
+  extractClientNewsletterStepsAndIntro,
   formatPlatformDurationLabel,
+  getTraderDaysSinceActive,
+  isTraderInactive2To3PlusDays,
   loadAdminNewsletters,
   personalizeClientNewsletterText,
   saveAdminNewsletter,
   scheduleAdminNewsletter,
   scheduleAdminNewsletterSeries,
   sendAdminNewsletterNow,
+  stripClientLegacyDayPrefix,
 } from '../services/platformAccounts';
 
 interface AdminNewsletterProps {
@@ -85,6 +93,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
   // Editable draft fields for the currently selected newsletter
   const [draftSubject, setDraftSubject] = useState('');
   const [draftBadge, setDraftBadge] = useState('');
+  const [draftCategory, setDraftCategory] = useState('');
   const [draftHeadline, setDraftHeadline] = useState('');
   const [draftBody, setDraftBody] = useState('');
   const [draftActionTip, setDraftActionTip] = useState('');
@@ -92,7 +101,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
   const [draftDayNumber, setDraftDayNumber] = useState(1);
   const [draftCadence, setDraftCadence] = useState<NewsletterCadence>('daily');
 
-  // Schedule & Audience controls
+  // Schedule, Bulk & Audience controls
   const [scheduleCadence, setScheduleCadence] = useState<NewsletterCadence>(
     'daily_then_every_second_day'
   );
@@ -103,6 +112,9 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     useState<NewsletterTargetAudience>('all');
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
   const [userSearch, setUserSearch] = useState('');
+  const [userFilterMode, setUserFilterMode] = useState<'all' | 'inactive_2_3_days'>('all');
+  const [openFilterMode, setOpenFilterMode] = useState<'all' | 'opened' | 'unopened' | 'clicked'>('all');
+  const [openLogSearch, setOpenLogSearch] = useState('');
   const [statusBanner, setStatusBanner] = useState<{
     tone: 'success' | 'info' | 'error';
     text: string;
@@ -144,13 +156,23 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
   useEffect(() => {
     if (!activeNewsletter) return;
     setDraftSubject(activeNewsletter.subject);
-    setDraftBadge(activeNewsletter.badgeText);
+    setDraftBadge(stripClientLegacyDayPrefix(activeNewsletter.badgeText));
+    setDraftCategory(
+      activeNewsletter.category ||
+        stripClientLegacyDayPrefix(activeNewsletter.phaseLabel || activeNewsletter.badgeText)
+    );
     setDraftHeadline(activeNewsletter.headline);
-    setDraftBody(activeNewsletter.bodyText);
+    const normalizedBody = String(activeNewsletter.bodyText || '')
+      .replace(/([.!?"]\s*)((?:Step\s*)?1[.):]\s+[A-Z])/g, '$1\n\n$2')
+      .replace(/([.!?"]\s*)((?:Step\s*)?[2-9][.):]\s+[A-Z])/g, '$1\n$2');
+    setDraftBody(normalizedBody);
     setDraftActionTip(activeNewsletter.actionTip);
     setDraftCtaText(activeNewsletter.ctaText);
     setDraftDayNumber(activeNewsletter.dayNumber);
     setDraftCadence(activeNewsletter.cadence);
+    if (activeNewsletter.targetAudience) {
+      setTargetAudience(activeNewsletter.targetAudience);
+    }
     if (activeNewsletter.scheduledFor) {
       setScheduleDateTime(
         toLocalDatetimeInputValue(activeNewsletter.scheduledFor)
@@ -184,7 +206,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
   const personalizedPreview = useMemo(() => {
     const src = {
       subject: draftSubject,
-      badgeText: draftBadge,
+      badgeText: stripClientLegacyDayPrefix(draftBadge),
       headline: draftHeadline,
       bodyText: draftBody,
       actionTip: draftActionTip,
@@ -214,21 +236,10 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       src.ctaText,
       previewRecipient
     );
-    const joinedMs = previewRecipient.joinedAt
-      ? Date.parse(previewRecipient.joinedAt)
-      : NaN;
-    const daysCount = Number.isFinite(joinedMs)
-      ? Math.max(
-          1,
-          Math.floor(Math.max(0, Date.now() - joinedMs) / 86400000) + 1
-        )
-      : 1;
-    const daysLabel = `${daysCount} ${daysCount === 1 ? 'day' : 'days'}`;
-    const planDisplay =
-      previewRecipient.tradingPlanName ||
-      (previewRecipient.hasTradingPlan
-        ? 'Active Trading Plan'
-        : 'Pin your plan on chart');
+    const { introParagraphs, steps } = extractClientNewsletterStepsAndIntro(
+      bodyText,
+      activeNewsletter?.steps
+    );
 
     return {
       subject,
@@ -237,12 +248,10 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       bodyText,
       actionTip,
       ctaText,
-      daysLabel,
-      planDisplay,
-      paragraphs: bodyText
-        .split(/\r?\n\r?\n/)
-        .map((p) => p.trim())
-        .filter(Boolean),
+      introParagraphs,
+      steps: steps.map((s) =>
+        personalizeClientNewsletterText(s, previewRecipient)
+      ),
     };
   }, [
     draftSubject,
@@ -252,14 +261,45 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     draftActionTip,
     draftCtaText,
     previewRecipient,
+    activeNewsletter,
   ]);
+
+  const inactiveTraders = useMemo(() => {
+    return users.filter((u) => isTraderInactive2To3PlusDays(u));
+  }, [users]);
 
   const filteredUsers = useMemo(() => {
     const q = userSearch.trim().toLowerCase();
-    return users.filter(
-      (u) => !q || `${u.name} ${u.email}`.toLowerCase().includes(q)
-    );
-  }, [users, userSearch]);
+    return users.filter((u) => {
+      if (userFilterMode === 'inactive_2_3_days' && !isTraderInactive2To3PlusDays(u)) {
+        return false;
+      }
+      return !q || `${u.name} ${u.email}`.toLowerCase().includes(q);
+    });
+  }, [users, userSearch, userFilterMode]);
+
+  const recipientUsersForTarget = useMemo(() => {
+    if (targetAudience === 'selected' && selectedEmails.size > 0) {
+      return users.filter((u) => selectedEmails.has(u.email.toLowerCase()));
+    }
+    if (targetAudience === 'inactive_2_3_days') {
+      return inactiveTraders;
+    }
+    if (targetAudience === 'active') {
+      return users.filter(
+        (u) => Number(u.sessionCount ?? 0) > 0 || Number(u.tradeCount ?? 0) > 0
+      );
+    }
+    if (targetAudience === 'new_starters') {
+      const now = Date.now();
+      return users.filter((u) => {
+        const joinedMs = u.joinedAt ? Date.parse(u.joinedAt) : NaN;
+        if (!Number.isFinite(joinedMs)) return true;
+        return now - joinedMs <= 7 * 86400000;
+      });
+    }
+    return users;
+  }, [targetAudience, selectedEmails, users, inactiveTraders]);
 
   const metrics = useMemo(() => {
     const approvedCount = newsletters.filter((n) => n.approved).length;
@@ -270,14 +310,64 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     const totalDeliveries =
       logs.length ||
       newsletters.reduce((sum, n) => sum + (n.sentCount || 0), 0);
+    const openedLogsCount = logs.filter((l) => l.opened).length;
+    const clickedLogsCount = logs.filter((l) => l.clicked).length;
+    const openRate =
+      logs.length > 0 ? Math.round((openedLogsCount / logs.length) * 100) : 0;
+
     return {
       totalEmails: users.length,
+      inactiveCount: inactiveTraders.length,
       approvedCount,
       scheduledCount,
       sentEditions,
       totalDeliveries,
+      openedLogsCount,
+      clickedLogsCount,
+      openRate,
     };
-  }, [newsletters, logs, users.length]);
+  }, [newsletters, logs, users.length, inactiveTraders.length]);
+
+  const perUserOpenStats = useMemo(() => {
+    const map = new Map<
+      string,
+      { sent: number; opened: number; lastOpenedAt: string | null }
+    >();
+    for (const log of logs) {
+      const email = String(log.userEmail || '').toLowerCase();
+      if (!email) continue;
+      const existing = map.get(email) || {
+        sent: 0,
+        opened: 0,
+        lastOpenedAt: null,
+      };
+      existing.sent += 1;
+      if (log.opened) {
+        existing.opened += 1;
+        if (
+          log.openedAt &&
+          (!existing.lastOpenedAt || log.openedAt > existing.lastOpenedAt)
+        ) {
+          existing.lastOpenedAt = log.openedAt;
+        }
+      }
+      map.set(email, existing);
+    }
+    return map;
+  }, [logs]);
+
+  const filteredLogs = useMemo(() => {
+    const q = openLogSearch.trim().toLowerCase();
+    return logs.filter((l) => {
+      if (openFilterMode === 'opened' && !l.opened) return false;
+      if (openFilterMode === 'unopened' && l.opened) return false;
+      if (openFilterMode === 'clicked' && !l.clicked) return false;
+      if (!q) return true;
+      return `${l.userName} ${l.userEmail} ${l.subject} ${l.badgeText || ''}`
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [logs, openFilterMode, openLogSearch]);
 
   const toggleSelectEmail = (email: string) => {
     const clean = email.toLowerCase();
@@ -307,21 +397,23 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     setBusyAction('save');
     setStatusBanner(null);
     try {
+      const { steps: parsedSteps } = extractClientNewsletterStepsAndIntro(draftBody);
+      const cleanBadge = stripClientLegacyDayPrefix(draftBadge);
       const res = await saveAdminNewsletter(
         {
           id: activeNewsletter.id,
           dayNumber: draftDayNumber,
           cadence: draftCadence,
-          phaseLabel:
-            draftCadence === 'daily'
-              ? `Beginning · Daily Habit (Day ${draftDayNumber})`
-              : `Every 2nd Day · Pro Progression (Day ${draftDayNumber})`,
-          badgeText: draftBadge,
+          category: draftCategory || cleanBadge,
+          phaseLabel: cleanBadge,
+          badgeText: cleanBadge,
           subject: draftSubject,
           headline: draftHeadline,
           bodyText: draftBody,
+          steps: parsedSteps,
           actionTip: draftActionTip,
           ctaText: draftCtaText,
+          targetAudience,
         },
         preview
       );
@@ -336,7 +428,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       setEditingCopy(false);
       setStatusBanner({
         tone: 'success',
-        text: 'Newsletter layout and personalized copy saved.',
+        text: 'Step-by-step playbook layout and personalized copy saved.',
       });
     } finally {
       setBusyAction(null);
@@ -348,34 +440,36 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       (max, n) => Math.max(max, n.dayNumber || 1),
       0
     );
-    const nextDay = maxDay >= 5 ? maxDay + 2 : maxDay + 1;
-    const nextCadence: NewsletterCadence =
-      nextDay <= 5 ? 'daily' : 'every_second_day';
-    const newId = `newsletter-day-${nextDay}-${Date.now().toString(36)}`;
+    const nextOrder = maxDay + 1;
+    const newId = `newsletter-playbook-${nextOrder}-${Date.now().toString(36)}`;
     setBusyAction('create');
     try {
       const res = await saveAdminNewsletter(
         {
           id: newId,
-          dayNumber: nextDay,
-          cadence: nextCadence,
-          phaseLabel:
-            nextCadence === 'daily'
-              ? `Beginning · Daily Habit (Day ${nextDay})`
-              : `Every 2nd Day · Pro Progression (Day ${nextDay})`,
-          badgeText: `Day ${nextDay} · ${
-            nextCadence === 'daily'
-              ? 'Daily Trader Motivation'
-              : 'Every 2nd Day Coaching'
-          }`,
-          subject: `Hi {{firstName}} — Day ${nextDay}: Building Professional Execution on Chart Replay`,
-          headline: `Keep sharpening your edge, {{firstName}}!`,
+          dayNumber: nextOrder,
+          cadence: 'daily',
+          category: 'Bulk Broadcast Playbook',
+          phaseLabel: 'Trader Playbook · 5 Steps',
+          badgeText: 'Trader Playbook · 5 Steps',
+          subject:
+            'Hi {{firstName}} — 5 Steps to Sharpen Your Chart Replay Execution This Week',
+          headline:
+            '5 simple steps to trade with institutional discipline today, {{firstName}}.',
           bodyText:
-            'Success in trading comes from repeating simple, high-probability actions without emotion.\n\nWith {{sessionCount}} practice sessions and {{tradeCount}} trades recorded, stay loyal to {{tradingPlanName}} and treat every replay session like a live funded account.',
+            'Success in trading comes from repeating a clear, step-by-step process without emotion.\n\n1. Mark Your Session Liquidity First: Identify the previous day high/low and London/New York session levels before pressing Play.\n2. Pin Your Trading Plan on Screen: Keep {{tradingPlanName}} open right on your chart so every entry is objective.\n3. Wait for Liquidity Sweep + Confirmation: Skip choppy consolidation bars until price sweeps a key level and confirms structure.\n4. Size Strictly at 0.5% to 1% Risk: Use the Order Ticket calculator so no single stop-out ever causes stress.\n5. Journal One Sentence Per Trade: Record whether you followed your rules 100% regardless of win or loss.',
+          steps: [
+            'Mark Your Session Liquidity First: Identify the previous day high/low and London/New York session levels before pressing Play.',
+            'Pin Your Trading Plan on Screen: Keep {{tradingPlanName}} open right on your chart so every entry is objective.',
+            'Wait for Liquidity Sweep + Confirmation: Skip choppy consolidation bars until price sweeps a key level and confirms structure.',
+            'Size Strictly at 0.5% to 1% Risk: Use the Order Ticket calculator so no single stop-out ever causes stress.',
+            'Journal One Sentence Per Trade: Record whether you followed your rules 100% regardless of win or loss.',
+          ],
           actionTip:
-            'Complete 1 focused replay session today and journal the exact reason behind every entry.',
+            'Complete 1 focused 15-minute replay session today and follow all 5 steps on your checklist.',
           ctaText: 'Open Your Trading Workspace →',
           status: 'pending_approval',
+          targetAudience: 'all',
           approved: false,
         },
         preview
@@ -386,7 +480,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         setEditingCopy(true);
         setStatusBanner({
           tone: 'info',
-          text: `Created Day ${nextDay} newsletter draft. Review the layout, customize if needed, and click Approve.`,
+          text: 'Created new 5-step playbook email draft. Customize the steps if needed, then Approve or Send Bulk Email.',
         });
       }
     } finally {
@@ -399,18 +493,23 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     setBusyAction('approve');
     setStatusBanner(null);
     try {
-      // Save any pending edits first
+      const { steps: parsedSteps } = extractClientNewsletterStepsAndIntro(draftBody);
+      const cleanBadge = stripClientLegacyDayPrefix(draftBadge);
       await saveAdminNewsletter(
         {
           id: activeNewsletter.id,
           dayNumber: draftDayNumber,
           cadence: draftCadence,
-          badgeText: draftBadge,
+          category: draftCategory || cleanBadge,
+          phaseLabel: cleanBadge,
+          badgeText: cleanBadge,
           subject: draftSubject,
           headline: draftHeadline,
           bodyText: draftBody,
+          steps: parsedSteps,
           actionTip: draftActionTip,
           ctaText: draftCtaText,
+          targetAudience,
         },
         preview
       );
@@ -430,8 +529,8 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       setStatusBanner({
         tone: approve ? 'success' : 'info',
         text: approve
-          ? `Approved "${draftSubject}"! You can now schedule it or send it out.`
-          : 'Newsletter returned to Pending Approval status.',
+          ? `Approved "${draftSubject}"! Ready for bulk broadcast or scheduled delivery.`
+          : 'Email returned to Pending Approval status.',
       });
     } finally {
       setBusyAction(null);
@@ -443,17 +542,23 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     setBusyAction('schedule');
     setStatusBanner(null);
     try {
+      const { steps: parsedSteps } = extractClientNewsletterStepsAndIntro(draftBody);
+      const cleanBadge = stripClientLegacyDayPrefix(draftBadge);
       await saveAdminNewsletter(
         {
           id: activeNewsletter.id,
           dayNumber: draftDayNumber,
           cadence: draftCadence,
-          badgeText: draftBadge,
+          category: draftCategory || cleanBadge,
+          phaseLabel: cleanBadge,
+          badgeText: cleanBadge,
           subject: draftSubject,
           headline: draftHeadline,
           bodyText: draftBody,
+          steps: parsedSteps,
           actionTip: draftActionTip,
           ctaText: draftCtaText,
+          targetAudience,
         },
         preview
       );
@@ -479,15 +584,9 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       if (res.newsletters) setNewsletters(res.newsletters);
       setStatusBanner({
         tone: 'success',
-        text: `Approved & scheduled Day ${draftDayNumber} newsletter for ${formatSaDateTime(
+        text: `Approved & scheduled "${cleanBadge}" for ${formatSaDateTime(
           scheduledIso
-        )} SAST (${
-          draftCadence === 'daily'
-            ? 'Every Day'
-            : draftCadence === 'every_second_day'
-            ? 'Every 2nd Day'
-            : 'Daily then Every 2nd Day'
-        }).`,
+        )} SAST.`,
       });
     } finally {
       setBusyAction(null);
@@ -518,15 +617,9 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         return;
       }
       if (res.newsletters) setNewsletters(res.newsletters);
-      const cadenceDescription =
-        scheduleCadence === 'daily_then_every_second_day'
-          ? 'Every Day in the beginning (Days 1–5), then Every 2nd Day'
-          : scheduleCadence === 'daily'
-          ? 'Every Day (Daily)'
-          : 'Every 2nd Day';
       setStatusBanner({
         tone: 'success',
-        text: `All newsletters approved and scheduled (${cadenceDescription}) starting ${formatSaDateTime(
+        text: `All playbook emails approved and scheduled starting ${formatSaDateTime(
           startIso
         )} SAST!`,
       });
@@ -535,29 +628,40 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     }
   };
 
-  const handleSendNow = async () => {
+  const handleSendNow = async (overrideAudience?: NewsletterTargetAudience) => {
     if (!activeNewsletter) return;
-    setBusyAction('send');
+    const effectiveAudience = overrideAudience || targetAudience;
+    setBusyAction(overrideAudience === 'inactive_2_3_days' ? 'send-inactive' : 'send');
     setStatusBanner(null);
     try {
+      const { steps: parsedSteps } = extractClientNewsletterStepsAndIntro(draftBody);
+      const cleanBadge = stripClientLegacyDayPrefix(draftBadge);
       await saveAdminNewsletter(
         {
           id: activeNewsletter.id,
           dayNumber: draftDayNumber,
           cadence: draftCadence,
-          badgeText: draftBadge,
+          category: draftCategory || cleanBadge,
+          phaseLabel: cleanBadge,
+          badgeText: cleanBadge,
           subject: draftSubject,
           headline: draftHeadline,
           bodyText: draftBody,
+          steps: parsedSteps,
           actionTip: draftActionTip,
           ctaText: draftCtaText,
+          targetAudience: effectiveAudience,
         },
         preview
       );
-      const targetUsers =
-        targetAudience === 'selected' && selectedEmails.size > 0
-          ? users.filter((u) => selectedEmails.has(u.email.toLowerCase()))
-          : users;
+
+      let targetUsers = recipientUsersForTarget;
+      if (effectiveAudience === 'inactive_2_3_days') {
+        targetUsers = inactiveTraders.length > 0 ? inactiveTraders : users;
+      } else if (effectiveAudience === 'all') {
+        targetUsers = users;
+      }
+
       const recipients = targetUsers.map((u) => ({
         email: u.email,
         name: u.name,
@@ -566,6 +670,8 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         {
           id: activeNewsletter.id,
           recipients,
+          targetAudience: effectiveAudience,
+          isBulk: recipients.length > 1,
           approveAndSend: true,
         },
         preview
@@ -581,13 +687,36 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       if (res.logs) setLogs(res.logs);
       setStatusBanner({
         tone: 'success',
-        text: `Personalized Day ${draftDayNumber} newsletter approved and sent out to ${
-          res.results?.length || recipients.length
-        } trader(s)!`,
+        text:
+          effectiveAudience === 'inactive_2_3_days'
+            ? `Sent Comeback Motivation playbook to ${
+                res.results?.length || recipients.length
+              } trader(s) who were away 2–3+ days! Open tracking is active.`
+            : `Bulk email "${cleanBadge}" sent from Cheslin from Chart Replay to ${
+                res.results?.length || recipients.length
+              } trader(s)! Open tracking is active.`,
       });
     } finally {
       setBusyAction(null);
     }
+  };
+
+  const handleSelectComebackPlaybook = () => {
+    const comeback = newsletters.find(
+      (n) =>
+        n.id === 'newsletter-day-3' ||
+        n.targetAudience === 'inactive_2_3_days' ||
+        /missed you|comeback/i.test(n.subject)
+    );
+    if (comeback) {
+      setSelectedId(comeback.id);
+    }
+    setTargetAudience('inactive_2_3_days');
+    setUserFilterMode('inactive_2_3_days');
+    setStatusBanner({
+      tone: 'info',
+      text: `Selected the 3-Step Comeback Playbook targeting ${inactiveTraders.length} trader(s) inactive for 2–3+ days.`,
+    });
   };
 
   const card =
@@ -596,19 +725,34 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
   return (
     <div className="mt-6 space-y-6">
       {/* Top Metrics Row */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4">
         <section className={`${card} from-emerald-500/15 p-4 sm:p-5`}>
           <div className="flex items-center justify-between text-emerald-300 mb-3">
             <Users size={18} />
             <span className="text-[9px] uppercase tracking-wider opacity-70">
-              All Trader Emails
+              Bulk Audience
             </span>
           </div>
           <p className="text-[11px] text-slate-400">
-            Registered Newsletter Recipients
+            Registered Trader Emails
           </p>
           <p className="mt-1 text-2xl sm:text-3xl font-bold text-emerald-300">
             {metrics.totalEmails}
+          </p>
+        </section>
+
+        <section className={`${card} from-amber-500/15 p-4 sm:p-5`}>
+          <div className="flex items-center justify-between text-amber-300 mb-3">
+            <Clock3 size={18} />
+            <span className="text-[9px] uppercase tracking-wider opacity-70">
+              Away 2–3+ Days
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Ready for Comeback Email
+          </p>
+          <p className="mt-1 text-2xl sm:text-3xl font-bold text-amber-300">
+            {metrics.inactiveCount}
           </p>
         </section>
 
@@ -616,25 +760,12 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
           <div className="flex items-center justify-between text-cyan-300 mb-3">
             <ShieldCheck size={18} />
             <span className="text-[9px] uppercase tracking-wider opacity-70">
-              Admin Approved
+              Step Playbooks
             </span>
           </div>
-          <p className="text-[11px] text-slate-400">Approved Editions</p>
+          <p className="text-[11px] text-slate-400">Approved Playbooks</p>
           <p className="mt-1 text-2xl sm:text-3xl font-bold text-cyan-300">
             {metrics.approvedCount} / {newsletters.length}
-          </p>
-        </section>
-
-        <section className={`${card} from-amber-500/15 p-4 sm:p-5`}>
-          <div className="flex items-center justify-between text-amber-300 mb-3">
-            <CalendarClock size={18} />
-            <span className="text-[9px] uppercase tracking-wider opacity-70">
-              Daily / Every 2nd Day
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-400">Scheduled in Queue</p>
-          <p className="mt-1 text-2xl sm:text-3xl font-bold text-amber-300">
-            {metrics.scheduledCount}
           </p>
         </section>
 
@@ -642,46 +773,72 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
           <div className="flex items-center justify-between text-violet-300 mb-3">
             <Send size={18} />
             <span className="text-[9px] uppercase tracking-wider opacity-70">
-              Personalized Sends
+              Bulk &amp; Direct Sends
             </span>
           </div>
-          <p className="text-[11px] text-slate-400">Emails Sent Out</p>
+          <p className="text-[11px] text-slate-400">Total Emails Dispatched</p>
           <p className="mt-1 text-2xl sm:text-3xl font-bold text-violet-300">
             {metrics.totalDeliveries}
           </p>
         </section>
+
+        <section className={`${card} from-sky-500/15 p-4 sm:p-5 col-span-2 xl:col-span-1`}>
+          <div className="flex items-center justify-between text-sky-300 mb-3">
+            <MailOpen size={18} />
+            <span className="text-[9px] uppercase tracking-wider opacity-70">
+              Open Tracking
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Opened Emails ({metrics.openRate}% Rate)
+          </p>
+          <div className="mt-1 flex items-baseline gap-2">
+            <p className="text-2xl sm:text-3xl font-bold text-sky-300">
+              {metrics.openedLogsCount} / {logs.length}
+            </p>
+            {metrics.clickedLogsCount > 0 && (
+              <span className="text-[11px] font-semibold text-emerald-300">
+                · {metrics.clickedLogsCount} clicked
+              </span>
+            )}
+          </div>
+        </section>
       </div>
 
-      {/* Series Cadence & Automation Banner */}
+      {/* Bulk Broadcast, Inactive Re-Engagement & Playbook Automation Banner */}
       <section className={`${card} p-5 sm:p-6`}>
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/5 pb-5">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-emerald-400/10 border border-emerald-400/30 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
               <Newspaper size={12} />
-              Personalized Trader Motivation Newsletter
+              Cheslin from Chart Replay · Step-by-Step Trader Playbooks &amp; Bulk Broadcasts
             </div>
             <h2 className="mt-2.5 text-lg sm:text-xl font-semibold text-white">
-              Motivate Traders to Become Professional &amp; Successful — Review,
-              Approve &amp; Schedule
+              Structured 3-to-5-Step Trader Playbooks, Bulk Email Broadcasts &amp; Live Open Tracking
             </h2>
             <p className="mt-1 text-xs text-slate-400 max-w-3xl leading-relaxed">
-              Send personalized coaching emails that address each trader by name
-              and reference their personal{' '}
-              <strong className="text-slate-200">
-                Trading Plan, Replay Sessions, and Trades
-              </strong>
-              . Start with{' '}
+              Every email is sent from{' '}
               <strong className="text-emerald-300">
-                Every Day in the beginning (Days 1–5)
+                Cheslin from Chart Replay &lt;noreply@chartreplay.co.za&gt;
               </strong>{' '}
-              to build daily discipline, then transition to{' '}
-              <strong className="text-cyan-300">Every 2nd Day</strong> for
-              long-term consistency. Every email requires your{' '}
-              <strong className="text-amber-300">Administrator Approval</strong>{' '}
-              before it is scheduled and sent out.
+              in a clean{' '}
+              <strong className="text-slate-200">
+                3-to-5-step playbook format
+              </strong>{' '}
+              (Prop Firm Passing Steps, Eliminating Revenge Trading, Comeback Motivation after 2–3 days away, Risk &amp; R-Multiples) — with{' '}
+              <strong className="text-sky-300">real-time open &amp; click tracking</strong>{' '}
+              so you can see exactly who opened every email.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSelectComebackPlaybook}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-400/35 bg-amber-400/10 px-3.5 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-400/20 transition"
+            >
+              <Clock3 size={14} />
+              2–3+ Days Inactive Comeback ({metrics.inactiveCount})
+            </button>
             <button
               type="button"
               onClick={() => void handleCreateNewEdition()}
@@ -689,7 +846,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
               className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3.5 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-400/20 transition"
             >
               <Plus size={14} />
-              New Newsletter Email
+              New Step-by-Step Email
             </button>
             <button
               type="button"
@@ -698,37 +855,42 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
               className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 px-3.5 py-2 text-xs text-slate-300 hover:bg-white/5 transition"
             >
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-              Refresh
+              Refresh Opens
             </button>
           </div>
         </div>
 
-        {/* Global Cadence & One-Click Series Schedule Bar */}
-        <div className="mt-5 grid gap-4 lg:grid-cols-[1.3fr_1fr_auto] items-end rounded-2xl border border-cyan-400/20 bg-[#070e19] p-4">
+        {/* Bulk Broadcast & Audience Control Bar */}
+        <div className="mt-5 grid gap-4 lg:grid-cols-[1.15fr_1fr_auto] items-end rounded-2xl border border-cyan-400/20 bg-[#070e19] p-4">
           <div>
             <label
-              htmlFor="newsletter-cadence-mode"
-              className="block text-[10px] font-bold uppercase tracking-wider text-cyan-300 mb-1.5"
+              htmlFor="newsletter-audience-select"
+              className="block text-[10px] font-bold uppercase tracking-wider text-emerald-300 mb-1.5"
             >
-              Newsletter Sending Cadence Strategy
+              Bulk Email Target Audience
             </label>
             <select
-              id="newsletter-cadence-mode"
-              value={scheduleCadence}
+              id="newsletter-audience-select"
+              value={targetAudience}
               onChange={(e) =>
-                setScheduleCadence(e.target.value as NewsletterCadence)
+                setTargetAudience(e.target.value as NewsletterTargetAudience)
               }
               className="w-full rounded-xl border border-white/10 bg-[#0f1928] px-3.5 py-2.5 text-xs text-white outline-none focus:border-emerald-400/50"
             >
-              <option value="daily_then_every_second_day">
-                Every Day in the Beginning (Days 1–5) → Then Every 2nd Day
-                (Recommended)
+              <option value="all">
+                All Registered Traders — Bulk Broadcast ({users.length} traders)
               </option>
-              <option value="daily">
-                Every Day (Daily Trader Motivation)
+              <option value="inactive_2_3_days">
+                Inactive 2–3+ Days — Comeback Motivation ({inactiveTraders.length} traders)
               </option>
-              <option value="every_second_day">
-                Every 2nd Day (Every 48 Hours)
+              <option value="active">
+                Active Traders with Practice Sessions
+              </option>
+              <option value="new_starters">
+                New Traders (Joined in Last 7 Days)
+              </option>
+              <option value="selected">
+                Hand-Picked Trader Emails Below ({selectedEmails.size} selected)
               </option>
             </select>
           </div>
@@ -751,44 +913,52 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
             </div>
             <div>
               <label
-                htmlFor="newsletter-audience-select"
+                htmlFor="newsletter-cadence-mode"
                 className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5"
               >
-                Target Recipients
+                Automated Queue Frequency
               </label>
               <select
-                id="newsletter-audience-select"
-                value={targetAudience}
+                id="newsletter-cadence-mode"
+                value={scheduleCadence}
                 onChange={(e) =>
-                  setTargetAudience(e.target.value as NewsletterTargetAudience)
+                  setScheduleCadence(e.target.value as NewsletterCadence)
                 }
                 className="w-full rounded-xl border border-white/10 bg-[#0f1928] px-3 py-2.5 text-xs text-white outline-none focus:border-emerald-400/50"
               >
-                <option value="all">
-                  All Registered Traders ({users.length})
+                <option value="daily_then_every_second_day">
+                  Regular Playbook Rotation (Recommended)
                 </option>
-                <option value="new_starters">
-                  New Traders (First 7 Days · Daily)
-                </option>
-                <option value="active">Active Traders with Sessions</option>
-                <option value="selected">
-                  Selected Emails Below ({selectedEmails.size})
-                </option>
+                <option value="daily">Every Day</option>
+                <option value="every_second_day">Every Few Days (48h)</option>
               </select>
             </div>
           </div>
 
-          <button
-            type="button"
-            disabled={busyAction !== null}
-            onClick={() => void handleAutoScheduleFullSeries()}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-lg hover:opacity-95 disabled:opacity-50 transition whitespace-nowrap"
-          >
-            <CalendarClock size={15} />
-            {busyAction === 'series'
-              ? 'Scheduling Series…'
-              : 'Approve & Schedule Series'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={busyAction !== null}
+              onClick={() => void handleSendNow()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-lg hover:opacity-95 disabled:opacity-50 transition whitespace-nowrap"
+            >
+              <Send size={14} />
+              {busyAction === 'send'
+                ? 'Sending Bulk Email…'
+                : `Send Bulk Email Now (${recipientUsersForTarget.length || users.length})`}
+            </button>
+            <button
+              type="button"
+              disabled={busyAction !== null}
+              onClick={() => void handleAutoScheduleFullSeries()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-400/35 bg-cyan-400/15 px-3.5 py-2.5 text-xs font-bold text-cyan-200 hover:bg-cyan-400/25 disabled:opacity-50 transition whitespace-nowrap"
+            >
+              <CalendarClock size={14} />
+              {busyAction === 'series'
+                ? 'Scheduling…'
+                : 'Schedule Playbook Queue'}
+            </button>
+          </div>
         </div>
 
         {statusBanner && (
@@ -817,17 +987,17 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         )}
       </section>
 
-      {/* Main Split Workspace: All Newsletter Editions (Left) + Visual Email Layout & Approval Controls (Right) */}
+      {/* Main Split Workspace: All Step-by-Step Playbooks (Left) + Visual Email Layout & Approval Controls (Right) */}
       <div className="grid gap-6 xl:grid-cols-[380px_1fr]">
-        {/* Left Column: All Newsletter Emails in Sequence */}
+        {/* Left Column: All Step-by-Step Playbooks */}
         <section className={`${card} p-4 sm:p-5 flex flex-col`}>
           <div className="flex items-center justify-between border-b border-white/5 pb-3.5">
             <div>
               <h3 className="text-sm font-semibold text-white">
-                All Newsletter Emails ({newsletters.length})
+                Step-by-Step Email Playbooks ({newsletters.length})
               </h3>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Click any email to inspect its layout, approve, or schedule
+                Select any 3-to-5-step email to preview, customize, or send in bulk
               </p>
             </div>
             <span className="rounded-full bg-emerald-400/10 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-300">
@@ -838,6 +1008,11 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
           <div className="mt-3 space-y-2.5 overflow-y-auto max-h-[760px] pr-1">
             {newsletters.map((item) => {
               const isSelected = item.id === activeNewsletter?.id;
+              const cleanBadge = stripClientLegacyDayPrefix(item.badgeText);
+              const { steps: itemSteps } = extractClientNewsletterStepsAndIntro(
+                item.bodyText,
+                item.steps
+              );
               const statusBadge =
                 item.status === 'sent'
                   ? {
@@ -875,10 +1050,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-                      Day {item.dayNumber} ·{' '}
-                      {item.cadence === 'daily'
-                        ? 'Every Day'
-                        : 'Every 2nd Day'}
+                      {cleanBadge}
                     </span>
                     <span
                       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusBadge.cls}`}
@@ -892,12 +1064,18 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                       previewRecipient
                     )}
                   </p>
-                  <p className="mt-1 text-[11px] text-slate-400 line-clamp-2">
-                    {personalizeClientNewsletterText(
-                      item.bodyText,
-                      previewRecipient
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {itemSteps.length > 0 && (
+                      <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium text-sky-300">
+                        {itemSteps.length} Structured Steps
+                      </span>
                     )}
-                  </p>
+                    {item.targetAudience === 'inactive_2_3_days' && (
+                      <span className="rounded-md bg-amber-400/15 border border-amber-400/30 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                        2–3+ Days Inactive Comeback
+                      </span>
+                    )}
+                  </div>
                   {item.scheduledFor && item.status === 'scheduled' && (
                     <p className="mt-2 flex items-center gap-1 text-[10px] text-cyan-300">
                       <Clock3 size={11} />
@@ -910,19 +1088,21 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
           </div>
         </section>
 
-        {/* Right Column: Approval & Schedule Bar + Live Visual Email Layout Preview */}
+        {/* Right Column: Approval & Bulk Send Bar + Live Visual Email Layout Preview */}
         {activeNewsletter && (
           <section className={`${card} p-5 sm:p-6 space-y-5`}>
-            {/* Administrator Approval & Scheduling Action Bar */}
+            {/* Administrator Approval & Bulk Dispatch Action Bar */}
             <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-[#0a1322] p-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-emerald-400/15 border border-emerald-400/30 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-                    Day {draftDayNumber} ·{' '}
-                    {draftCadence === 'daily'
-                      ? 'Every Day (Beginning)'
-                      : 'Every 2nd Day'}
+                    {stripClientLegacyDayPrefix(draftBadge)}
                   </span>
+                  {personalizedPreview.steps.length > 0 && (
+                    <span className="rounded-full bg-sky-500/15 border border-sky-400/30 px-2.5 py-0.5 text-[10px] font-bold text-sky-300">
+                      {personalizedPreview.steps.length}-Step Breakdown
+                    </span>
+                  )}
                   {activeNewsletter.approved ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 px-3 py-0.5 text-[11px] font-bold text-emerald-200">
                       <Check size={12} /> Approved by Administrator
@@ -941,8 +1121,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     )}
                 </div>
                 <p className="mt-1.5 text-xs text-slate-400">
-                  Step 1: Inspect the personalized email layout below · Step 2:
-                  Approve · Step 3: Schedule or Send Out
+                  Review the 3-to-5-step email below · Approve · Send Bulk Email or Comeback Motivation
                 </p>
               </div>
 
@@ -953,7 +1132,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                   className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition"
                 >
                   <Edit3 size={13} />
-                  {editingCopy ? 'Close Editor' : 'Customize Email'}
+                  {editingCopy ? 'Close Editor' : 'Customize Steps & Copy'}
                 </button>
 
                 {!activeNewsletter.approved ? (
@@ -994,40 +1173,44 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                 <button
                   type="button"
                   disabled={busyAction !== null}
+                  onClick={() => void handleSendNow('inactive_2_3_days')}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-400/40 bg-amber-400/15 px-3.5 py-2 text-xs font-bold text-amber-200 hover:bg-amber-400/25 transition"
+                  title="Send to traders who haven't been on the platform for 2–3+ days"
+                >
+                  <Clock3 size={13} />
+                  {busyAction === 'send-inactive'
+                    ? 'Sending…'
+                    : `Send to Inactive 2–3+ Days (${inactiveTraders.length})`}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={busyAction !== null}
                   onClick={() => void handleSendNow()}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-2 text-xs font-extrabold text-slate-950 shadow-md hover:opacity-95 disabled:opacity-40 transition"
                 >
                   <Send size={13} />
                   {busyAction === 'send'
                     ? 'Sending…'
-                    : '3. Approve & Send Now'}
+                    : '3. Approve & Send Bulk Email'}
                 </button>
               </div>
             </div>
 
-            {/* Optional Copy & Personalization Editor */}
+            {/* Optional Copy & Step-by-Step Editor */}
             {editingCopy && (
               <div className="rounded-2xl border border-emerald-400/25 bg-[#070d18] p-4 sm:p-5 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-300">
-                      Customize Newsletter Copy &amp; Personalization Tags
+                      Customize Playbook Steps &amp; Personalization Tags
                     </h4>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      Available personalization tags:{' '}
+                      Write numbered lines (<code className="text-emerald-300">1. Step Title: Description</code>) to render them as structured step cards. Tags:{' '}
                       <code className="text-cyan-300">{'{{firstName}}'}</code>,{' '}
                       <code className="text-cyan-300">{'{{name}}'}</code>,{' '}
                       <code className="text-cyan-300">
                         {'{{tradingPlanName}}'}
-                      </code>
-                      ,{' '}
-                      <code className="text-cyan-300">
-                        {'{{sessionCount}}'}
-                      </code>
-                      ,{' '}
-                      <code className="text-cyan-300">{'{{tradeCount}}'}</code>,{' '}
-                      <code className="text-cyan-300">
-                        {'{{daysOnPlatform}}'}
                       </code>
                     </p>
                   </div>
@@ -1037,55 +1220,44 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     onClick={() => void handleSaveCopy()}
                     className="rounded-xl bg-emerald-400 px-3.5 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-300 transition"
                   >
-                    {busyAction === 'save' ? 'Saving…' : 'Save Email Changes'}
+                    {busyAction === 'save' ? 'Saving…' : 'Save Playbook Changes'}
                   </button>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-[11px] text-slate-400 mb-1">
-                      Day Number
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={365}
-                      value={draftDayNumber}
-                      onChange={(e) =>
-                        setDraftDayNumber(Number(e.target.value) || 1)
-                      }
-                      className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">
-                      Email Cadence
-                    </label>
-                    <select
-                      value={draftCadence}
-                      onChange={(e) =>
-                        setDraftCadence(e.target.value as NewsletterCadence)
-                      }
-                      className="w-full rounded-xl border border-white/10 bg-[#101a29] px-3 py-2 text-xs text-white outline-none"
-                    >
-                      <option value="daily">
-                        Every Day (Beginning Daily Habit)
-                      </option>
-                      <option value="every_second_day">
-                        Every 2nd Day (Ongoing Progression)
-                      </option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">
-                      Top Pill Badge
+                      Playbook Category / Top Pill Badge
                     </label>
                     <input
                       type="text"
                       value={draftBadge}
                       onChange={(e) => setDraftBadge(e.target.value)}
+                      placeholder="e.g. Prop Firm Playbook · 5 Steps"
                       className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">
+                      Default Target Audience
+                    </label>
+                    <select
+                      value={targetAudience}
+                      onChange={(e) =>
+                        setTargetAudience(
+                          e.target.value as NewsletterTargetAudience
+                        )
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-[#101a29] px-3 py-2 text-xs text-white outline-none"
+                    >
+                      <option value="all">All Registered Traders (Bulk)</option>
+                      <option value="inactive_2_3_days">
+                        Traders Inactive 2–3+ Days (Comeback Motivation)
+                      </option>
+                      <option value="active">Active Traders</option>
+                      <option value="new_starters">New Starters (First 7 Days)</option>
+                      <option value="selected">Selected Trader Emails</option>
+                    </select>
                   </div>
                 </div>
 
@@ -1116,10 +1288,10 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
 
                 <div>
                   <label className="block text-[11px] text-slate-400 mb-1">
-                    Motivational Body Paragraphs
+                    Intro &amp; Numbered 3-to-5 Steps (Start each step with 1., 2., 3., etc.)
                   </label>
                   <textarea
-                    rows={4}
+                    rows={6}
                     value={draftBody}
                     onChange={(e) => setDraftBody(e.target.value)}
                     className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-xs text-white outline-none leading-relaxed"
@@ -1168,7 +1340,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                 >
                   {users.map((u) => (
                     <option key={u.source + u.id} value={u.email}>
-                      {u.name} ({u.email}) — {u.sessionCount ?? 0} sessions
+                      {u.name} ({u.email})
                     </option>
                   ))}
                   {users.length === 0 && (
@@ -1220,7 +1392,10 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
             <div className="rounded-2xl border border-white/10 bg-[#060b14] p-4 text-xs space-y-1.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-slate-400">
-                  <strong className="text-slate-300">From:</strong> Chart Replay
+                  <strong className="text-slate-300">From:</strong>{' '}
+                  <span className="text-white font-semibold">
+                    Cheslin from Chart Replay
+                  </span>{' '}
                   &lt;noreply@chartreplay.co.za&gt;
                 </span>
                 <span className="text-slate-400">
@@ -1230,11 +1405,16 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                   </span>
                 </span>
               </div>
-              <div className="text-sm font-bold text-white">
-                <span className="text-slate-400 font-normal text-xs mr-2">
-                  Subject:
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-bold text-white">
+                  <span className="text-slate-400 font-normal text-xs mr-2">
+                    Subject:
+                  </span>
+                  {personalizedPreview.subject}
+                </div>
+                <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 border border-sky-400/30 px-2.5 py-0.5 text-[10px] font-semibold text-sky-300">
+                  <MailOpen size={11} /> Open &amp; Click Tracking Active
                 </span>
-                {personalizedPreview.subject}
               </div>
             </div>
 
@@ -1242,34 +1422,40 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
             {layoutMode === 'text' ? (
               <pre className="rounded-2xl border border-white/10 bg-[#050811] p-5 text-xs text-slate-200 font-mono whitespace-pre-wrap leading-relaxed">
                 {[
+                  `From: Cheslin from Chart Replay <noreply@chartreplay.co.za>`,
                   `Subject: ${personalizedPreview.subject}`,
                   `To: ${previewRecipient.name} <${previewRecipient.email}>`,
                   '',
                   personalizedPreview.headline,
                   '',
-                  personalizedPreview.bodyText,
+                  ...personalizedPreview.introParagraphs,
                   '',
-                  `--- Personal Trader Snapshot (${previewRecipient.name}) ---`,
-                  `• Sessions Practiced: ${previewRecipient.sessionCount ?? 0}`,
-                  `• Trades Logged: ${previewRecipient.tradeCount ?? 0}`,
-                  `• Time on Platform: ${personalizedPreview.daysLabel}`,
-                  `• Trading Plan: ${personalizedPreview.planDisplay}`,
-                  '',
+                  ...(personalizedPreview.steps.length > 0
+                    ? [
+                        `--- Your ${personalizedPreview.steps.length}-Step Execution Breakdown ---`,
+                        ...personalizedPreview.steps.map(
+                          (step, idx) => `${idx + 1}. ${step}`
+                        ),
+                        '',
+                      ]
+                    : []),
                   `✓ Today's Professional Habit Focus:`,
                   personalizedPreview.actionTip,
                   '',
                   `[${personalizedPreview.ctaText}] -> https://chartreplay.co.za`,
+                  '',
+                  `— Cheslin from Chart Replay`,
                 ].join('\n')}
               </pre>
             ) : (
-              <div className="rounded-2xl border border-white/10 bg-[#050811] p-4 sm:p-7 flex justify-center">
+              <div className="rounded-2xl border border-slate-200/80 bg-[#f1f5f9] p-4 sm:p-7 flex justify-center">
                 <div
                   className={`w-full ${
                     layoutMode === 'mobile' ? 'max-w-[375px]' : 'max-w-[600px]'
-                  } rounded-[22px] border border-[#1e293b] bg-[#0b111e] overflow-hidden shadow-2xl transition-all`}
+                  } rounded-[22px] border border-slate-200 bg-white overflow-hidden shadow-xl transition-all`}
                 >
                   {/* Top Brand Banner */}
-                  <div className="bg-[#080d18] border-b border-[#1e293b] relative">
+                  <div className="bg-white border-b border-slate-200 relative">
                     <img
                       src="/email-welcome-banner.png"
                       alt="Chart Replay — Replay. Practice. Perfect Your Edge."
@@ -1280,100 +1466,114 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     />
                   </div>
 
-                  {/* Greeting & Personalized Coaching Copy */}
-                  <div className="p-6 sm:p-8 bg-gradient-to-b from-[#0f1829] to-[#0b111e]">
-                    <span className="inline-block rounded-full bg-emerald-500/15 border border-emerald-400/35 px-3.5 py-1 text-[11px] font-bold uppercase tracking-widest text-emerald-300">
+                  {/* Greeting & Formatted Intro Paragraphs */}
+                  <div className="p-6 sm:p-8 bg-white">
+                    <span className="inline-block rounded-full bg-emerald-50 border border-emerald-200 px-3.5 py-1 text-[11px] font-bold uppercase tracking-widest text-emerald-700">
                       {personalizedPreview.badgeText}
                     </span>
 
-                    <h3 className="mt-4 text-xl sm:text-2xl font-extrabold text-white leading-snug">
+                    <h3 className="mt-4 text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug">
                       {personalizedPreview.headline}
                     </h3>
 
-                    <div className="mt-4 space-y-3.5 text-sm leading-relaxed text-slate-300">
-                      {personalizedPreview.paragraphs.map((para, i) => (
-                        <p key={i}>{para}</p>
+                    <div className="mt-4 space-y-4 text-[15px] leading-[1.75] text-slate-700">
+                      {personalizedPreview.introParagraphs.map((para, i) => (
+                        <p key={i} className="leading-[1.75]">
+                          {para}
+                        </p>
                       ))}
                     </div>
                   </div>
 
-                  {/* Personalized Trader Snapshot Card */}
-                  <div className="px-6 sm:px-8 pb-6">
-                    <div className="rounded-2xl border border-[#1e293b] bg-[#080d17] overflow-hidden">
-                      <div className="px-4 py-2.5 border-b border-[#162032] text-[10px] font-extrabold uppercase tracking-widest text-sky-400">
-                        Personal Trader Snapshot · {previewRecipient.name}
+                  {/* Structured 3-to-5-Step Playbook Card */}
+                  {personalizedPreview.steps.length > 0 && (
+                    <div className="px-6 sm:px-8 pb-6 bg-white">
+                      <div className="text-[11px] font-extrabold uppercase tracking-widest text-sky-700 mb-3">
+                        {personalizedPreview.steps.length}-Step Trader Playbook
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-[#162032] text-center">
-                        <div className="p-3">
-                          <div className="text-[10px] uppercase text-slate-500">
-                            Sessions
-                          </div>
-                          <div className="mt-1 text-base font-extrabold text-emerald-400">
-                            {previewRecipient.sessionCount ?? 0}
-                          </div>
-                        </div>
-                        <div className="p-3">
-                          <div className="text-[10px] uppercase text-slate-500">
-                            Trades
-                          </div>
-                          <div className="mt-1 text-base font-extrabold text-sky-400">
-                            {previewRecipient.tradeCount ?? 0}
-                          </div>
-                        </div>
-                        <div className="p-3">
-                          <div className="text-[10px] uppercase text-slate-500">
-                            Journey
-                          </div>
-                          <div className="mt-1 text-xs font-bold text-violet-400">
-                            {personalizedPreview.daysLabel}
-                          </div>
-                        </div>
-                        <div className="p-3">
-                          <div className="text-[10px] uppercase text-slate-500">
-                            Trading Plan
-                          </div>
-                          <div
-                            className="mt-1 text-[11px] font-bold text-amber-400 truncate"
-                            title={personalizedPreview.planDisplay}
-                          >
-                            {personalizedPreview.planDisplay}
-                          </div>
-                        </div>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50/90 divide-y divide-slate-200 overflow-hidden">
+                        {personalizedPreview.steps.map((rawStep, idx) => {
+                          const sepMatch = rawStep.match(
+                            /^([^—–:]+?)\s*(?:—|–|:)\s*(.+)$/
+                          );
+                          const hasLead = Boolean(
+                            sepMatch && sepMatch[1].trim().length < 75
+                          );
+                          const stepTitle = hasLead
+                            ? sepMatch![1].trim()
+                            : `Step ${idx + 1}`;
+                          const stepDesc = hasLead
+                            ? sepMatch![2].trim()
+                            : rawStep.trim();
+
+                          const badgeColors = [
+                            'bg-emerald-50 border-emerald-200 text-emerald-700',
+                            'bg-sky-50 border-sky-200 text-sky-700',
+                            'bg-violet-50 border-violet-200 text-violet-700',
+                            'bg-amber-50 border-amber-200 text-amber-700',
+                            'bg-rose-50 border-rose-200 text-rose-700',
+                          ];
+
+                          return (
+                            <div
+                              key={idx}
+                              className="p-4 sm:px-5 flex items-start gap-3.5"
+                            >
+                              <span
+                                className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs font-extrabold ${
+                                  badgeColors[idx % badgeColors.length]
+                                }`}
+                              >
+                                {idx + 1}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-bold text-slate-900 mb-1">
+                                  {stepTitle}
+                                </div>
+                                <p className="text-[13.5px] leading-relaxed text-slate-600">
+                                  {stepDesc}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Today's Pro-Trader Habit Box */}
-                  <div className="px-6 sm:px-8 pb-6">
-                    <div className="rounded-2xl border border-emerald-400/30 bg-gradient-to-br from-emerald-500/10 to-sky-500/10 p-4 sm:p-5">
-                      <div className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-300 mb-1.5">
-                        ✓ Today&rsquo;s Professional Habit Focus
+                  {/* Today's Pro-Trader Action Box */}
+                  <div className="px-6 sm:px-8 pb-6 bg-white">
+                    <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-4 sm:p-5">
+                      <div className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-800 mb-1.5">
+                        ✓ Pro-Trader Action Focus
                       </div>
-                      <p className="text-xs sm:text-sm leading-relaxed text-slate-100">
+                      <p className="text-xs sm:text-sm leading-relaxed text-emerald-950 font-medium">
                         {personalizedPreview.actionTip}
                       </p>
                     </div>
                   </div>
 
                   {/* Primary CTA Button */}
-                  <div className="px-6 sm:px-8 pb-7">
-                    <div className="w-full rounded-2xl bg-gradient-to-r from-emerald-500 via-sky-500 to-blue-600 py-4 px-6 text-center text-sm font-extrabold text-white shadow-lg">
+                  <div className="px-6 sm:px-8 pb-7 bg-white">
+                    <div className="w-full rounded-2xl bg-gradient-to-r from-emerald-600 to-sky-600 py-4 px-6 text-center text-sm font-extrabold text-white shadow-md">
                       {personalizedPreview.ctaText}
                     </div>
                   </div>
 
                   {/* Email Footer */}
-                  <div className="px-6 py-5 bg-[#070b14] border-t border-[#1e293b] text-center text-[11px] leading-relaxed text-slate-500">
-                    <strong className="text-slate-400">
-                      Chart Replay Trader Newsletter
+                  <div className="px-6 py-5 bg-slate-50 border-t border-slate-200 text-center text-[11px] leading-relaxed text-slate-500">
+                    <strong className="text-slate-900">
+                      Cheslin from Chart Replay
                     </strong>{' '}
                     · Personalized for{' '}
-                    <span className="text-slate-300">
+                    <span className="text-slate-700 font-semibold">
                       {previewRecipient.name} ({previewRecipient.email})
                     </span>
                     <br />
-                    Built in South Africa for deliberate trader development ·
-                    chartreplay.co.za
+                    Built in South Africa for deliberate trader development ·{' '}
+                    <span className="text-sky-600 font-semibold">
+                      chartreplay.co.za
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1382,19 +1582,212 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         )}
       </div>
 
+      {/* Who Opened Your Emails — Real-Time Email Open & Click Tracker */}
+      <section className={`${card} p-5 sm:p-6`}>
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/5 pb-4">
+          <div>
+            <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-sky-300">
+              <MailOpen size={14} />
+              Email Open &amp; Engagement Analytics
+            </div>
+            <h3 className="mt-1 text-base font-semibold text-white">
+              Who Opened Up Your Emails ({metrics.openedLogsCount} Opened of{' '}
+              {logs.length} Sent · {metrics.openRate}% Open Rate)
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Live tracking shows every trader who opened your email, how many times they opened it, when they opened it, and whether they clicked back into Chart Replay.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-xl border border-white/10 bg-black/30 p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setOpenFilterMode('all')}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  openFilterMode === 'all'
+                    ? 'bg-sky-400/20 text-sky-200 font-semibold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                All Sent ({logs.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpenFilterMode('opened')}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  openFilterMode === 'opened'
+                    ? 'bg-emerald-400/20 text-emerald-200 font-semibold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Opened ✓ ({metrics.openedLogsCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpenFilterMode('unopened')}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  openFilterMode === 'unopened'
+                    ? 'bg-amber-400/20 text-amber-200 font-semibold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Not Opened ({Math.max(0, logs.length - metrics.openedLogsCount)})
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpenFilterMode('clicked')}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  openFilterMode === 'clicked'
+                    ? 'bg-cyan-400/20 text-cyan-200 font-semibold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Clicked CTA ({metrics.clickedLogsCount})
+              </button>
+            </div>
+
+            <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-1.5">
+              <Search size={13} className="text-slate-500" />
+              <input
+                type="text"
+                value={openLogSearch}
+                onChange={(e) => setOpenLogSearch(e.target.value)}
+                placeholder="Filter by trader or subject…"
+                className="w-40 sm:w-48 bg-transparent text-xs text-white outline-none placeholder:text-slate-600"
+              />
+            </label>
+          </div>
+        </div>
+
+        {filteredLogs.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-white/5 bg-black/20 p-6 text-center text-xs text-slate-400">
+            No email deliveries match this filter yet. Send a bulk or comeback email above to track opens in real time.
+          </div>
+        ) : (
+          <div className="mt-4 overflow-x-auto rounded-xl border border-white/5">
+            <table className="w-full min-w-[780px] text-left text-xs">
+              <thead className="bg-white/[0.02] text-[10px] uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Trader</th>
+                  <th className="px-4 py-3 font-medium">Email Subject &amp; Playbook</th>
+                  <th className="px-4 py-3 font-medium">Open Status</th>
+                  <th className="px-4 py-3 font-medium">Opened At (SAST)</th>
+                  <th className="px-4 py-3 font-medium">Sent At (SAST)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLogs.slice(0, 30).map((log) => (
+                  <tr
+                    key={log.id}
+                    className="border-t border-white/5 hover:bg-white/[0.02]"
+                  >
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-slate-200">
+                        {log.userName}
+                      </p>
+                      <p className="text-slate-400 font-mono text-[11px]">
+                        {log.userEmail}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-white line-clamp-1">
+                        {log.subject}
+                      </p>
+                      <p className="text-[10px] text-emerald-300 mt-0.5">
+                        {stripClientLegacyDayPrefix(
+                          log.badgeText || log.category || 'Trader Playbook'
+                        )}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {log.opened ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 px-2.5 py-0.5 text-[11px] font-bold text-emerald-200">
+                            <MailOpen size={12} />
+                            Opened ✓
+                            {Number(log.openCount || 1) > 1
+                              ? ` (${log.openCount}x)`
+                              : ''}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] border border-white/10 px-2.5 py-0.5 text-[11px] text-slate-400">
+                            <Mail size={11} />
+                            Sent · Not opened yet
+                          </span>
+                        )}
+                        {log.clicked && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/20 border border-sky-400/40 px-2 py-0.5 text-[10px] font-bold text-sky-200">
+                            <MousePointerClick size={11} />
+                            Clicked CTA
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-300">
+                      {log.opened && log.openedAt ? (
+                        <div>
+                          <span className="text-emerald-300 font-semibold">
+                            {formatSaDateTime(log.openedAt)}
+                          </span>
+                          {log.clickedAt && (
+                            <p className="text-[10px] text-sky-300">
+                              Clicked: {formatSaDateTime(log.clickedAt)}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-500">Awaiting open…</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-400">
+                      {formatSaDateTime(log.sentAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {/* All Registered Trader Emails Table & Individual Personalization Selector */}
       <section className={`${card} p-5 sm:p-6`}>
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/5 pb-4">
           <div>
             <h3 className="text-base font-semibold text-white">
-              All Registered Trader Emails ({filteredUsers.length})
+              Registered Trader Recipients ({filteredUsers.length})
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Select specific trader emails or preview how the personalized
-              newsletter looks for any registered trader.
+              Filter by traders inactive for 2–3+ days, check their email open history, or select specific recipients for a bulk send.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-xl border border-white/10 bg-black/30 p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setUserFilterMode('all')}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  userFilterMode === 'all'
+                    ? 'bg-emerald-400/20 text-emerald-200 font-semibold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                All Traders ({users.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserFilterMode('inactive_2_3_days')}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  userFilterMode === 'inactive_2_3_days'
+                    ? 'bg-amber-400/20 text-amber-200 font-semibold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Inactive 2–3+ Days ({inactiveTraders.length})
+              </button>
+            </div>
+
             <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
               <Search size={14} className="text-slate-500" />
               <input
@@ -1415,20 +1808,20 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                 selectedEmails.has(u.email.toLowerCase())
               )
                 ? 'Deselect All'
-                : 'Select All Emails'}
+                : 'Select Filtered Emails'}
             </button>
           </div>
         </div>
 
         <div className="mt-4 overflow-x-auto rounded-xl border border-white/5">
-          <table className="w-full min-w-[780px] text-left text-xs">
+          <table className="w-full min-w-[820px] text-left text-xs">
             <thead className="bg-white/[0.02] text-[10px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Select</th>
                 <th className="px-4 py-3 font-medium">Trader Name &amp; Email</th>
+                <th className="px-4 py-3 font-medium">Platform Activity Status</th>
+                <th className="px-4 py-3 font-medium">Emails Opened</th>
                 <th className="px-4 py-3 font-medium">Trading Plan</th>
-                <th className="px-4 py-3 font-medium">Sessions / Trades</th>
-                <th className="px-4 py-3 font-medium">Time on Platform</th>
                 <th className="px-4 py-3 font-medium text-right">
                   Personalization Preview
                 </th>
@@ -1440,6 +1833,9 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                 const isSelected = selectedEmails.has(emailKey);
                 const isPreviewing =
                   previewRecipient.email.toLowerCase() === emailKey;
+                const inactive = isTraderInactive2To3PlusDays(user);
+                const daysAway = getTraderDaysSinceActive(user);
+                const openStats = perUserOpenStats.get(emailKey);
 
                 return (
                   <tr
@@ -1464,6 +1860,35 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                       </p>
                     </td>
                     <td className="px-4 py-3">
+                      {inactive ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-400/35 px-2.5 py-0.5 text-[11px] font-semibold text-amber-200">
+                          <Clock3 size={11} />
+                          Away {daysAway}d · Comeback Ready
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-400/35 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-200">
+                          <UserCheck size={11} />
+                          Active ({daysAway === 0 ? 'Today' : `${daysAway}d ago`})
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {openStats ? (
+                        openStats.opened > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-300 font-semibold">
+                            <MailCheck size={13} />
+                            Opened {openStats.opened}/{openStats.sent}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">
+                            0/{openStats.sent} opened
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-slate-500">No emails sent yet</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
                       {user.tradingPlanName ? (
                         <span className="text-emerald-300 font-medium">
                           {user.tradingPlanName}
@@ -1473,18 +1898,6 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                       ) : (
                         <span className="text-slate-500">No plan yet</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-slate-300">
-                      {user.sessionCount ?? 0} sessions · {user.tradeCount ?? 0}{' '}
-                      trades
-                    </td>
-                    <td className="px-4 py-3 text-slate-300">
-                      {formatPlatformDurationLabel(
-                        user.totalTimeOnPlatformSeconds ??
-                          user.currentSessionSeconds ??
-                          900
-                      )}{' '}
-                      active
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
@@ -1499,7 +1912,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                         <Sparkles size={12} />
                         {isPreviewing
                           ? 'Previewing Layout'
-                          : 'Show Personalized Email'}
+                          : 'Preview Email'}
                       </button>
                     </td>
                   </tr>
@@ -1509,34 +1922,6 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
           </table>
         </div>
       </section>
-
-      {/* Sent Newsletter Delivery History */}
-      {logs.length > 0 && (
-        <section className={`${card} p-5 sm:p-6`}>
-          <h3 className="text-sm font-semibold text-white">
-            Recent Newsletter Deliveries ({logs.length})
-          </h3>
-          <div className="mt-3 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-            {logs.slice(0, 9).map((log) => (
-              <div
-                key={log.id}
-                className="rounded-xl border border-white/5 bg-black/25 p-3 text-xs"
-              >
-                <div className="flex items-center justify-between text-[10px] text-emerald-300 font-bold">
-                  <span>Day {log.dayNumber} Newsletter</span>
-                  <span>{formatSaDateTime(log.sentAt)}</span>
-                </div>
-                <p className="mt-1 font-semibold text-white truncate">
-                  {log.userName} ({log.userEmail})
-                </p>
-                <p className="mt-0.5 text-[11px] text-slate-400 truncate">
-                  {log.subject}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 };

@@ -2469,6 +2469,41 @@ export function App() {
     setActiveView(currentUser?'dashboard':'landing');
   };
 
+  // Shared public-site header (homepage, Trader's Insight, Partners, Contact).
+  const leavePublicSubPages=()=>{
+    setLegalPage(null);
+    setSitemapPage(false);
+    setPartnerPage(false);
+    setContactRoute({active:false,category:'general_inquiry'});
+    setComingSoon(false);
+    setInsightRoute({active:false,slug:null});
+  };
+  const goToHomeSection=(sectionId:string|null)=>{
+    window.history.pushState({},'','/');
+    leavePublicSubPages();
+    setActiveView('landing');
+    // Wait for the homepage to render, then scroll to the requested section.
+    let attempts=0;
+    const tryScroll=()=>{
+      const el=document.getElementById(sectionId||'top');
+      if(el){el.scrollIntoView({behavior:sectionId?'smooth':'auto'});return;}
+      if(++attempts<40)window.setTimeout(tryScroll,50);
+    };
+    window.setTimeout(tryScroll,0);
+  };
+  const siteHeaderProps={
+    onLogoClick:()=>goToHomeSection(null),
+    onNavigateSection:(id:string)=>goToHomeSection(id),
+    onOpenTradersInsight:()=>{leavePublicSubPages();openTradersInsight(null);},
+    onOpenPartners:openPartnerPage,
+    onOpenContact:()=>openContactPage('general_inquiry'),
+    onOpenLogin:(mode:'login'|'signup')=>{
+      leavePublicSubPages();
+      setLoginInitialMode(mode);
+      setActiveView('login');
+    },
+  };
+
   // Trigger the one-time 5-second experience popup when a logged-in user switches pages (e.g., from Chart Workspace to Dashboard/Analytics/Landing, or from Dashboard to Analytics/Landing)
   const previousViewForPopupRef = useRef(activeView);
   useEffect(() => {
@@ -3015,6 +3050,7 @@ export function App() {
         initialCategory={contactRoute.category}
         onBackToPlatform={closeContactPage}
         onOpenPartners={openPartnerPage}
+        siteHeaderProps={siteHeaderProps}
       />
     </Suspense>
   );
@@ -3037,6 +3073,7 @@ export function App() {
         onBackToHome={closeTradersInsight}
         onOpenLegal={openLegal}
         onOpenSitemap={openSitemap}
+        siteHeaderProps={siteHeaderProps}
         onLaunchSimulator={(action)=>{
           window.history.pushState({},'','/');
           setInsightRoute({active:false,slug:null});
@@ -3062,7 +3099,7 @@ export function App() {
       />
     </Suspense>
   );
-  if(partnerPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><PartnerPage onBack={()=>{const target=currentUser?'/dashboard':'/';window.history.pushState({},'',target);setPartnerPage(false);setActiveView(currentUser?'dashboard':'landing');}} onOpenLegal={openLegal} onOpenSitemap={openSitemap} onOpenContactUs={()=>{setPartnerPage(false);openContactPage('partnership');}}/></Suspense>;
+  if(partnerPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><PartnerPage onBack={()=>{const target=currentUser?'/dashboard':'/';window.history.pushState({},'',target);setPartnerPage(false);setActiveView(currentUser?'dashboard':'landing');}} onOpenLegal={openLegal} onOpenSitemap={openSitemap} onOpenContactUs={()=>{setPartnerPage(false);openContactPage('partnership');}} siteHeaderProps={siteHeaderProps}/></Suspense>;
   if(adminPage)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><AdminDashboard onBack={()=>{window.history.pushState({},'','/');setAdminPage(false);setActiveView('landing');}} onLoginAsUser={handleAdminLoginAsUser}/></Suspense>;
   if(comingSoon)return <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]"/>}><ComingSoonPage onBack={closeComingSoon} onOpenLegal={openLegal} onOpenSitemap={openSitemap}/></Suspense>;
 

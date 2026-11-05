@@ -25,6 +25,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { ChartReplayLogo } from './ChartReplayLogo';
+import { SiteHeader } from './SiteHeader';
 import { ForexTicker } from './LandingExtras';
 import { HomepageDemoVideo } from './HomepageDemoVideo';
 import { monotonePath } from './analytics/charts';
@@ -637,13 +638,10 @@ const CompareMark: React.FC<{ v: CompareCell; strong?: boolean }> = ({ v, strong
 };
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLegal,onOpenSitemap,onOpenContact,onOpenPartners,onOpenComingSoon,onOpenTradersInsight }) => {
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
-
   const handleContactClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     if (onOpenContact) {
       e.preventDefault();
-      setMobileNavOpen(false);
       onOpenContact();
     }
   };
@@ -652,7 +650,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     if (onOpenPartners) {
       e.preventDefault();
-      setMobileNavOpen(false);
       onOpenPartners();
     }
   };
@@ -671,7 +668,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
   const handleInsightClick = (e: React.MouseEvent<HTMLAnchorElement>, slug: string | null = null) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     e.preventDefault();
-    setMobileNavOpen(false);
     if (onOpenTradersInsight) {
       onOpenTradersInsight(slug);
     } else {
@@ -680,7 +676,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
   };
 
   const scrollToSection = (id: string) => {
-    setMobileNavOpen(false);
     const el = document.getElementById(id);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth' });
@@ -688,7 +683,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
   };
 
   const openAuth = (mode: 'login' | 'signup') => {
-    setMobileNavOpen(false);
     onOpenLogin(mode);
   };
 
@@ -709,145 +703,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin,onOpenLega
         <div className="lp-blob absolute bottom-[-10%] -right-40 w-[560px] h-[560px] rounded-full bg-[radial-gradient(closest-side,rgba(20,184,166,0.2),transparent)]" />
       </div>
 
-      {/* Navigation */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#06080d]/75 border-b border-white/[0.06]">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-          <button
-            onClick={() => scrollToSection('top')}
-            className="flex items-center gap-2.5 min-h-[44px] min-w-0"
-            aria-label="Chart Replay home"
-          >
-            <ChartReplayLogo size={36} />
-          </button>
-
-          <nav className="hidden md:flex items-center gap-1 text-sm font-semibold text-gray-300">
-            {navLinks.map((l) => (
-              <button
-                key={l.id}
-                onClick={() => scrollToSection(l.id)}
-                className="px-3 py-2 rounded-lg hover:text-white hover:bg-white/[0.05] transition"
-              >
-                {l.label}
-              </button>
-            ))}
-            <a
-              href="/traders-insight"
-              onClick={(e) => handleInsightClick(e, null)}
-              className="px-3 py-2 rounded-lg text-emerald-300 hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5 font-semibold"
-            >
-              <BookOpen className="w-4 h-4 text-emerald-400" />
-              <span>Trader&apos;s Insight</span>
-            </a>
-            <a
-              href="/partners"
-              onClick={handlePartnerClick}
-              className="px-3 py-2 rounded-lg hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5"
-            >
-              <Handshake className="w-4 h-4 text-emerald-400" />
-              Partner with Us
-            </a>
-            <a
-              href="/contact"
-              onClick={handleContactClick}
-              className="px-3 py-2 rounded-lg hover:text-white hover:bg-white/[0.05] transition inline-flex items-center gap-1.5"
-            >
-              <Mail className="w-4 h-4 text-sky-400" />
-              Contact Us
-            </a>
-          </nav>
-
-          <div className="hidden md:flex items-center gap-2">
-            <a
-              href="/login"
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-                e.preventDefault();
-                openAuth('login');
-              }}
-              className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-300 hover:text-white hover:bg-white/[0.06] transition"
-            >
-              Sign In
-            </a>
-            <a
-              href="/signup"
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-                e.preventDefault();
-                openAuth('signup');
-              }}
-              className="lp-btn-primary px-4 py-2.5 text-sm"
-            >
-              <span>Sign Up Free</span>
-              <ArrowRight className="w-4 h-4" />
-            </a>
-          </div>
-
-          <button
-            onClick={() => setMobileNavOpen((o) => !o)}
-            className="md:hidden inline-flex items-center justify-center w-11 h-11 rounded-xl border border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.08] transition"
-            aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
-            aria-expanded={mobileNavOpen}
-          >
-            {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-        </div>
-
-        {mobileNavOpen && (
-          <div className="md:hidden border-t border-white/[0.06] bg-[#080b12]/95 backdrop-blur-xl lp-fade-in">
-            <div className="px-4 py-3 flex flex-col gap-1">
-              {navLinks.map((l) => (
-                <button
-                  key={l.id}
-                  onClick={() => scrollToSection(l.id)}
-                  className="text-left px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition"
-                >
-                  {l.label}
-                </button>
-              ))}
-              <a
-                href="/traders-insight"
-                onClick={(e) => handleInsightClick(e, null)}
-                className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-emerald-300 hover:bg-white/[0.06] transition"
-              >
-                <BookOpen className="w-4 h-4 text-emerald-400" />
-                <span>Trader&apos;s Insight (10 Blogs)</span>
-              </a>
-              <a href="/partners" onClick={handlePartnerClick} className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition">
-                <Handshake className="w-4 h-4 text-emerald-400" />
-                Partner with Us
-              </a>
-              <a href="/contact" onClick={handleContactClick} className="flex items-center gap-2 px-3 min-h-[44px] rounded-xl text-base font-semibold text-gray-200 hover:bg-white/[0.06] transition">
-                <Mail className="w-4 h-4 text-sky-400" />
-                Contact Us
-              </a>
-              <div className="grid grid-cols-2 gap-2 pt-2 pb-1">
-                <a
-                  href="/login"
-                  onClick={(e) => {
-                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-                    e.preventDefault();
-                    openAuth('login');
-                  }}
-                  className="min-h-[44px] rounded-xl text-sm font-semibold text-white border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] transition flex items-center justify-center"
-                >
-                  Sign In
-                </a>
-                <a
-                  href="/signup"
-                  onClick={(e) => {
-                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-                    e.preventDefault();
-                    openAuth('signup');
-                  }}
-                  className="lp-btn-primary min-h-[44px] text-sm"
-                >
-                  Sign Up Free
-                </a>
-              </div>
-            </div>
-          </div>
-        )}
-      </header>
+      {/* Navigation – shared header used across the public site */}
+      <SiteHeader
+        activePage="home"
+        onLogoClick={() => scrollToSection('top')}
+        onNavigateSection={scrollToSection}
+        onOpenTradersInsight={() => {
+          if (onOpenTradersInsight) onOpenTradersInsight(null);
+          else window.location.href = '/traders-insight';
+        }}
+        onOpenPartners={() => {
+          if (onOpenPartners) onOpenPartners();
+          else window.location.href = '/partners';
+        }}
+        onOpenContact={() => {
+          if (onOpenContact) onOpenContact();
+          else window.location.href = '/contact';
+        }}
+        onOpenLogin={openAuth}
+      />
 
       <main id="top" className="relative z-10 px-4 sm:px-6">
         {/* HERO */}

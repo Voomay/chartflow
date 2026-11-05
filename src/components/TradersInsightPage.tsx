@@ -16,6 +16,7 @@ import {
   Trophy,
 } from 'lucide-react';
 import { ChartReplayLogo } from './ChartReplayLogo';
+import { SiteHeader, SiteHeaderProps } from './SiteHeader';
 import { LegalDocumentKey, LegalLinks } from './LegalLinks';
 import {
   getTradersInsightBySlug,
@@ -38,6 +39,8 @@ interface TradersInsightPageProps {
   ) => void;
   onOpenLegal?: (page: LegalDocumentKey) => void;
   onOpenSitemap?: () => void;
+  /** Navigation handlers for the shared public-site header. */
+  siteHeaderProps: Omit<SiteHeaderProps, 'activePage'>;
 }
 
 export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
@@ -47,6 +50,7 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
   onLaunchSimulator,
   onOpenLegal,
   onOpenSitemap,
+  siteHeaderProps,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All Topics');
@@ -154,39 +158,8 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
         ref={scrollContainerRef}
         className="h-[100dvh] w-full max-w-full overflow-y-auto overflow-x-hidden bg-[#060911] text-[#d1d4dc] font-sans custom-scrollbar selection:bg-emerald-500/30 selection:text-emerald-100"
       >
-        {/* Top Sticky Header */}
-        <header className="sticky top-0 z-40 backdrop-blur-xl bg-[#060911]/85 border-b border-white/[0.07]">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-              <a
-                href="/traders-insight"
-                onClick={(e) => handleArticleLinkClick(e, null)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-xs font-bold text-white transition shrink-0"
-              >
-                <ArrowLeft className="w-3.5 h-3.5 text-emerald-400" />
-                <span>All 10 Guides</span>
-              </a>
-              <button
-                type="button"
-                onClick={onBackToHome}
-                className="hidden sm:flex items-center gap-2 hover:opacity-85 transition min-w-0"
-              >
-                <ChartReplayLogo size={28} />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => onLaunchSimulator(activeArticle.ctaAction)}
-                className="lp-btn-primary px-3.5 sm:px-4 py-2 text-xs sm:text-sm"
-              >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Launch Free Simulator</span>
-              </button>
-            </div>
-          </div>
-        </header>
+        {/* Shared site header (same as homepage) */}
+        <SiteHeader activePage="insight" {...siteHeaderProps} />
 
         {/* Full Article Page Body with Recommended Blogs Sidebar */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-20">
@@ -717,46 +690,8 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
       ref={scrollContainerRef}
       className="h-[100dvh] w-full max-w-full overflow-y-auto overflow-x-hidden bg-[#060911] text-[#d1d4dc] font-sans custom-scrollbar selection:bg-emerald-500/30 selection:text-emerald-100"
     >
-      {/* Top Sticky Header */}
-      <header className="sticky top-0 z-40 backdrop-blur-xl bg-[#060911]/85 border-b border-white/[0.07]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={onBackToHome}
-              className="flex items-center gap-2 hover:opacity-85 transition min-w-0"
-              aria-label="Chart Replay Home"
-            >
-              <ChartReplayLogo size={32} />
-            </button>
-            <span className="hidden sm:inline-block text-white/20">|</span>
-            <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-mono font-bold text-emerald-400">
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>TRADER&apos;S INSIGHT</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={onBackToHome}
-              className="px-3 py-2 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-xs font-bold text-slate-200 inline-flex items-center gap-1.5 transition"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span className="hidden xs:inline">Back to Home</span>
-              <span className="xs:hidden">Home</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onLaunchSimulator('replay')}
-              className="lp-btn-primary px-3.5 sm:px-4 py-2 text-xs sm:text-sm"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Free Simulator</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* Shared site header (same as homepage) */}
+      <SiteHeader activePage="insight" {...siteHeaderProps} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-8 sm:pt-12 pb-20 space-y-10">
         {/* Hero Banner */}

@@ -18,6 +18,7 @@ import {
   PERSONAL_CONTACT_EMAIL,
 } from '../services/platformAccounts';
 import { ChartReplayLogo } from './ChartReplayLogo';
+import { SiteHeader, SiteHeaderProps } from './SiteHeader';
 import { LegalLinks } from './LegalLinks';
 
 interface ContactPageProps {
@@ -27,6 +28,8 @@ interface ContactPageProps {
   initialCategory?: ContactInquiryCategory;
   onBackToPlatform: () => void;
   onOpenPartners?: () => void;
+  /** Navigation handlers for the shared public-site header. */
+  siteHeaderProps: Omit<SiteHeaderProps, 'activePage'>;
 }
 
 const CATEGORY_OPTIONS: Array<{
@@ -63,6 +66,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({
   initialCategory = 'general_inquiry',
   onBackToPlatform,
   onOpenPartners,
+  siteHeaderProps,
 }) => {
   const [name, setName] = useState(initialName);
   const [email, setEmail] = useState(initialEmail);
@@ -133,39 +137,11 @@ export const ContactPage: React.FC<ContactPageProps> = ({
   };
 
   return (
-    <div className="min-h-[100dvh] overflow-y-auto bg-[#070d17] text-slate-200 bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.15),transparent_55%)]">
-      <div className="mx-auto max-w-3xl px-5 py-8 sm:py-12">
-        {/* Top bar */}
-        <div className="mb-8 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={onBackToPlatform}
-            className="flex items-center gap-2.5 text-left"
-          >
-            <ChartReplayLogo size={36} />
-          </button>
+    <div className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#070d17] text-slate-200 bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.15),transparent_55%)]">
+      {/* Shared site header (same as homepage) */}
+      <SiteHeader activePage="contact" {...siteHeaderProps} />
 
-          <div className="flex items-center gap-2">
-            {onOpenPartners && (
-              <button
-                type="button"
-                onClick={onOpenPartners}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3.5 py-2 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-400/15"
-              >
-                <Handshake size={14} />
-                Partner with Us
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onBackToPlatform}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
-            >
-              <ArrowLeft size={14} />
-              Back to platform
-            </button>
-          </div>
-        </div>
+      <div className="mx-auto max-w-3xl px-5 py-8 sm:py-12">
 
         {/* Main Card */}
         <div className="rounded-3xl border border-white/[0.08] bg-gradient-to-b from-[#0d1626] to-[#09101b] p-6 sm:p-9 shadow-2xl">

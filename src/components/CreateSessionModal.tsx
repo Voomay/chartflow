@@ -80,6 +80,7 @@ interface CreateSessionModalProps {
   onDeleteCustomRuleProfile?: (profileId: string) => void;
   theme?: ThemeMode;
   userName?: string;
+  tourWizardStep?: 1 | 2 | 3 | null;
 }
 
 const EXAMPLE_PROP_PROFILES: Record<
@@ -303,8 +304,10 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   onDeleteCustomRuleProfile,
   theme = 'dark',
   userName,
+  tourWizardStep = null,
 }) => {
   const isLight = theme === 'light';
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
   const greetingName = useMemo(() => {
     const raw = (userName || '').trim();
     if (!raw) return 'Cheslin';
@@ -388,7 +391,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       isSubmittingRef.current = false;
       setMode(initialMode);
       setActiveView(initialTab === 'sessions' ? 'saved_sessions' : 'setup');
-      setWizardStep(initialTab === 'more' ? 3 : 1);
+      setWizardStep(tourWizardStep || (initialTab === 'more' ? 3 : 1));
       setSlideDirection('next');
       setShowCustomDates(false);
       setShowCustomPropRules(false);
@@ -397,6 +400,16 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       setScheduleNotice(null);
     }
   }, [isOpen, initialMode, initialTab]);
+
+  React.useEffect(() => {
+    if (!isOpen || !tourWizardStep) return;
+    setActiveView('setup');
+    setShowMarketPopup(false);
+    setShowDatePopup(false);
+    setSlideDirection(tourWizardStep >= wizardStep ? 'next' : 'prev');
+    setWizardStep(tourWizardStep);
+    bodyScrollRef.current?.scrollTo({ top: 0 });
+  }, [isOpen, tourWizardStep]);
   const [replayStartTime, setReplayStartTime] = useState<string>('08:00');
   const [selectedQuickStart, setSelectedQuickStart] = useState<string | null>(null);
   const [customStartTime, setCustomStartTime] = useState('08:00');
@@ -834,7 +847,10 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
         </div>
 
         {/* Main Body */}
-        <div className="session-gradient-body flex-1 overflow-y-auto custom-scrollbar p-3.5 sm:p-4 space-y-3">
+        <div
+          ref={bodyScrollRef}
+          className="session-gradient-body flex-1 overflow-y-auto custom-scrollbar p-3.5 sm:p-4 space-y-3"
+        >
           {activeView === 'saved_sessions' ? (
             /* SAVED SESSIONS LIST */
             <div className="space-y-2.5">
@@ -1069,135 +1085,137 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
               >
                 {/* STEP 1: SESSION TYPE */}
                 {wizardStep === 1 && (
-                  <div data-tour="setup-mode" className="space-y-6">
-                    <div>
-                      <h3 className={`text-xl sm:text-2xl font-extrabold tracking-tight ${headingText}`}>
-                        How would you like to practise?
-                      </h3>
-                      <p className={`text-xs sm:text-sm mt-1 ${mutedText}`}>
-                        Hi {greetingName} — choose a session type to continue.
-                      </p>
-                    </div>
+                  <div className="space-y-6">
+                    <div data-tour="setup-mode" className="space-y-5">
+                      <div>
+                        <h3 className={`text-xl sm:text-2xl font-extrabold tracking-tight ${headingText}`}>
+                          How would you like to practise?
+                        </h3>
+                        <p className={`text-xs sm:text-sm mt-1 ${mutedText}`}>
+                          Hi {greetingName} — choose a session type to continue.
+                        </p>
+                      </div>
 
-                    {/* Two Clean Side-by-Side Cards */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <button
-                        type="button"
-                        onClick={() => setMode('BACKTESTING')}
-                        className={`p-5 rounded-2xl border text-left transition-all duration-200 flex items-center justify-between gap-4 ${
-                          mode === 'BACKTESTING'
-                            ? isLight
-                              ? 'bg-emerald-50/90 border-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]'
-                              : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] shadow-[0_0_28px_-8px_rgba(0,242,195,0.35)]'
-                            : isLight
-                            ? 'bg-white border-slate-200 hover:border-slate-300'
-                            : 'bg-[#0d1522]/90 border-white/10 hover:border-white/25'
-                        }`}
-                      >
-                        <div className="flex items-center gap-4">
-                          <Layers
-                            className={`w-6 h-6 shrink-0 ${
-                              mode === 'BACKTESTING'
-                                ? isLight
-                                  ? 'text-teal-700'
-                                  : 'text-[#00f2c3]'
-                                : mutedText
-                            }`}
-                          />
-                          <div
-                            className={`h-9 w-px ${
-                              mode === 'BACKTESTING'
-                                ? isLight
-                                  ? 'bg-emerald-500/30'
-                                  : 'bg-[#00f2c3]/30'
-                                : isLight
-                                ? 'bg-slate-200'
-                                : 'bg-white/10'
-                            }`}
-                          />
-                          <div>
-                            <div className={`text-base sm:text-lg font-extrabold ${headingText}`}>
-                              Backtest
-                            </div>
-                            <p className={`text-xs sm:text-sm mt-0.5 ${mutedText}`}>
-                              Test your strategy at your own pace.
-                            </p>
-                          </div>
-                        </div>
-
-                        <div
-                          className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition ${
+                      {/* Two Clean Side-by-Side Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <button
+                          type="button"
+                          onClick={() => setMode('BACKTESTING')}
+                          className={`p-5 rounded-2xl border text-left transition-all duration-200 flex items-center justify-between gap-4 ${
                             mode === 'BACKTESTING'
-                              ? 'border-[#00f2c3] bg-[#00f2c3] text-[#032221]'
+                              ? isLight
+                                ? 'bg-emerald-50/90 border-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]'
+                                : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] shadow-[0_0_28px_-8px_rgba(0,242,195,0.35)]'
                               : isLight
-                              ? 'border-slate-300'
-                              : 'border-white/25'
+                              ? 'bg-white border-slate-200 hover:border-slate-300'
+                              : 'bg-[#0d1522]/90 border-white/10 hover:border-white/25'
                           }`}
                         >
-                          {mode === 'BACKTESTING' && (
-                            <Check className="w-3.5 h-3.5 stroke-[3]" />
-                          )}
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setMode('PROP_FIRM')}
-                        className={`p-5 rounded-2xl border text-left transition-all duration-200 flex items-center justify-between gap-4 ${
-                          mode === 'PROP_FIRM'
-                            ? isLight
-                              ? 'bg-emerald-50/90 border-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]'
-                              : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] shadow-[0_0_28px_-8px_rgba(0,242,195,0.35)]'
-                            : isLight
-                            ? 'bg-white border-slate-200 hover:border-slate-300'
-                            : 'bg-[#0d1522]/90 border-white/10 hover:border-white/25'
-                        }`}
-                      >
-                        <div className="flex items-center gap-4">
-                          <Trophy
-                            className={`w-6 h-6 shrink-0 ${
-                              mode === 'PROP_FIRM'
-                                ? isLight
-                                  ? 'text-teal-700'
-                                  : 'text-[#00f2c3]'
-                                : mutedText
-                            }`}
-                          />
-                          <div
-                            className={`h-9 w-px ${
-                              mode === 'PROP_FIRM'
-                                ? isLight
-                                  ? 'bg-emerald-500/30'
-                                  : 'bg-[#00f2c3]/30'
-                                : isLight
-                                ? 'bg-slate-200'
-                                : 'bg-white/10'
-                            }`}
-                          />
-                          <div>
-                            <div className={`text-base sm:text-lg font-extrabold ${headingText}`}>
-                              Prop challenge
+                          <div className="flex items-center gap-4">
+                            <Layers
+                              className={`w-6 h-6 shrink-0 ${
+                                mode === 'BACKTESTING'
+                                  ? isLight
+                                    ? 'text-teal-700'
+                                    : 'text-[#00f2c3]'
+                                  : mutedText
+                              }`}
+                            />
+                            <div
+                              className={`h-9 w-px ${
+                                mode === 'BACKTESTING'
+                                  ? isLight
+                                    ? 'bg-emerald-500/30'
+                                    : 'bg-[#00f2c3]/30'
+                                  : isLight
+                                  ? 'bg-slate-200'
+                                  : 'bg-white/10'
+                              }`}
+                            />
+                            <div>
+                              <div className={`text-base sm:text-lg font-extrabold ${headingText}`}>
+                                Backtest
+                              </div>
+                              <p className={`text-xs sm:text-sm mt-0.5 ${mutedText}`}>
+                                Test your strategy at your own pace.
+                              </p>
                             </div>
-                            <p className={`text-xs sm:text-sm mt-0.5 ${mutedText}`}>
-                              Practise with prop firm rules.
-                            </p>
                           </div>
-                        </div>
 
-                        <div
-                          className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition ${
+                          <div
+                            className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition ${
+                              mode === 'BACKTESTING'
+                                ? 'border-[#00f2c3] bg-[#00f2c3] text-[#032221]'
+                                : isLight
+                                ? 'border-slate-300'
+                                : 'border-white/25'
+                            }`}
+                          >
+                            {mode === 'BACKTESTING' && (
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            )}
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setMode('PROP_FIRM')}
+                          className={`p-5 rounded-2xl border text-left transition-all duration-200 flex items-center justify-between gap-4 ${
                             mode === 'PROP_FIRM'
-                              ? 'border-[#00f2c3] bg-[#00f2c3] text-[#032221]'
+                              ? isLight
+                                ? 'bg-emerald-50/90 border-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]'
+                                : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] shadow-[0_0_28px_-8px_rgba(0,242,195,0.35)]'
                               : isLight
-                              ? 'border-slate-300'
-                              : 'border-white/25'
+                              ? 'bg-white border-slate-200 hover:border-slate-300'
+                              : 'bg-[#0d1522]/90 border-white/10 hover:border-white/25'
                           }`}
                         >
-                          {mode === 'PROP_FIRM' && (
-                            <Check className="w-3.5 h-3.5 stroke-[3]" />
-                          )}
-                        </div>
-                      </button>
+                          <div className="flex items-center gap-4">
+                            <Trophy
+                              className={`w-6 h-6 shrink-0 ${
+                                mode === 'PROP_FIRM'
+                                  ? isLight
+                                    ? 'text-teal-700'
+                                    : 'text-[#00f2c3]'
+                                  : mutedText
+                              }`}
+                            />
+                            <div
+                              className={`h-9 w-px ${
+                                mode === 'PROP_FIRM'
+                                  ? isLight
+                                    ? 'bg-emerald-500/30'
+                                    : 'bg-[#00f2c3]/30'
+                                  : isLight
+                                  ? 'bg-slate-200'
+                                  : 'bg-white/10'
+                              }`}
+                            />
+                            <div>
+                              <div className={`text-base sm:text-lg font-extrabold ${headingText}`}>
+                                Prop challenge
+                              </div>
+                              <p className={`text-xs sm:text-sm mt-0.5 ${mutedText}`}>
+                                Practise with prop firm rules.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div
+                            className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition ${
+                              mode === 'PROP_FIRM'
+                                ? 'border-[#00f2c3] bg-[#00f2c3] text-[#032221]'
+                                : isLight
+                                ? 'border-slate-300'
+                                : 'border-white/25'
+                            }`}
+                          >
+                            {mode === 'PROP_FIRM' && (
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            )}
+                          </div>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Two Clean Bottom Inputs: Name your session & What strategy are you using? */}
@@ -1332,89 +1350,91 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
 
                 {/* STEP 2: MARKET & DATES */}
                 {wizardStep === 2 && (
-                  <div data-tour="setup-market" className="space-y-6">
-                    <div>
-                      <h3 className={`text-xl sm:text-2xl font-extrabold tracking-tight ${headingText}`}>
-                        Choose your market &amp; start date
-                      </h3>
-                      <p className={`text-xs sm:text-sm mt-1 ${mutedText}`}>
-                        Pick an instrument and when your replay begins.
-                      </p>
-                    </div>
+                  <div className="space-y-6">
+                    <div data-tour="setup-market" className="space-y-4">
+                      <div>
+                        <h3 className={`text-xl sm:text-2xl font-extrabold tracking-tight ${headingText}`}>
+                          Choose your market &amp; start date
+                        </h3>
+                        <p className={`text-xs sm:text-sm mt-1 ${mutedText}`}>
+                          Pick an instrument and when your replay begins.
+                        </p>
+                      </div>
 
-                    {/* Popular markets + All instruments tile */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                      {POPULAR_MARKETS.map((sym) => {
-                        const isSelected = selectedAssets[0] === sym;
-                        const instCfg = getInstrumentConfig(sym);
-                        return (
-                          <button
-                            key={sym}
-                            type="button"
-                            disabled={isInstrumentComingSoon(sym)}
-                            onClick={() => selectSinglePrimaryAsset(sym)}
-                            className={`p-3.5 rounded-2xl text-left border transition-all duration-200 hover:-translate-y-0.5 flex flex-col justify-between ${
-                              isSelected
-                                ? isLight
-                                  ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
-                                  : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white shadow-[0_0_20px_-6px_rgba(0,242,195,0.35)]'
-                                : pillIdle
-                            }`}
-                          >
-                            <div className="flex items-center justify-between w-full">
-                              <span className="text-sm font-extrabold font-mono">
-                                {sym}
-                              </span>
-                              {isSelected && (
-                                <span className="w-4 h-4 rounded-full bg-[#00f2c3] text-[#032221] flex items-center justify-center">
-                                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                      {/* Popular markets + All instruments tile */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        {POPULAR_MARKETS.map((sym) => {
+                          const isSelected = selectedAssets[0] === sym;
+                          const instCfg = getInstrumentConfig(sym);
+                          return (
+                            <button
+                              key={sym}
+                              type="button"
+                              disabled={isInstrumentComingSoon(sym)}
+                              onClick={() => selectSinglePrimaryAsset(sym)}
+                              className={`p-3.5 rounded-2xl text-left border transition-all duration-200 hover:-translate-y-0.5 flex flex-col justify-between ${
+                                isSelected
+                                  ? isLight
+                                    ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
+                                    : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white shadow-[0_0_20px_-6px_rgba(0,242,195,0.35)]'
+                                  : pillIdle
+                              }`}
+                            >
+                              <div className="flex items-center justify-between w-full">
+                                <span className="text-sm font-extrabold font-mono">
+                                  {sym}
                                 </span>
-                              )}
-                            </div>
-                            <span className={`text-[11px] truncate mt-1 ${mutedText}`}>
-                              {isInstrumentComingSoon(sym)
-                                ? 'Coming soon'
-                                : instrumentDisplayName(sym, instCfg.name)}
-                            </span>
-                          </button>
-                        );
-                      })}
-
-                      {/* All instruments tile (shows the selected one if it's not a popular market) */}
-                      {(() => {
-                        const otherSelected =
-                          selectedAssets[0] && !POPULAR_MARKETS.includes(selectedAssets[0])
-                            ? selectedAssets[0]
-                            : null;
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAssetSearch('');
-                              setShowMarketPopup(true);
-                            }}
-                            className={`p-3.5 rounded-2xl text-left border border-dashed transition-all duration-200 hover:-translate-y-0.5 flex flex-col justify-between ${
-                              otherSelected
-                                ? isLight
-                                  ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
-                                  : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white'
-                                : isLight
-                                ? 'bg-white border-slate-300 text-slate-700 hover:border-emerald-500'
-                                : 'bg-[#0d1522]/90 border-white/20 text-slate-200 hover:border-[#00f2c3]'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between w-full">
-                              <span className="text-sm font-extrabold font-mono">
-                                {otherSelected || 'All markets'}
+                                {isSelected && (
+                                  <span className="w-4 h-4 rounded-full bg-[#00f2c3] text-[#032221] flex items-center justify-center">
+                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  </span>
+                                )}
+                              </div>
+                              <span className={`text-[11px] truncate mt-1 ${mutedText}`}>
+                                {isInstrumentComingSoon(sym)
+                                  ? 'Coming soon'
+                                  : instrumentDisplayName(sym, instCfg.name)}
                               </span>
-                              <Search className="w-4 h-4 text-[#00f2c3]" />
-                            </div>
-                            <span className={`text-[11px] truncate mt-1 ${mutedText}`}>
-                              {otherSelected ? 'Tap to change' : 'Search every instrument'}
-                            </span>
-                          </button>
-                        );
-                      })()}
+                            </button>
+                          );
+                        })}
+
+                        {/* All instruments tile (shows the selected one if it's not a popular market) */}
+                        {(() => {
+                          const otherSelected =
+                            selectedAssets[0] && !POPULAR_MARKETS.includes(selectedAssets[0])
+                              ? selectedAssets[0]
+                              : null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAssetSearch('');
+                                setShowMarketPopup(true);
+                              }}
+                              className={`p-3.5 rounded-2xl text-left border border-dashed transition-all duration-200 hover:-translate-y-0.5 flex flex-col justify-between ${
+                                otherSelected
+                                  ? isLight
+                                    ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
+                                    : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white'
+                                  : isLight
+                                  ? 'bg-white border-slate-300 text-slate-700 hover:border-emerald-500'
+                                  : 'bg-[#0d1522]/90 border-white/20 text-slate-200 hover:border-[#00f2c3]'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between w-full">
+                                <span className="text-sm font-extrabold font-mono">
+                                  {otherSelected || 'All markets'}
+                                </span>
+                                <Search className="w-4 h-4 text-[#00f2c3]" />
+                              </div>
+                              <span className={`text-[11px] truncate mt-1 ${mutedText}`}>
+                                {otherSelected ? 'Tap to change' : 'Search every instrument'}
+                              </span>
+                            </button>
+                          );
+                        })()}
+                      </div>
                     </div>
 
                     {/* Date Range & Session Time */}
@@ -1523,93 +1543,95 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
 
                 {/* STEP 3: REVIEW & START */}
                 {wizardStep === 3 && (
-                  <div data-tour="setup-details" className="space-y-5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <h3 className={`text-xl sm:text-2xl font-extrabold tracking-tight ${headingText}`}>
-                          Review &amp; start your session
-                        </h3>
-                        <p className={`text-xs sm:text-sm mt-1 ${mutedText}`}>
-                          Choose your starting balance{mode === 'PROP_FIRM' ? ' and prop firm rules' : ''}, then launch the chart.
-                        </p>
-                      </div>
+                  <div className="space-y-5">
+                    <div data-tour="setup-details" className="space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h3 className={`text-xl sm:text-2xl font-extrabold tracking-tight ${headingText}`}>
+                            Review &amp; start your session
+                          </h3>
+                          <p className={`text-xs sm:text-sm mt-1 ${mutedText}`}>
+                            Choose your starting balance{mode === 'PROP_FIRM' ? ' and prop firm rules' : ''}, then launch the chart.
+                          </p>
+                        </div>
 
-                      {/* Currency Selector */}
-                      <div className="flex items-center gap-1.5">
-                        {CURRENCY_OPTIONS.map((c) => (
-                          <button
-                            key={c.code}
-                            type="button"
-                            onClick={() => setAccountCurrency(c.code)}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono border transition ${
-                              accountCurrency === c.code ? pillActive : pillIdle
-                            }`}
-                          >
-                            {c.code}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Starting Balance Row */}
-                    <div className="space-y-2">
-                      <label className={`block text-xs sm:text-sm font-bold ${headingText}`}>
-                        Starting balance
-                      </label>
-                      <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
-                        {(accountCurrency === 'ZAR' ? ZAR_BALANCE_PRESETS : BALANCE_PRESETS).map((preset) => {
-                          const active =
-                            balanceMode === 'PRESET' &&
-                            selectedBalance === preset.value;
-                          const labelText =
-                            accountCurrency === 'ZAR'
-                              ? preset.label
-                              : `${CURRENCY_SYMBOLS[accountCurrency] || '$'}${preset.label}`;
-                          return (
+                        {/* Currency Selector */}
+                        <div className="flex items-center gap-1.5">
+                          {CURRENCY_OPTIONS.map((c) => (
                             <button
-                              key={preset.value}
+                              key={c.code}
                               type="button"
-                              onClick={() => {
-                                setBalanceMode('PRESET');
-                                setSelectedBalance(preset.value);
-                                setCustomBalanceStr(String(preset.value));
-                              }}
-                              className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold font-mono border transition ${
-                                active
-                                  ? isLight
-                                    ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
-                                    : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white'
-                                  : pillIdle
+                              onClick={() => setAccountCurrency(c.code)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono border transition ${
+                                accountCurrency === c.code ? pillActive : pillIdle
                               }`}
                             >
-                              {labelText}
+                              {c.code}
                             </button>
-                          );
-                        })}
-                        <button
-                          type="button"
-                          onClick={() => setBalanceMode('CUSTOM')}
-                          className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold border transition ${
-                            balanceMode === 'CUSTOM' ? pillActive : pillIdle
-                          }`}
-                        >
-                          Custom
-                        </button>
+                          ))}
+                        </div>
                       </div>
 
-                      {balanceMode === 'CUSTOM' && (
-                        <div className="pt-2 max-w-xs">
-                          <input
-                            type="number"
-                            min={100}
-                            step={500}
-                            value={customBalanceStr}
-                            onChange={(e) => setCustomBalanceStr(e.target.value)}
-                            placeholder="Enter custom balance..."
-                            className={`w-full px-3.5 py-2.5 font-mono text-sm ${inputSurface}`}
-                          />
+                      {/* Starting Balance Row */}
+                      <div className="space-y-2">
+                        <label className={`block text-xs sm:text-sm font-bold ${headingText}`}>
+                          Starting balance
+                        </label>
+                        <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
+                          {(accountCurrency === 'ZAR' ? ZAR_BALANCE_PRESETS : BALANCE_PRESETS).map((preset) => {
+                            const active =
+                              balanceMode === 'PRESET' &&
+                              selectedBalance === preset.value;
+                            const labelText =
+                              accountCurrency === 'ZAR'
+                                ? preset.label
+                                : `${CURRENCY_SYMBOLS[accountCurrency] || '$'}${preset.label}`;
+                            return (
+                              <button
+                                key={preset.value}
+                                type="button"
+                                onClick={() => {
+                                  setBalanceMode('PRESET');
+                                  setSelectedBalance(preset.value);
+                                  setCustomBalanceStr(String(preset.value));
+                                }}
+                                className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold font-mono border transition ${
+                                  active
+                                    ? isLight
+                                      ? 'bg-emerald-50/90 border-emerald-500 text-teal-900'
+                                      : 'bg-gradient-to-r from-[#043536]/90 to-[#06262d]/90 border-[#00f2c3] text-white'
+                                    : pillIdle
+                                }`}
+                              >
+                                {labelText}
+                              </button>
+                            );
+                          })}
+                          <button
+                            type="button"
+                            onClick={() => setBalanceMode('CUSTOM')}
+                            className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold border transition ${
+                              balanceMode === 'CUSTOM' ? pillActive : pillIdle
+                            }`}
+                          >
+                            Custom
+                          </button>
                         </div>
-                      )}
+
+                        {balanceMode === 'CUSTOM' && (
+                          <div className="pt-2 max-w-xs">
+                            <input
+                              type="number"
+                              min={100}
+                              step={500}
+                              value={customBalanceStr}
+                              onChange={(e) => setCustomBalanceStr(e.target.value)}
+                              placeholder="Enter custom balance..."
+                              className={`w-full px-3.5 py-2.5 font-mono text-sm ${inputSurface}`}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Prop Firm Preset Row (Only when Prop Challenge is selected) */}

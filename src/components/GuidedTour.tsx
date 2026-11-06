@@ -397,10 +397,12 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({
       const el = findTarget(step.target as string);
       if (el) {
         try {
-          el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+          el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         } catch {
           el.scrollIntoView();
         }
+        const r = el.getBoundingClientRect();
+        setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
         setTargetEl(el);
         setSearching(false);
         return;
@@ -467,6 +469,10 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({
     ro?.observe(el);
     window.addEventListener('resize', measure);
     window.addEventListener('scroll', measure, true);
+    window.addEventListener('animationend', measure, true);
+    window.addEventListener('transitionend', measure, true);
+    const t1 = setTimeout(measure, 60);
+    const t2 = setTimeout(measure, 260);
     // Safety net for layout shifts not caught above (e.g. sibling panels toggling).
     const interval = setInterval(measure, 300);
 
@@ -474,6 +480,10 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({
       ro?.disconnect();
       window.removeEventListener('resize', measure);
       window.removeEventListener('scroll', measure, true);
+      window.removeEventListener('animationend', measure, true);
+      window.removeEventListener('transitionend', measure, true);
+      clearTimeout(t1);
+      clearTimeout(t2);
       clearInterval(interval);
     };
   }, [isOpen, targetEl, step?.target]);
@@ -616,9 +626,19 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({
         cardTop = cy - cardH / 2;
         break;
       default:
-        // Target is very large (e.g. the chart): float inside it near the top.
-        cardLeft = cx - cardW / 2;
-        cardTop = hole.top + 24;
+        if (hole.height < vh * 0.65) {
+          const spaceBelow = vh - (hole.top + hole.height);
+          const spaceAbove = hole.top;
+          cardLeft = cx - cardW / 2;
+          cardTop =
+            spaceBelow >= spaceAbove
+              ? vh - cardH - VIEW_MARGIN
+              : VIEW_MARGIN;
+        } else {
+          // Target is very large (e.g. the chart): float inside it near the top.
+          cardLeft = cx - cardW / 2;
+          cardTop = hole.top + 24;
+        }
     }
     cardLeft = clampLeft(cardLeft);
     cardTop = clampTop(cardTop);

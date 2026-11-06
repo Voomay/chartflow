@@ -69,6 +69,33 @@
       ]
     },
     {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/(dashboard|login|signup|chart|analytics|sessions|strategies|notes|guide|settings|partners|contact|sitemap|terms|privacy|popia|traders-insight)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/traders-insight/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
       "source": "/sw.js",
       "headers": [
         {

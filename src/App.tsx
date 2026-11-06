@@ -7,7 +7,12 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MotivationWelcome } from './components/MotivationWelcome';
 import { WorkspaceGhostLoader } from './components/WorkspaceGhostLoader';
 import { ConfettiCelebration } from './components/ConfettiCelebration';
-import { resetMotivationVisit, setMotivationEnabled } from './services/motivation';
+import {
+  motivationEnabled,
+  resetMotivationVisit,
+  setMotivationEnabled,
+  welcomePopupSeen,
+} from './services/motivation';
 import { getReplayWeekdayTarget, getHistoricalCandles, hasHistoricalArchive, getHistoricalReplayAvailability, getLoadedHistorical1mRangeForClock, isWeekendClosedTimestamp, isFixedMarketHolidayDate } from './services/goldDataService';
 import { hydrateHistoricalArchive, hydrateLiveHistoricalArchive } from './services/historicalFeed';
 import { shiftTimeframeClock } from './services/goldDataService';
@@ -826,6 +831,7 @@ export function App() {
 
   useEffect(() => {
     if (activeView === 'dashboard' || activeView === 'analytics_page') {
+      void import('./components/CreateSessionModal');
       void import('./components/TradingChart');
       void import('./components/ReplayAndSessionsDock');
     }
@@ -1048,6 +1054,8 @@ export function App() {
     useState<boolean>(false);
   const [createSessionModalMode, setCreateSessionModalMode] =
     useState<BacktestSessionMode>('BACKTESTING');
+  const [createSessionTourStep, setCreateSessionTourStep] =
+    useState<1 | 2 | 3 | null>(null);
   const [toastMessage, setToastMessage] = useState<{
     text: string;
     tone: 'up' | 'down' | 'info';
@@ -1228,8 +1236,51 @@ export function App() {
 
   // Guided product tour (spotlight coach-marks)
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
+  const [isWorkspaceTourOpen, setIsWorkspaceTourOpen] = useState<boolean>(false);
   const [motivationOpen, setMotivationOpen] = useState(false);
+  const [motivationSettled, setMotivationSettled] = useState<boolean>(() =>
+    !currentUser ||
+    Boolean(
+      currentUser.isReturningLogin ||
+        !motivationEnabled(currentUser.email) ||
+        welcomePopupSeen(currentUser.email)
+    )
+  );
+  const hasVisitedChartsRef = useRef<Set<string>>(new Set());
   const chartSponsorLoading = false;
+
+  useEffect(() => {
+    if (!currentUser?.email) {
+      setMotivationSettled(true);
+      return;
+    }
+    const alreadyDone = Boolean(
+      currentUser.isReturningLogin ||
+        !motivationEnabled(currentUser.email) ||
+        welcomePopupSeen(currentUser.email)
+    );
+    setMotivationSettled(alreadyDone);
+    if (alreadyDone) return;
+    const timer = window.setTimeout(() => {
+      setMotivationSettled(true);
+    }, 1400);
+    return () => window.clearTimeout(timer);
+  }, [currentUser?.email, currentUser?.isReturningLogin]);
+
+  useEffect(() => {
+    if (activeView === 'terminal' && currentUser?.email && !isRestoringSession) {
+      hasVisitedChartsRef.current.add(currentUser.email.trim().toLowerCase());
+    }
+  }, [activeView, currentUser?.email, isRestoringSession]);
+
+  useEffect(() => {
+    if (
+      (isTourOpen || isWorkspaceTourOpen || motivationOpen) &&
+      experiencePopupState.isOpen
+    ) {
+      setExperiencePopupState((prev) => ({ ...prev, isOpen: false }));
+    }
+  }, [isTourOpen, isWorkspaceTourOpen, motivationOpen, experiencePopupState.isOpen]);
 
   // Background idle prefetching so subsequent route transitions feel instantaneous
   useEffect(() => {
@@ -1336,7 +1387,16 @@ export function App() {
       markTourSeen('completed', currentUser.email);
       return;
     }
-    if (isTourOpen || motivationOpen || isCreateSessionModalOpen || challengeAlertModal || chartSponsorLoading) return;
+    if (
+      isTourOpen ||
+      motivationOpen ||
+      !motivationSettled ||
+      isCreateSessionModalOpen ||
+      challengeAlertModal ||
+      chartSponsorLoading
+    ) {
+      return;
+    }
     if (hasSeenTour(currentUser.email) || detectMobile()) return;
     const t = setTimeout(() => {
       markTourSeen('completed', currentUser.email);
@@ -1348,6 +1408,7 @@ export function App() {
     currentUser,
     isTourOpen,
     motivationOpen,
+    motivationSettled,
     isCreateSessionModalOpen,
     challengeAlertModal,
     chartSponsorLoading,
@@ -1357,7 +1418,10 @@ export function App() {
   // Close the tour if the user navigates away from the workspace.
   useEffect(() => {
     if (activeView !== 'terminal' && isTourOpen) setIsTourOpen(false);
-  }, [activeView, isTourOpen]);
+    if (activeView !== 'dashboard' && activeView !== 'analytics_page' && isWorkspaceTourOpen) {
+      setIsWorkspaceTourOpen(false);
+    }
+  }, [activeView, isTourOpen, isWorkspaceTourOpen]);
 
   const [sessionsConfig, setSessionsConfig] =
     useState<SessionConfig[]>(INITIAL_SESSIONS);
@@ -2316,21 +2380,37 @@ export function App() {
     (reason: 'logout' | 'navigate', explicitUser?: ChartFlowUser | null) => {
       const targetUser = explicitUser ?? currentUser;
       if (adminImpersonation) return;
-      if (hasSeenExperiencePopup(targetUser?.email)) return;
-      markExperiencePopupSeen(targetUser?.email);
+      if (
+        isTourOpen ||
+        isWorkspaceTourOpen ||
+        motivationOpen ||
+        isCreateSessionModalOpen
+      ) {
+        return;
+      }
+      if (!targetUser?.email) return;
+      const normEmail = targetUser.email.trim().toLowerCase();
+      if (!hasVisitedChartsRef.current.has(normEmail)) return;
+      if (hasSeenExperiencePopup(targetUser.email)) return;
+      markExperiencePopupSeen(targetUser.email);
       setExperiencePopupState({
         isOpen: true,
         reason,
-        userSnapshot: targetUser
-          ? {
-              id: targetUser.id,
-              name: targetUser.name,
-              email: targetUser.email,
-            }
-          : null,
+        userSnapshot: {
+          id: targetUser.id,
+          name: targetUser.name,
+          email: targetUser.email,
+        },
       });
     },
-    [adminImpersonation, currentUser]
+    [
+      adminImpersonation,
+      currentUser,
+      isTourOpen,
+      isWorkspaceTourOpen,
+      motivationOpen,
+      isCreateSessionModalOpen,
+    ]
   );
 
   const openContactPage = useCallback(
@@ -2523,7 +2603,7 @@ export function App() {
     },
   };
 
-  // Trigger the one-time 5-second experience popup when a logged-in user switches pages (e.g., from Chart Workspace to Dashboard/Analytics/Landing, or from Dashboard to Analytics/Landing)
+  // Trigger the one-time experience popup only after a logged-in user has visited the Chart Workspace ('terminal') and navigates away, never during a tour or welcome popup.
   const previousViewForPopupRef = useRef(activeView);
   useEffect(() => {
     const prev = previousViewForPopupRef.current;
@@ -2534,20 +2614,17 @@ export function App() {
       adminImpersonation ||
       isCreateSessionModalOpen ||
       isTourOpen ||
+      isWorkspaceTourOpen ||
       motivationOpen
     ) {
       return;
     }
-    const switchedFromWorkspacePage =
-      (prev === 'terminal' &&
-        (activeView === 'dashboard' ||
-          activeView === 'analytics_page' ||
-          activeView === 'landing')) ||
-      (prev === 'dashboard' &&
-        (activeView === 'analytics_page' || activeView === 'landing')) ||
-      (prev === 'analytics_page' &&
-        (activeView === 'dashboard' || activeView === 'landing'));
-    if (switchedFromWorkspacePage) {
+    const switchedFromCharts =
+      prev === 'terminal' &&
+      (activeView === 'dashboard' ||
+        activeView === 'analytics_page' ||
+        activeView === 'landing');
+    if (switchedFromCharts) {
       triggerOnceExperiencePopup('navigate', currentUser);
     }
   }, [
@@ -2557,6 +2634,7 @@ export function App() {
     isRestoringSession,
     isCreateSessionModalOpen,
     isTourOpen,
+    isWorkspaceTourOpen,
     motivationOpen,
     triggerOnceExperiencePopup,
   ]);
@@ -2961,7 +3039,12 @@ export function App() {
     <>
       {unsubscribeOverlay}
       <ExperienceReviewPopup
-        isOpen={experiencePopupState.isOpen}
+        isOpen={
+          experiencePopupState.isOpen &&
+          !isTourOpen &&
+          !isWorkspaceTourOpen &&
+          !motivationOpen
+        }
         triggerReason={experiencePopupState.reason}
         userName={experiencePopupState.userSnapshot?.name || currentUser?.name || ''}
         userEmail={experiencePopupState.userSnapshot?.email || currentUser?.email || ''}
@@ -3385,11 +3468,17 @@ export function App() {
             handleStartNewChallengeAttempt(sessId, targetPhase)
           }
           isSessionSetupOpen={isCreateSessionModalOpen}
-          onCloseSessionSetup={()=>setIsCreateSessionModalOpen(false)}
-          onOpenCreateSessionModal={(mode) => {
+          onCloseSessionSetup={() => {
+            setIsCreateSessionModalOpen(false);
+            setCreateSessionTourStep(null);
+          }}
+          onOpenCreateSessionModal={(mode, tourWizardStep) => {
             setCreateSessionModalMode(mode || 'BACKTESTING');
+            setCreateSessionTourStep(tourWizardStep ?? null);
             setIsCreateSessionModalOpen(true);
           }}
+          welcomeBlocking={motivationOpen || !motivationSettled}
+          onWorkspaceTourOpenChange={setIsWorkspaceTourOpen}
           onSaveJournalEntry={(sessId, tradeId, entry) =>
             handleSaveJournalEntry(tradeId, entry, sessId)
           }
@@ -3416,9 +3505,6 @@ export function App() {
             activeView === 'analytics_page' ? 'analytics' : hubInitialSection
           }
           onSectionChange={(nextSection) => {
-            if (nextSection !== hubInitialSection) {
-              triggerOnceExperiencePopup('navigate', currentUser);
-            }
             setHubInitialSection(nextSection);
             if (nextSection === 'analytics') {
               setActiveView('analytics_page');
@@ -3429,6 +3515,7 @@ export function App() {
           onReturnToChart={() => {
             if (tradingSessions.length === 0) {
               setCreateSessionModalMode('BACKTESTING');
+              setCreateSessionTourStep(null);
               setIsCreateSessionModalOpen(true);
               return;
             }
@@ -3441,59 +3528,69 @@ export function App() {
         />
 
         {isCreateSessionModalOpen && (
-          <CreateSessionModal
-            isOpen={isCreateSessionModalOpen}
-            initialMode={createSessionModalMode}
-            userName={currentUser?.name}
-            onClose={() => setIsCreateSessionModalOpen(false)}
-            sessions={tradingSessions}
-            activeSessionId={activeSession.id}
-            theme={theme}
-            onCreateSession={(newSession) => handleCreateNewSession(newSession, true)}
-            onSelectSession={(sessId) => {
-              setIsPlaying(false);
-              setActiveSessionId(sessId);
-              setViewportFocusVersion((v) => v + 1);
-              setIsCreateSessionModalOpen(false);
-              setActiveView('terminal');
-            }}
-            onDeleteSession={handleDeleteSession}
-            savedStrategies={allStrategyNames}
-            onAddStrategy={(newStratName: string) => {
-              if (!strategies.some((s) => s.name === newStratName)) {
-                const next: StrategyRecord[] = [
-                  ...strategies,
-                  {
-                    id: `strat-${Date.now()}`,
-                    name: newStratName,
-                    description: 'Created during session setup',
-                    defaultChecklist: ['HTF aligned', 'Risk within plan'],
-                    setupTags: ['Standard'],
-                    createdAt: new Date().toISOString().slice(0, 10),
-                  },
-                ];
-                setStrategies(next);
-                saveUserStrategies(currentUser.email, next);
-              }
-            }}
-            customRuleProfiles={customRuleProfiles}
-            onSaveCustomRuleProfile={(profile) => {
-              const next = [...customRuleProfiles, profile];
-              setCustomRuleProfiles(next);
-              saveUserCustomRuleProfiles(currentUser.email, next);
-            }}
-          />
+          <Suspense fallback={null}>
+            <CreateSessionModal
+              isOpen={isCreateSessionModalOpen}
+              initialMode={createSessionModalMode}
+              tourWizardStep={createSessionTourStep}
+              userName={currentUser?.name}
+              onClose={() => {
+                setIsCreateSessionModalOpen(false);
+                setCreateSessionTourStep(null);
+              }}
+              sessions={tradingSessions}
+              activeSessionId={activeSession.id}
+              theme={theme}
+              onCreateSession={(newSession) => {
+                setCreateSessionTourStep(null);
+                handleCreateNewSession(newSession, true);
+              }}
+              onSelectSession={(sessId) => {
+                setIsPlaying(false);
+                setActiveSessionId(sessId);
+                setViewportFocusVersion((v) => v + 1);
+                setIsCreateSessionModalOpen(false);
+                setCreateSessionTourStep(null);
+                setActiveView('terminal');
+              }}
+              onDeleteSession={handleDeleteSession}
+              savedStrategies={allStrategyNames}
+              onAddStrategy={(newStratName: string) => {
+                if (!strategies.some((s) => s.name === newStratName)) {
+                  const next: StrategyRecord[] = [
+                    ...strategies,
+                    {
+                      id: `strat-${Date.now()}`,
+                      name: newStratName,
+                      description: 'Created during session setup',
+                      defaultChecklist: ['HTF aligned', 'Risk within plan'],
+                      setupTags: ['Standard'],
+                      createdAt: new Date().toISOString().slice(0, 10),
+                    },
+                  ];
+                  setStrategies(next);
+                  saveUserStrategies(currentUser.email, next);
+                }
+              }}
+              customRuleProfiles={customRuleProfiles}
+              onSaveCustomRuleProfile={(profile) => {
+                const next = [...customRuleProfiles, profile];
+                setCustomRuleProfiles(next);
+                saveUserCustomRuleProfiles(currentUser.email, next);
+              }}
+            />
+          </Suspense>
         )}
 
         <MotivationWelcome
           userKey={currentUser.email}
           name={currentUser.name}
-          eligible={!isCreateSessionModalOpen && !isTourOpen && !challengeAlertModal && !chartSponsorLoading}
+          eligible={!isCreateSessionModalOpen && !isTourOpen && !isWorkspaceTourOpen && !challengeAlertModal && !chartSponsorLoading}
           chartStatus="Your workspace is ready"
           loading={false}
           isLight={theme === 'light'}
           onOpen={() => { setMotivationOpen(true); setIsPlaying(false); }}
-          onDismiss={() => setMotivationOpen(false)}
+          onDismiss={() => { setMotivationOpen(false); setMotivationSettled(true); }}
         />
       </Suspense>
     );
@@ -4226,12 +4323,12 @@ export function App() {
       <MotivationWelcome
         userKey={currentUser.email}
         name={currentUser.name}
-        eligible={!isCreateSessionModalOpen && !isTourOpen && !challengeAlertModal && !chartSponsorLoading}
+        eligible={!isCreateSessionModalOpen && !isTourOpen && !isWorkspaceTourOpen && !challengeAlertModal && !chartSponsorLoading}
         chartStatus={isMarketDataLoading ? 'Preparing your chart…' : visibleCandles.length ? 'Your chart is ready' : 'Your workspace is ready'}
         loading={isMarketDataLoading}
         isLight={theme === 'light'}
         onOpen={() => { setMotivationOpen(true); setIsPlaying(false); }}
-        onDismiss={() => setMotivationOpen(false)}
+        onDismiss={() => { setMotivationOpen(false); setMotivationSettled(true); }}
       />
 
       {/* Guided Product Tour (first trade walkthrough) */}

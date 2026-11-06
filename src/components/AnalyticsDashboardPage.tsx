@@ -1,4 +1,4 @@
-import {ChartAnnouncement,hasSeenChartAnnouncement,markChartAnnouncementSeen} from './ChartAnnouncement';
+import {ChartAnnouncement,markChartAnnouncementSeen} from './ChartAnnouncement';
 import {applyPageSeo} from '../services/seo';
 import { WorkspaceTour } from './WorkspaceTour';
 import { PerformanceOverview } from './PerformanceOverview';
@@ -106,7 +106,12 @@ interface AnalyticsDashboardPageProps {
   ) => void;
   isSessionSetupOpen?: boolean;
   onCloseSessionSetup?: ()=>void;
-  onOpenCreateSessionModal: (mode?: 'BACKTESTING' | 'PROP_FIRM') => void;
+  onOpenCreateSessionModal: (
+    mode?: 'BACKTESTING' | 'PROP_FIRM',
+    tourWizardStep?: 1 | 2 | 3
+  ) => void;
+  welcomeBlocking?: boolean;
+  onWorkspaceTourOpenChange?: (open: boolean) => void;
   onSaveJournalEntry?: (
     sessionId: string,
     tradeId: string,
@@ -140,6 +145,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   onOpenCreateSessionModal,
   isSessionSetupOpen=false,
   onCloseSessionSetup=()=>{},
+  welcomeBlocking = false,
+  onWorkspaceTourOpenChange,
   strategies = [],
   onSaveStrategies,
   currentUser,
@@ -157,19 +164,12 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 }) => {
   const announcementUser=currentUser?.email||'guest';
   const isReturningUser=Boolean(currentUser?.isReturningLogin||(currentUser?.loginCount??1)>1);
-  const [announcementPending,setAnnouncementPending]=useState(()=>!isReturningUser&&!hasSeenChartAnnouncement(announcementUser));
   const [announcementManual,setAnnouncementManual]=useState(false);
   useEffect(()=>{
-    if(isReturningUser){
-      markChartAnnouncementSeen(announcementUser);
-      setAnnouncementPending(false);
-      setAnnouncementManual(false);
-      return;
-    }
-    setAnnouncementPending(!hasSeenChartAnnouncement(announcementUser));
+    markChartAnnouncementSeen(announcementUser);
     setAnnouncementManual(false);
-  },[announcementUser,isReturningUser]);
-  const closeAnnouncement=()=>{markChartAnnouncementSeen(announcementUser);setAnnouncementPending(false);setAnnouncementManual(false);};
+  },[announcementUser]);
+  const closeAnnouncement=()=>{markChartAnnouncementSeen(announcementUser);setAnnouncementManual(false);};
   const isLight = theme === 'light';
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -184,11 +184,6 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   const [insightArticleSlug, setInsightArticleSlug] = useState<string | null>(null);
   const [contactInitialCategory, setContactInitialCategory] =
     useState<ContactInquiryCategory>('general_inquiry');
-  useEffect(()=>{
-    if(announcementPending&&sidebarSection==='dashboard'&&!isSessionSetupOpen){
-      markChartAnnouncementSeen(announcementUser);
-    }
-  },[announcementPending,sidebarSection,isSessionSetupOpen,announcementUser]);
   const workspaceRef=useRef<HTMLElement>(null);
   useEffect(()=>{
     workspaceRef.current?.scrollTo({top:0});
@@ -703,7 +698,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
   return (
     <div data-hub-theme={isLight?'light':'dark'} className={`h-[100dvh] w-full max-w-full flex overflow-hidden hub-modern ${bgMain}`}>
-      <ChartAnnouncement open={(announcementPending||announcementManual)&&sidebarSection==='dashboard'&&!isSessionSetupOpen} onClose={closeAnnouncement}/>
+      <ChartAnnouncement open={announcementManual&&sidebarSection==='dashboard'&&!isSessionSetupOpen} onClose={closeAnnouncement}/>
       {/* DESKTOP SIDEBAR */}
       <aside className={`hidden md:flex w-64 border-r flex-col justify-between shrink-0 ${sidebarBg}`}>
         {renderSidebarContent()}
@@ -762,7 +757,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <button type="button" onClick={()=>{setSidebarSection('dashboard');setAnnouncementManual(true);}} aria-label="Read chart update" title="A note from Chart Replay" className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-2 text-xs text-cyan-500 hover:bg-cyan-500/10"><Megaphone className="h-3.5 w-3.5"/><span className="hidden lg:inline">What's new</span></button>
-            <WorkspaceTour blocked={announcementPending||announcementManual} isReturning={isReturningUser} userKey={currentUser?.email||'guest'} name={currentUser?.name} section={sidebarSection} isSessionSetupOpen={isSessionSetupOpen} onNavigate={section=>{setSidebarSection(section);setMobileMenuOpen((section==='analytics'||section==='notes') && window.matchMedia('(max-width:767px)').matches);}} onOpenSessionSetup={()=>onOpenCreateSessionModal('BACKTESTING')} onCloseSessionSetup={onCloseSessionSetup} />
+            <WorkspaceTour blocked={announcementManual||welcomeBlocking} isReturning={isReturningUser} userKey={currentUser?.email||'guest'} name={currentUser?.name} section={sidebarSection} isSessionSetupOpen={isSessionSetupOpen} onNavigate={section=>{setSidebarSection(section);setMobileMenuOpen((section==='analytics'||section==='notes') && window.matchMedia('(max-width:767px)').matches);}} onOpenSessionSetup={(step)=>onOpenCreateSessionModal('BACKTESTING', step)} onCloseSessionSetup={onCloseSessionSetup} onOpenChange={onWorkspaceTourOpenChange} />
             {onToggleTheme && (
               <button
                 onClick={onToggleTheme}

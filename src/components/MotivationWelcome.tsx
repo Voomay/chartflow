@@ -45,13 +45,18 @@ export function MotivationWelcome({userKey, name, eligible, chartStatus, loading
     void ensureWelcomePrefsLoaded(userKey).then(() => {
       if (cancelled) return;
       setSkip(!motivationEnabled(userKey));
-      if (!motivationEnabled(userKey) || welcomePopupSeen(userKey)) return;
+      if (!motivationEnabled(userKey) || welcomePopupSeen(userKey)) {
+        callbacks.current.onDismiss();
+        return;
+      }
       timer = setTimeout(() => {
         const next = claimMotivation(userKey);
         if (next) {
           setIsClosing(false);
           setMessage(next);
           callbacks.current.onOpen();
+        } else {
+          callbacks.current.onDismiss();
         }
       }, 450);
     });

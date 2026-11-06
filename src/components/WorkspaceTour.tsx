@@ -5,7 +5,8 @@ import type {HubSidebarSection} from './AnalyticsDashboardPage';
 
 interface WorkspaceTourProps {
  blocked?:boolean;isReturning?:boolean;userKey:string;name?:string;section:HubSidebarSection;isSessionSetupOpen:boolean;
- onNavigate:(section:HubSidebarSection)=>void;onOpenSessionSetup:()=>void;onCloseSessionSetup:()=>void;
+ onNavigate:(section:HubSidebarSection)=>void;onOpenSessionSetup:(wizardStep?:1|2|3)=>void;onCloseSessionSetup:()=>void;
+ onOpenChange?:(open:boolean)=>void;
 }
 const memoryWorkspaceTourSeen = new Set<string>();
 const isTestEnv = () => {
@@ -24,16 +25,17 @@ export function markWorkspaceTourSeen(userKey:string,reason:TourCloseReason='com
  memoryWorkspaceTourSeen.add(key);
  if(isTestEnv()){try{if(typeof localStorage!=='undefined')localStorage.setItem(key,JSON.stringify({reason,at:new Date().toISOString()}));}catch{/* Manual replay still works when browser storage is unavailable. */}}
 }
-export const WorkspaceTour:React.FC<WorkspaceTourProps>=({blocked=false,isReturning=false,userKey,name,section,isSessionSetupOpen,onNavigate,onOpenSessionSetup,onCloseSessionSetup})=>{
+export const WorkspaceTour:React.FC<WorkspaceTourProps>=({blocked=false,isReturning=false,userKey,name,section,isSessionSetupOpen,onNavigate,onOpenSessionSetup,onCloseSessionSetup,onOpenChange})=>{
  const [open,setOpen]=useState(false);
+ useEffect(()=>{onOpenChange?.(open);},[open,onOpenChange]);
  const firstName=name?.trim().split(/\s+/)[0];
  const steps=useMemo<TourStep[]>(()=>[
   {id:'welcome',title:`Greetings${firstName?`, ${firstName}`:''}.`,body:'Welcome to your trading workspace. Let’s take a quick look at creating a session, setting it up, reviewing your progress, and opening the charts.'},
   {id:'create',target:'hub-create',title:'Start with a new session',body:'Choose New session to build a practice workspace. Click the highlighted button, or use Skip step to preview the setup form.',advanceOn:'click',clickHint:'Click New session to see the form',placement:'right'},
-  {id:'setup-mode',target:'setup-mode',title:'Choose how you want to practice',body:'Normal backtesting gives you replay practice. A prop challenge adds profit targets and drawdown rules. Choose the mode that fits your goal.',allowInteraction:true},
-  {id:'setup-market',target:'setup-market',title:'Pick your instruments',body:'Choose the instruments you want to test. You can switch between these markets inside the session.',allowInteraction:true},
-  {id:'setup-schedule',target:'setup-schedule',title:'Choose your dates and chart time zone',body:'Set your start date, end date, replay start time, and chart time zone. Use a date covered by the instrument’s available history.',allowInteraction:true},
-  {id:'setup-details',target:'setup-details',title:'Give your session a clear plan',body:'Choose a starting balance and currency, then add a name and strategy. Your entries stay in the form; this tour won’t create a session for you.',allowInteraction:true},
+  {id:'setup-mode',target:'setup-mode',title:'Choose how you want to practice',body:'Normal backtesting gives you replay practice. A prop challenge adds profit targets and drawdown rules. Choose the mode that fits your goal, then name your session and pick a strategy below.',allowInteraction:true,placement:'bottom'},
+  {id:'setup-market',target:'setup-market',title:'Pick your instruments',body:'Choose the instrument you want to test, or open All markets to search every available pair.',allowInteraction:true,placement:'bottom'},
+  {id:'setup-schedule',target:'setup-schedule',title:'Choose your dates and session open',body:'Pick a historical date range or custom dates, and select which market session open time to start your replay.',allowInteraction:true,placement:'top'},
+  {id:'setup-details',target:'setup-details',title:'Give your session a clear plan',body:'Choose a starting balance and currency, then review your session summary. Your entries stay in the form; this tour won’t create a session for you.',allowInteraction:true,placement:'bottom'},
   {id:'analytics',target:'hub-nav-analytics',title:'Review your progress',body:'Analytics shows your equity curve, outcomes, daily results, and losing streaks. Filter by session, instrument, or date to review what matters.',placement:'right'},
   {id:'notes',target:'hub-nav-notes',title:'Keep the lessons',body:'Your notebook is a space for setup reminders and observations. Notes save automatically for your account in the cloud.',placement:'right'},
   {id:'charts',target:'hub-chart',title:'You’re ready for the charts',body:'Open Chart Workspace to continue your active session. To start fresh, finish this tour and create your session. The chart also has a Tour button for its trading tools.',placement:'bottom'},
@@ -50,11 +52,15 @@ export const WorkspaceTour:React.FC<WorkspaceTourProps>=({blocked=false,isReturn
   const timer=setTimeout(()=>{
    markWorkspaceTourSeen(userKey);
    setOpen(true);
-  },800);
+  },500);
   return()=>clearTimeout(timer);
  },[userKey,section,open,isSessionSetupOpen,blocked,isReturning]);
  const changeStep=(step:TourStep)=>{
-  if(step.id.startsWith('setup-')){if(!isSessionSetupOpen)onOpenSessionSetup();return;}
+  if(step.id.startsWith('setup-')){
+   const wizardStep:1|2|3=step.id==='setup-mode'?1:(step.id==='setup-market'||step.id==='setup-schedule')?2:3;
+   onOpenSessionSetup(wizardStep);
+   return;
+  }
   onCloseSessionSetup();
   onNavigate(step.id==='analytics'?'analytics':step.id==='notes'?'notes':'dashboard');
  };

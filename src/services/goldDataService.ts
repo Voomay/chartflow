@@ -1896,6 +1896,71 @@ export function findFirstCandleAfterTime(bars: Candle[] | null | undefined, minT
   }
   return resultIdx !== -1 ? bars[resultIdx] : undefined;
 }
+export function sliceCandlesByTimeRange(
+  bars: Candle[] | null | undefined,
+  minTimeInclusive: number,
+  maxTimeInclusive: number
+): Candle[] {
+  if (!bars || bars.length === 0 || maxTimeInclusive < minTimeInclusive) return [];
+  const n = bars.length;
+  if (bars[n - 1].time < minTimeInclusive || bars[0].time > maxTimeInclusive) return [];
+  let startIdx = 0;
+  if (minTimeInclusive > bars[0].time) {
+    let lo = 0;
+    let hi = n - 1;
+    startIdx = n;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (bars[mid].time >= minTimeInclusive) {
+        startIdx = mid;
+        hi = mid - 1;
+      } else {
+        lo = mid + 1;
+      }
+    }
+  }
+  if (startIdx >= n) return [];
+  let endIdx = n - 1;
+  if (maxTimeInclusive < bars[n - 1].time) {
+    let lo = startIdx;
+    let hi = n - 1;
+    endIdx = startIdx - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (bars[mid].time <= maxTimeInclusive) {
+        endIdx = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+  }
+  if (endIdx < startIdx) return [];
+  return bars.slice(startIdx, endIdx + 1);
+}
+function sliceCandlesByEndTime(
+  bars: Candle[] | null | undefined,
+  timeframe: Timeframe,
+  maxEndTimeInclusive: number
+): Candle[] {
+  if (!bars || bars.length === 0) return [];
+  const n = bars.length;
+  if (getTimeframeEndTime(bars[0].time, timeframe) > maxEndTimeInclusive) return [];
+  if (getTimeframeEndTime(bars[n - 1].time, timeframe) <= maxEndTimeInclusive) return bars.slice();
+  let lo = 0;
+  let hi = n - 1;
+  let lastValidIdx = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (getTimeframeEndTime(bars[mid].time, timeframe) <= maxEndTimeInclusive) {
+      lastValidIdx = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return lastValidIdx >= 0 ? bars.slice(0, lastValidIdx + 1) : [];
+}
 export interface HistoricalReplayAvailability {
   kind: 'READY' | 'WEEKEND' | 'GAP' | 'BEFORE' | 'AFTER';
   message?: string;
@@ -1966,38 +2031,83 @@ export function getProviderChartCandles(symbol: InstrumentSymbol, timeframe: Tim
   const utcWeekDay = (new Date(clock*1000).getUTCDay()+6)%7;
   const bucket = archive && timeframe==='1W' ? (Math.floor(clock/86400)-utcWeekDay)*86400 : (archive || SPOT_SYMBOLS.has(symbol)) && timeframe==='1D' ? Math.floor(clock/86400)*86400 : getCanonicalBucketTime(clock,timeframe,symbol);
   if (present) {
-    const visible = bars.filter(c => c.time <= clock);
+    const visible = sliceCandlesByTimeRange(bars, -Infinity, clock);
     const quote = SPOT_SYMBOLS.has(symbol) ? getSpotQuote(symbol) : undefined;
     const last = visible[visible.length - 1];
     // Apply a newly observed quote only inside the existing current candle.
     // Native provider OHLC supplies history and the true open; never invent a missing bar.
     if (quote && last && quote.time >= last.time && quote.time < getTimeframeEndTime(last.time, timeframe) && quote.time <= clock && clock - quote.time <= 60) {
       const close = Number(quote.price.toFixed(getInstrumentConfig(symbol).decimals));
-      return [...visible.slice(0,-1), {...last, close, high: Math.max(last.high,close), low: Math.min(last.low,close)}];
+      visible[visible.length - 1] = {...last, close, high: Math.max(last.high,close), low: Math.min(last.low,close)};
+      return visible;
     }
     return visible;
   }
-  const completed = bars.filter(c => getTimeframeEndTime(c.time, timeframe) <= clock);
-  const exact = bars.find(c => c.time === bucket);
+  const completed = sliceCandlesByEndTime(bars, timeframe, clock);
+  const exact = findExactCandleByTime(bars, bucket);
   // Never expose the final OHLC of an unfinished historical bar. Build it from
   // completed lower bars (and the known open at the replay clock).
   const lowerTfs: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D'];
+  const tfLabel = getMarketFeedLabel(symbol, timeframe, archive);
   for (const lower of lowerTfs) {
     if (TIMEFRAME_CONFIG[lower].seconds >= TIMEFRAME_CONFIG[timeframe].seconds) break;
-    if (getMarketFeedLabel(symbol, lower, archive) !== getMarketFeedLabel(symbol, timeframe, archive)) continue;
-    const lowerBars = readSeries(lower) || [];
-    const inside = lowerBars.filter(c => c.time >= bucket && getTimeframeEndTime(c.time, lower) <= clock);
-    const coversMonthStart = (timeframe === '1M' || archive) && lowerBars[0]?.time < bucket && exact && inside[0]?.open === exact.open;
-    const coversArchiveStart = archive && inside[0]?.time === historicalStarts.get(symbol) && exact && inside[0]?.open === exact.open;
-    if (!inside.length || (inside[0].time !== bucket && !coversMonthStart && !coversArchiveStart)) continue;
-    const partial = archive ? {time:bucket,open:inside[0].open,high:Math.max(...inside.map(c=>c.high)),low:Math.min(...inside.map(c=>c.low)),close:inside[inside.length-1].close,volume:inside.reduce((sum,c)=>sum+c.volume,0)} : aggregateCandlesToTimeframe(inside, timeframe, symbol)[0];
+    if (getMarketFeedLabel(symbol, lower, archive) !== tfLabel) continue;
+    const lowerBars = readSeries(lower);
+    if (!lowerBars || lowerBars.length === 0) continue;
+    // Binary search for first bar >= bucket, then collect while getTimeframeEndTime <= clock
+    let lo = 0;
+    let hi = lowerBars.length - 1;
+    let startIdx = lowerBars.length;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (lowerBars[mid].time >= bucket) {
+        startIdx = mid;
+        hi = mid - 1;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    if (startIdx >= lowerBars.length) continue;
+    const firstInBucket = lowerBars[startIdx];
+    if (getTimeframeEndTime(firstInBucket.time, lower) > clock) continue;
+    const coversMonthStart = (timeframe === '1M' || archive) && lowerBars[0].time < bucket && exact && firstInBucket.open === exact.open;
+    const coversArchiveStart = archive && firstInBucket.time === historicalStarts.get(symbol) && exact && firstInBucket.open === exact.open;
+    if (firstInBucket.time !== bucket && !coversMonthStart && !coversArchiveStart) continue;
+    let partial: Candle | undefined;
+    if (archive) {
+      let high = firstInBucket.high;
+      let low = firstInBucket.low;
+      let close = firstInBucket.close;
+      let volume = firstInBucket.volume;
+      for (let i = startIdx + 1; i < lowerBars.length; i++) {
+        const c = lowerBars[i];
+        if (getTimeframeEndTime(c.time, lower) > clock) break;
+        if (c.high > high) high = c.high;
+        if (c.low < low) low = c.low;
+        close = c.close;
+        volume += c.volume;
+      }
+      partial = { time: bucket, open: firstInBucket.open, high, low, close, volume };
+    } else {
+      const inside: Candle[] = [];
+      for (let i = startIdx; i < lowerBars.length; i++) {
+        const c = lowerBars[i];
+        if (getTimeframeEndTime(c.time, lower) > clock) break;
+        inside.push(c);
+      }
+      partial = aggregateCandlesToTimeframe(inside, timeframe, symbol)[0];
+    }
     if (partial) {
       const targetMin = Math.floor(clock/60)*60;
       const opening = archive && targetMin >= bucket ? findExactCandleByTime(readSeries('1m'), targetMin) : undefined;
-      return [...completed, opening ? {...partial,close:opening.open,high:Math.max(partial.high,opening.open),low:Math.min(partial.low,opening.open)} : partial];
+      completed.push(opening ? {...partial,close:opening.open,high:Math.max(partial.high,opening.open),low:Math.min(partial.low,opening.open)} : partial);
+      return completed;
     }
   }
-  if (exact && clock >= bucket) return [...completed, {time: bucket, open: exact.open, high: exact.open, low: exact.open, close: exact.open, volume: 0}];
+  if (exact && clock >= bucket) {
+    completed.push({time: bucket, open: exact.open, high: exact.open, low: exact.open, close: exact.open, volume: 0});
+    return completed;
+  }
   return completed;
 }
 
@@ -2550,14 +2660,29 @@ export function computeSessionBoxes(
   if (enabledSessions.length === 0) return [];
 
   const boxes: SessionBox[] = [];
+  const lastCandleTime = candles[candles.length - 1].time;
+  const minScanTime = lastCandleTime - 16 * 86400;
+  let scanStartIdx = 0;
+  if (candles[0].time < minScanTime) {
+    let lo = 0;
+    let hi = candles.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (candles[mid].time >= minScanTime) {
+        scanStartIdx = mid;
+        hi = mid - 1;
+      } else {
+        lo = mid + 1;
+      }
+    }
+  }
 
   for (const sessionCfg of enabledSessions) {
     let currentBox: SessionBox | null = null;
 
-    for (let i = 0; i < candles.length; i++) {
+    for (let i = scanStartIdx; i < candles.length; i++) {
       const c = candles[i];
-      const date = new Date(c.time * 1000);
-      const hourUTC = date.getUTCHours();
+      const hourUTC = Math.floor((((c.time % 86400) + 86400) % 86400) / 3600);
       const inSession = isHourInSession(hourUTC, sessionCfg.startHourUTC, sessionCfg.endHourUTC);
 
       if (inSession) {

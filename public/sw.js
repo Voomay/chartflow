@@ -1,5 +1,5 @@
 // Online market data is never cached by this worker.
-const CACHE = 'chart-replay-offline-v2';
+const CACHE = 'chart-replay-offline-v3';
 const OFFLINE = '/offline.html';
 self.addEventListener('install', event => {
   self.skipWaiting?.();

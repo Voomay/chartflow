@@ -51,12 +51,15 @@ import { DEFAULT_INDICATOR_CONFIGS } from '../services/chartDrawingGeometry';
 import {
   getCachedRealCandles,
   getInstrumentConfig,
+  hasHistoricalArchive,
   INSTRUMENTS,
   TIMEFRAME_CONFIG,
 } from '../services/goldDataService';
+import { hydrateHistoricalArchive } from '../services/historicalFeed';
 import {
   formatMoney,
   formatTimestampInTimezone,
+  hydrateRealMarketDataForSymbol,
 } from '../services/simulationEngine';
 import { ChartFlowUser } from './LoginPage';
 
@@ -1040,6 +1043,19 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                   return (
                     <button type="button" disabled={comingSoon} aria-label={`${inst.displaySymbol}${comingSoon?' — Coming soon':''}`}
                       key={inst.symbol}
+                      onMouseEnter={() => {
+                        if (comingSoon) return;
+                        const ts = currentTimestamp || Math.floor(Date.now() / 1000);
+                        if (isReplayMode) {
+                          void hydrateHistoricalArchive(
+                            inst.symbol,
+                            ts,
+                            hasHistoricalArchive(inst.symbol) ? 'extend' : 'replay'
+                          );
+                        } else {
+                          void hydrateRealMarketDataForSymbol(inst.symbol, timeframe);
+                        }
+                      }}
                       onClick={() => {
                         onSelectSymbol(inst.symbol);
                         setIsSymbolModalOpen(false);

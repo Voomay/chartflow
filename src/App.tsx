@@ -724,14 +724,6 @@ export function App() {
   );
 
   useEffect(() => {
-    if (!currentUser?.email || tradingSessions.length === 0) return;
-    const hasNonStarter = tradingSessions.some((s) => !isUntouchedStarterSession(s));
-    if (hasHydratedSessionsRef.current === currentUser.email || hasNonStarter) {
-      saveUserSessions(currentUser.email, tradingSessions);
-    }
-  }, [currentUser?.email, tradingSessions]);
-
-  useEffect(() => {
     purgeBrowserSensitiveStorage();
   }, [activeView, currentUser, activeSession?.id]);
 
@@ -833,8 +825,15 @@ export function App() {
       : undefined;
 
   useEffect(() => {
-    if (activeView !== 'terminal') return;
+    if (activeView === 'dashboard' || activeView === 'analytics_page') {
+      void import('./components/TradingChart');
+      void import('./components/ReplayAndSessionsDock');
+    }
+    if (activeView !== 'terminal' && activeView !== 'dashboard' && activeView !== 'analytics_page') return;
     let cancelled = false;
+    const onBgHydrated = () => {
+      if (!cancelled) setMarketDataVersion((v) => v + 1);
+    };
     if (!isPresentTime && hasHistoricalArchive(symbol)) {
       const currentRange = getLoadedHistorical1mRangeForClock(symbol, authoritativeClockTs);
       if (currentRange) {
@@ -853,12 +852,18 @@ export function App() {
         };
       }
     }
-    setIsMarketDataLoading(true);
+    if (activeView === 'terminal') {
+      setIsMarketDataLoading(true);
+    }
     if(isPresentTime)void hydrateLiveHistoricalArchive(symbol,authoritativeClockTs).then(loaded=>{
       if(loaded && !cancelled)setMarketDataVersion(value=>value+1);
     });
     const archiveMode = !isPresentTime && hasHistoricalArchive(symbol) ? 'extend' : 'replay';
-    (isPresentTime ? hydrateRealMarketDataForSymbol(symbol,timeframe) : hydrateHistoricalArchive(symbol,authoritativeClockTs,archiveMode).then(found=>found || hydrateRealMarketDataForSymbol(symbol,timeframe)))
+    (isPresentTime
+      ? hydrateRealMarketDataForSymbol(symbol, timeframe, onBgHydrated)
+      : hydrateHistoricalArchive(symbol, authoritativeClockTs, archiveMode).then(
+          (found) => found || hydrateRealMarketDataForSymbol(symbol, timeframe, onBgHydrated)
+        ))
       .then((loaded) => {
         if (!cancelled) {
           setIsMarketDataLoading(false);
@@ -1011,6 +1016,20 @@ export function App() {
   const [replayStepTimeframe, setReplayStepTimeframe] =
     useState<Timeframe>('5m');
   const [playbackSpeedMs, setPlaybackSpeedMs] = useState<number>(400);
+
+  useEffect(() => {
+    if (!currentUser?.email || tradingSessions.length === 0) return;
+    const hasNonStarter = tradingSessions.some((s) => !isUntouchedStarterSession(s));
+    if (hasHydratedSessionsRef.current !== currentUser.email && !hasNonStarter) return;
+    if (!isPlaying) {
+      saveUserSessions(currentUser.email, tradingSessions);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      saveUserSessions(currentUser.email, tradingSessions);
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [currentUser?.email, tradingSessions, isPlaying]);
 
   const isSessionLocked =
     activeSession.status === 'FAILED' ||
@@ -3860,7 +3879,7 @@ export function App() {
               isChartFullscreen={isChartWideMode}
               onToggleChartFullscreen={() => setIsChartWideMode((v) => !v)}
               theme={theme}
-              replayAnimationMs={isPlaying&&!isPresentTime?Math.min(450,playbackSpeedMs*0.8):0}
+              replayAnimationMs={isPlaying&&!isPresentTime&&activeSession.smoothCandles?Math.min(120,Math.round(playbackSpeedMs*0.45)):0}
               displayTimezone={activeSession.displayTimezone||'Africa/Johannesburg'}
               indicators={chartIndicators}
               onToggleIndicator={handleToggleIndicator}
@@ -4014,7 +4033,7 @@ export function App() {
                   isChartFullscreen={false}
                   onToggleChartFullscreen={() => {}}
                   theme={theme}
-                  replayAnimationMs={isPlaying&&!isPresentTime?Math.min(450,playbackSpeedMs*0.8):0}
+                  replayAnimationMs={isPlaying&&!isPresentTime&&activeSession.smoothCandles?Math.min(120,Math.round(playbackSpeedMs*0.45)):0}
               displayTimezone={activeSession.displayTimezone||'Africa/Johannesburg'}
               indicators={chartIndicators}
               onToggleIndicator={handleToggleIndicator}

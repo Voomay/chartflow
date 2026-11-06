@@ -2,11 +2,12 @@ import {capitalEnabled,capitalClient,INDEX_SYMBOLS} from './capital-indices.js';
 import {loadBitfinexWindow} from './bitfinex-history.js';
 import {readFile,stat} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
-import {gunzip} from 'node:zlib';
+import {gunzip,gzip} from 'node:zlib';
 import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 const unzip=promisify(gunzip);
+const zip=promisify(gzip);
 const moduleDir=path.dirname(fileURLToPath(import.meta.url));
 const root=()=>{
  if(process.env.ARCHIVE_DATA_DIR)return process.env.ARCHIVE_DATA_DIR;
@@ -15,7 +16,7 @@ const root=()=>{
  return path.resolve(moduleDir,'..','market-data','archive');
 };
 const tfs=['1m','5m','15m','30m','1H','4H','1D','1W','1M'];
-const cache=new Map();let bytes=0;const budget=96*1024*1024;
+const cache=new Map();let bytes=0;const budget=192*1024*1024;
 async function rowsFor(symbol,tf,part){
  const dir=root();
  let file=path.join(dir,symbol,tf,`${part}.json.gz`);
@@ -220,11 +221,24 @@ export function deriveLowerBarsFromArchive(all,refClock,end,limit=45000,symbol='
   ['5m',300,'1m',60,5,limit],
  ];
  for(const [parentTf,parentSec,childTf,childSec,K,maxRows] of hierarchy){
-  const parentRows=(all[parentTf]||[]).filter(r=>r[0]>=winStart&&r[0]<=end);
-  if(!parentRows.length)continue;
+  const rawParent=all[parentTf]||[];
+  if(!rawParent.length)continue;
+  const tfWinStart=childTf==='1m'?refClock-18*86400:winStart;
+  let startIdx=0,lo=0,hi=rawParent.length-1;
+  if(rawParent[0][0]<tfWinStart){
+   startIdx=rawParent.length;
+   while(lo<=hi){
+    const mid=(lo+hi)>>1;
+    if(rawParent[mid][0]>=tfWinStart){startIdx=mid;hi=mid-1;}
+    else lo=mid+1;
+   }
+  }
+  if(startIdx>=rawParent.length)continue;
   const existingChild=all[childTf]||[];
   const generated=[];
-  for(const bar of parentRows){
+  for(let i=startIdx;i<rawParent.length;i++){
+   const bar=rawParent[i];
+   if(bar[0]>end)break;
    if(hasBarInRange(existingChild,bar[0],bar[0]+parentSec))continue;
    const subBars=subdivideBar(bar,K,childSec,decimals);
    for(const sub of subBars){
@@ -243,15 +257,18 @@ export function deriveLowerBarsFromArchive(all,refClock,end,limit=45000,symbol='
 let cachedManifest=null,cachedManifestDir='',cachedManifestAt=0;
 async function getMergedManifest(dir){
  const now=Date.now();
- if(cachedManifest&&cachedManifestDir===dir&&now-cachedManifestAt<60000)return cachedManifest;
+ if(cachedManifest&&cachedManifestDir===dir&&now-cachedManifestAt<300000)return cachedManifest;
  const manifest=JSON.parse(await readFile(path.join(dir,'manifest.json'),'utf8'));
- for(const i of [0,1,2,3,'month'])try{
-  const part=JSON.parse(await readFile(path.join(dir,`manifest-${i}.json`),'utf8'));
+ const extraParts=await Promise.all([0,1,2,3,'month'].map(async(i)=>{
+  try{return JSON.parse(await readFile(path.join(dir,`manifest-${i}.json`),'utf8'));}catch{return null;}
+ }));
+ for(const part of extraParts){
+  if(!part)continue;
   for(const [sym,extra] of Object.entries(part.symbols||{})){
    const old=manifest.symbols[sym];
    manifest.symbols[sym]={...extra,years:{...old?.years,...extra.years}};
   }
- }catch{}
+ }
  for(const info of Object.values(manifest.symbols||{})){
   const values=Object.values(info.years||{});
   if(values.length>0){
@@ -263,42 +280,61 @@ async function getMergedManifest(dir){
  cachedManifest=manifest;cachedManifestDir=dir;cachedManifestAt=now;
  return manifest;
 }
-const windowCache=new Map();const inflightWindows=new Map();
-export async function loadHistoricalWindow(symbol,clock,limit=65000){
- if(INDEX_SYMBOLS.has(symbol) && capitalEnabled())return capitalClient.history(symbol,clock);
+const windowCache=new Map();const inflightWindows=new Map();const serializedPayloads=new WeakMap();
+export async function loadHistoricalWindow(symbol,clock,limit=20000){
+ if(INDEX_SYMBOLS.has(symbol) && capitalEnabled()){
+  try{return await capitalClient.history(symbol,clock);}catch{}
+ }
  if(symbol==='BTCUSD'||symbol==='ETHUSD')return loadBitfinexWindow(root(),symbol,clock,deriveLowerBarsFromArchive);
  const dir=root();
- const windowKey=`${dir}:${symbol}:${Math.floor(clock/60)}:${limit}`;
+ const bucketClock=Math.floor(clock/21600)*21600;
+ const windowKey=`${dir}:${symbol}:${bucketClock}:${limit}`;
  const hit=windowCache.get(windowKey);
- if(hit&&Date.now()-hit.at<30000){windowCache.delete(windowKey);windowCache.set(windowKey,hit);return hit.data;}
+ if(hit&&Date.now()-hit.at<600000){windowCache.delete(windowKey);windowCache.set(windowKey,hit);return hit.data;}
  if(inflightWindows.has(windowKey))return inflightWindows.get(windowKey);
  const work=(async()=>{
   const manifest=await getMergedManifest(dir);
   const info=manifest.symbols[symbol];if(!info)return null;
-  const refClock=Math.min(Math.max(clock,info.first),info.last);
-  const min1mTime=refClock-35*86400;
-  const end=Math.max(clock,refClock)+21*86400;const year=new Date(refClock*1000).getUTCFullYear();
+  const effectiveClock=Math.max(clock,bucketClock+21599);
+  let refClock=Math.min(Math.max(bucketClock,info.first),info.last);
+  const year=new Date(refClock*1000).getUTCFullYear();
+  const yearInfo=info.years?.[String(year)];
+  if(yearInfo?.first&&refClock<yearInfo.first)refClock=yearInfo.first;
+  const min1mTime=refClock-14*86400;
+  const end=Math.max(effectiveClock,refClock)+14*86400;
   const all={};
-  for(const tf of tfs){
+  await Promise.all(tfs.map(async(tf)=>{
    let parts;
    if(tf==='1m'){
     const first=new Date(min1mTime*1000);first.setUTCDate(1);const last=new Date(end*1000);parts=[];
     for(let d=new Date(first);d<=last;d.setUTCMonth(d.getUTCMonth()+1))parts.push(d.toISOString().slice(0,7));
    }else parts=Object.keys(info.years).filter(y=>['1D','1W','1M'].includes(tf)||(+y>=year-1&&+y<=year+1)).sort();
+   const partRowsList=await Promise.all(parts.map(part=>rowsFor(symbol,tf,part)));
    const merged=new Map();
-   for(const part of parts)for(const row of await rowsFor(symbol,tf,part)){
-    if(row[0]>end||(tf==='1m'&&row[0]<min1mTime))continue;
-    const existing=merged.get(row[0]);
-    // Files partition disjoint source minutes. A UTC day/week/month can cross a source-year boundary.
-    if(existing)merged.set(row[0],[row[0],existing[1],Math.max(existing[2],row[2]),Math.min(existing[3],row[3]),row[4],existing[5]+row[5]]);
-    else merged.set(row[0],row);
+   let prevTime=-Infinity,needsSort=false;
+   for(const rows of partRowsList){
+    for(let i=0;i<rows.length;i++){
+     const row=rows[i];
+     const t=row[0];
+     if(t>end||(tf==='1m'&&t<min1mTime))continue;
+     const existing=merged.get(t);
+     // Files partition disjoint source minutes. A UTC day/week/month can cross a source-year boundary.
+     if(existing)merged.set(t,[t,existing[1],Math.max(existing[2],row[2]),Math.min(existing[3],row[3]),row[4],existing[5]+row[5]]);
+     else{
+      if(t<prevTime)needsSort=true;
+      else prevTime=t;
+      merged.set(t,row);
+     }
+    }
    }
-   const maxForTf=tf==='1m'?limit:tf==='5m'?15000:tf==='15m'?8000:tf==='30m'?6000:5000;
-   all[tf]=[...merged.values()].sort((a,b)=>a[0]-b[0]).slice(-maxForTf);
-  }
+   const maxForTf=tf==='1m'?limit:tf==='5m'?4500:tf==='15m'?3000:tf==='30m'?2500:2000;
+   const arr=[...merged.values()];
+   if(needsSort)arr.sort((a,b)=>a[0]-b[0]);
+   all[tf]=arr.length>maxForTf?arr.slice(-maxForTf):arr;
+  }));
   deriveLowerBarsFromArchive(all,refClock,end,limit,symbol);
   const data={symbol,provider:info.provider||manifest.provider,priceBasis:info.priceBasis,timezone:'UTC',coverage:{first:info.first,last:info.last,rows:info.rows,years:Object.keys(info.years).sort()},bars:all};
-  while(windowCache.size>=24)windowCache.delete(windowCache.keys().next().value);
+  while(windowCache.size>=64)windowCache.delete(windowCache.keys().next().value);
   windowCache.set(windowKey,{at:Date.now(),data});
   return data;
  })();
@@ -310,6 +346,27 @@ export default async function handler(req,res){
  const q=new URL(req.url,'http://localhost').searchParams;const symbol=q.get('symbol');const clock=Number(q.get('clock'));
  const symbols=new Set(['XAUUSD','XAGUSD','EURUSD','GBPUSD','USDJPY','USDCHF','AUDUSD','USDCAD','NZDUSD','GBPJPY','EURJPY','EURGBP','AUDJPY','EURAUD','GBPAUD','CADJPY','NAS100','US30','SPX500','GER30','UK100','USOIL','UKOIL','BTCUSD','ETHUSD']);
  if(req.method!=='GET'||!symbols.has(symbol)||!Number.isFinite(clock)||clock<1262304000||clock>Date.now()/1000+86400){res.setHeader('Cache-Control','no-store');res.statusCode=400;res.end(JSON.stringify({error:'Unsupported archive request'}));return;}
- try{const data=await loadHistoricalWindow(symbol,Math.floor(clock));res.setHeader('Cache-Control',data?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':'no-store');res.statusCode=data?200:404;res.end(JSON.stringify(data||{error:'No validated local archive for this instrument'}));}
+ try{
+  const data=await loadHistoricalWindow(symbol,Math.floor(clock));
+  res.setHeader('Cache-Control',data?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':'no-store');
+  res.statusCode=data?200:404;
+  if(!data){res.end(JSON.stringify({error:'No validated local archive for this instrument'}));return;}
+  let cachedPayload=serializedPayloads.get(data);
+  if(!cachedPayload){
+   const json=JSON.stringify(data);
+   cachedPayload={json,gzipPromise:null};
+   serializedPayloads.set(data,cachedPayload);
+  }
+  const acceptEnc=req.headers?.['accept-encoding']||'';
+  if(typeof acceptEnc==='string'&&acceptEnc.includes('gzip')&&typeof res.setHeader==='function'){
+   if(!cachedPayload.gzipPromise)cachedPayload.gzipPromise=zip(Buffer.from(cachedPayload.json));
+   const gz=await cachedPayload.gzipPromise;
+   res.setHeader('Content-Encoding','gzip');
+   res.setHeader('Vary','Accept-Encoding');
+   res.end(gz);
+   return;
+  }
+  res.end(cachedPayload.json);
+ }
  catch(e){res.setHeader('Cache-Control','no-store');res.statusCode=e.code==='ENOENT'?404:500;res.end(JSON.stringify({error:'Historical archive unavailable'}));}
 }

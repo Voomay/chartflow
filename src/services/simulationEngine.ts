@@ -40,6 +40,7 @@ import {
   INSTRUMENTS,
   isWeekendClosedTimestamp,
   setCachedRealCandles,
+  sliceCandlesByTimeRange,
   snapToOpenTradingDate,
   TIMEFRAME_CONFIG,
 } from './goldDataService';
@@ -662,40 +663,59 @@ const activeHydrationPromises = new Map<string, Promise<boolean>>();
 
 export async function hydrateRealMarketDataForSymbol(
   symbol: InstrumentSymbol,
-  primaryTimeframe: Timeframe = '15m'
+  primaryTimeframe: Timeframe = '15m',
+  onBackgroundHydrated?: () => void
 ): Promise<boolean> {
   const key = `${symbol}_${primaryTimeframe}`;
   const inFlight = activeHydrationPromises.get(key);
   if (inFlight) return inFlight;
 
+  const hydrateOne = async (tf: Timeframe): Promise<boolean> => {
+    const existing = getCachedRealCandles(tf, symbol);
+    if (existing && existing.length > 10) return true;
+    const res = await fetchGoldCandles(tf, 2500, symbol);
+    if (res.source === 'LIVE_SPOT_FEED' && res.candles.length > 0) {
+      setCachedRealCandles(tf, symbol, res.candles);
+      return true;
+    }
+    return false;
+  };
+
+  const clearSyntheticCachesForSymbol = () => {
+    for (const cacheKey of Array.from(completedDayTfCache.keys())) {
+      if (cacheKey.startsWith(`${symbol}_`)) {
+        completedDayTfCache.delete(cacheKey);
+      }
+    }
+    for (const cacheKey of Array.from(day1mCandlesCache.keys())) {
+      if (cacheKey.startsWith(`${symbol}_`)) {
+        day1mCandlesCache.delete(cacheKey);
+      }
+    }
+  };
+
   const task = (async () => {
     try {
-      const timeframesToHydrate = Array.from(
+      const priorityTfs = Array.from(new Set<Timeframe>([primaryTimeframe, '1m']));
+      const allTfs = Array.from(
         new Set<Timeframe>([primaryTimeframe, '1D', '1W', '1H', '4H', '15m', '5m', '1m'])
       );
-      const results = await Promise.all(
-        timeframesToHydrate.map(async (tf) => {
-          const existing = getCachedRealCandles(tf, symbol);
-          if (existing && existing.length > 10) return true;
-          const res = await fetchGoldCandles(tf, 2500, symbol);
-          if (res.source === 'LIVE_SPOT_FEED' && res.candles.length > 0) {
-            setCachedRealCandles(tf, symbol, res.candles);
-            return true;
+      const backgroundTfs = allTfs.filter((tf) => !priorityTfs.includes(tf));
+
+      if (onBackgroundHydrated && backgroundTfs.length > 0) {
+        const priorityResults = await Promise.all(priorityTfs.map(hydrateOne));
+        clearSyntheticCachesForSymbol();
+        void Promise.all(backgroundTfs.map(hydrateOne)).then((bgResults) => {
+          if (bgResults.some(Boolean)) {
+            clearSyntheticCachesForSymbol();
+            onBackgroundHydrated();
           }
-          return false;
-        })
-      );
-      // Clear cached synthetic day aggregations for this symbol so real provider data takes effect immediately
-      for (const cacheKey of Array.from(completedDayTfCache.keys())) {
-        if (cacheKey.startsWith(`${symbol}_`)) {
-          completedDayTfCache.delete(cacheKey);
-        }
+        });
+        return priorityResults.some(Boolean);
       }
-      for (const cacheKey of Array.from(day1mCandlesCache.keys())) {
-        if (cacheKey.startsWith(`${symbol}_`)) {
-          day1mCandlesCache.delete(cacheKey);
-        }
-      }
+
+      const results = await Promise.all(allTfs.map(hydrateOne));
+      clearSyntheticCachesForSymbol();
       return results.some(Boolean);
     } finally {
       activeHydrationPromises.delete(key);
@@ -835,7 +855,7 @@ function getDailyAnchorPrice(symbol: InstrumentSymbol, utcDayIndex: number): num
  * - Priority 4: On weekends (Saturday UTC) for non-crypto markets, returns `[]` (market closed).
  */
 export function getDay1mCandles(symbol: InstrumentSymbol, utcDayIndex: number): Candle[] {
-  if(hasHistoricalArchive(symbol)) return (getHistoricalCandles('1m',symbol)||[]).filter(c=>c.time>=utcDayIndex*86400 && c.time<(utcDayIndex+1)*86400);
+  if(hasHistoricalArchive(symbol)) return sliceCandlesByTimeRange(getHistoricalCandles('1m',symbol), utcDayIndex*86400, (utcDayIndex+1)*86400 - 1);
   const dayStartSec = utcDayIndex * 86400;
   const cfg = getInstrumentConfig(symbol);
   const decimals = cfg.decimals;
@@ -1101,11 +1121,11 @@ export function getAggregatedCandlesUpToClock(
     const firstRealTime = realTfSeries[0].time;
     if (replayTimestamp >= firstRealTime) {
       const currentBucketStart = getCanonicalBucketTime(replayTimestamp, timeframe, symbol);
-      const completedRealBars = realTfSeries.filter((c) => c.time < currentBucketStart);
+      const completedRealBars = sliceCandlesByTimeRange(realTfSeries, -Infinity, currentBucketStart - 1);
 
       // Build the active (in-progress) bar at `currentBucketStart` strictly from lower-timeframe bars <= replayTimestamp
       if (timeframe === '1m') {
-        const upToClock = realTfSeries.filter((c) => c.time <= replayTimestamp);
+        const upToClock = sliceCandlesByTimeRange(realTfSeries, -Infinity, replayTimestamp);
         if (upToClock.length > 0) {
           return upToClock.slice(-maxBarsToReturn);
         }
@@ -1125,23 +1145,29 @@ export function getAggregatedCandlesUpToClock(
         for (const ltf of lowerCandidates) {
           const ltfSeries = getCachedRealCandles(ltf, symbol);
           if (!ltfSeries || ltfSeries.length === 0) continue;
-          const sliceInBucket = ltfSeries.filter(
-            (c) => c.time >= currentBucketStart && c.time <= replayTimestamp
+          const sliceInBucket = sliceCandlesByTimeRange(
+            ltfSeries,
+            currentBucketStart,
+            replayTimestamp
           );
           if (sliceInBucket.length > 0) {
+            let maxH = sliceInBucket[0].high;
+            let minL = sliceInBucket[0].low;
+            let sumV = sliceInBucket[0].volume;
+            for (let i = 1; i < sliceInBucket.length; i++) {
+              if (sliceInBucket[i].high > maxH) maxH = sliceInBucket[i].high;
+              if (sliceInBucket[i].low < minL) minL = sliceInBucket[i].low;
+              sumV += sliceInBucket[i].volume;
+            }
             partialBar = {
               time: currentBucketStart,
               open: Number(sliceInBucket[0].open.toFixed(decimals)),
-              high: Number(
-                Math.max(...sliceInBucket.map((x) => x.high)).toFixed(decimals)
-              ),
-              low: Number(
-                Math.min(...sliceInBucket.map((x) => x.low)).toFixed(decimals)
-              ),
+              high: Number(maxH.toFixed(decimals)),
+              low: Number(minL.toFixed(decimals)),
               close: Number(
                 sliceInBucket[sliceInBucket.length - 1].close.toFixed(decimals)
               ),
-              volume: sliceInBucket.reduce((acc, x) => acc + x.volume, 0),
+              volume: sumV,
             };
             break;
           }
@@ -1149,7 +1175,7 @@ export function getAggregatedCandlesUpToClock(
 
         // If no lower-timeframe real bar covers the active bucket yet, check if the bucket itself is already completed in realTfSeries
         if (!partialBar) {
-          const exactBar = realTfSeries.find((c) => c.time === currentBucketStart);
+          const exactBar = findExactCandleByTime(realTfSeries, currentBucketStart);
           if (exactBar && getTimeframeEndTime(currentBucketStart, timeframe) <= replayTimestamp + 60) {
             partialBar = { ...exactBar };
           } else if (exactBar) {
@@ -1332,7 +1358,12 @@ export function get1mExecutionSlice(
 ): Candle[] {
   if (toTimestampInclusive <= fromTimestampExclusive) return [];
   if(_session?.marketMode !== 'LIVE_PAPER' && hasHistoricalArchive(symbol)) {
-    return (getHistoricalCandles('1m',symbol)||[]).filter(c=>c.time+60>fromTimestampExclusive && c.time+60<=toTimestampInclusive).map(c=>({...c,time:c.time+60}));
+    const rawSlice = sliceCandlesByTimeRange(
+      getHistoricalCandles('1m', symbol),
+      fromTimestampExclusive - 60 + 1,
+      toTimestampInclusive - 60
+    );
+    return rawSlice.map(c => ({ ...c, time: c.time + 60 }));
   }
 
   const startDay = Math.floor(fromTimestampExclusive / 86400);
@@ -2953,11 +2984,11 @@ export function advanceOrRewindSessionToTimestamp(
       const cp: ReplayCheckpoint = {
         timestamp: workingSession.replayTimestamp || alignedTarget,
         realizedPnL: workingSession.realizedPnL ?? 0,
-        positions: JSON.parse(JSON.stringify(workingSession.positions ?? [])),
-        orders: JSON.parse(JSON.stringify(workingSession.orders ?? [])),
-        fills: JSON.parse(JSON.stringify(workingSession.fills ?? [])),
-        tradeEvents: JSON.parse(JSON.stringify(workingSession.tradeEvents ?? [])),
-        equitySnapshots: JSON.parse(JSON.stringify(workingSession.equitySnapshots ?? [])),
+        positions: (workingSession.positions ?? []).map((p) => ({ ...p })),
+        orders: (workingSession.orders ?? []).map((o) => ({ ...o })),
+        fills: (workingSession.fills ?? []).map((f) => ({ ...f })),
+        tradeEvents: (workingSession.tradeEvents ?? []).map((e) => ({ ...e })),
+        equitySnapshots: (workingSession.equitySnapshots ?? []).map((s) => ({ ...s })),
       };
       workingSession.replayCheckpoints = [...existingCps.slice(-39), cp];
     }

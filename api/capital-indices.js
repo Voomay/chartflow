@@ -81,11 +81,15 @@ export function createCapitalClient(env = process.env, fetcher = (...args)=>fetc
     return {...await series(symbol,interval,limit),quote:{symbol,bid,ask,timestamp:new Date(time*1000).toISOString(),marketState:closed?'closed':'open',stale:age>60},sourceLabel:'Capital.com demo · index CFD · bid · UTC'};
   }
   async function history(symbol,clock) {
-    const bars={};
-    for(const [tf,interval] of Object.entries({'1m':'1m','5m':'5m','15m':'15m','30m':'30m','1H':'1h','4H':'4h','1D':'1d'})) {
-      const data=await series(symbol,interval,1000,clock);
-      bars[tf]=data.bars.map(b=>[Date.parse(b.openTime)/1000,b.open,b.high,b.low,b.close,0]);
-    }
+    const entries = await Promise.all(
+      Object.entries({'1m':'1m','5m':'5m','15m':'15m','30m':'30m','1H':'1h','4H':'4h','1D':'1d'}).map(
+        async ([tf, interval]) => {
+          const data = await series(symbol, interval, 1000, clock);
+          return [tf, data.bars.map(b => [Date.parse(b.openTime)/1000, b.open, b.high, b.low, b.close, 0])];
+        }
+      )
+    );
+    const bars = Object.fromEntries(entries);
     // Aggregate calendar weeks/months from this broker's daily bars only.
     for(const tf of ['1W','1M']){
       const groups=new Map();

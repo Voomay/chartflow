@@ -3,7 +3,8 @@ import {
   isInstrumentComingSoon,
 } from '../services/instrumentPresentation';
 import { SessionScheduleFields } from './SessionScheduleFields';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { hydrateHistoricalArchive } from '../services/historicalFeed';
 import {
   AccountCurrency,
   BacktestSessionMode,
@@ -23,6 +24,7 @@ import {
 import {
   getInstrumentConfig,
   getInstrumentHistoricalCoverage,
+  hasHistoricalArchive,
   INSTRUMENTS,
   snapToOpenTradingDate,
 } from '../services/goldDataService';
@@ -455,6 +457,19 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       ),
     [startDate, endDate, replayStartTime, selectedAssets]
   );
+
+  useEffect(() => {
+    if (!isOpen || !dataValidation.valid || !dataValidation.initialReplayTimestamp) return;
+    const timer = window.setTimeout(() => {
+      const mode = hasHistoricalArchive(primarySelectedAsset) ? 'extend' : 'replay';
+      void hydrateHistoricalArchive(
+        primarySelectedAsset,
+        dataValidation.initialReplayTimestamp,
+        mode
+      );
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, primarySelectedAsset, dataValidation.valid, dataValidation.initialReplayTimestamp]);
 
   if (!isOpen) return null;
 

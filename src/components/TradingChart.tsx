@@ -71,6 +71,7 @@ import {
 } from '../services/goldAnalyzer';
 import {
   computeSessionBoxes,
+  findExactCandleByTime,
   getInstrumentConfig,
   TIMEFRAME_CONFIG,
 } from '../services/goldDataService';
@@ -829,6 +830,14 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     [showVWAP, candles, instConfig.decimals]
   );
 
+  const sessionBoxes = useMemo(
+    () =>
+      showSessionBoxes && timeframe !== '1D' && candles.length > 0
+        ? computeSessionBoxes(candles, sessions, timeframe, instConfig.decimals)
+        : [],
+    [showSessionBoxes, candles, sessions, timeframe, instConfig.decimals]
+  );
+
   // 1-Click Composite Chart Screenshot (KLineChart Canvases + Custom Overlay Canvas)
   const handleTakeChartScreenshot = useCallback(() => {
     const container = containerRef.current;
@@ -943,6 +952,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     effectiveIndicatorConfigs,
     activeOverlayMASeries,
     activeVWAPSeries,
+    sessionBoxes,
     defaultFibSettings,
     textEditor,
     candleRemainingText,
@@ -999,6 +1009,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     effectiveIndicatorConfigs,
     activeOverlayMASeries,
     activeVWAPSeries,
+    sessionBoxes,
     defaultFibSettings,
     textEditor,
     candleRemainingText,
@@ -1351,6 +1362,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       effectiveIndicatorConfigs: currIndicatorConfigs,
       activeOverlayMASeries: currActiveOverlayMASeries,
       activeVWAPSeries: currActiveVWAPSeries,
+      sessionBoxes: currSessionBoxes,
       defaultFibSettings: currDefaultFibSettings,
       candleRemainingText: currRemaining,
       isReplayMode: currReplay,
@@ -1429,6 +1441,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     ctx.stroke();ctx.restore();
 
     // 0. Render Customizable EMA / SMA / WMA / VWAP Overlay Curves inside Main Candle Pane
+    const visRange = typeof chart.getVisibleRange === 'function' ? chart.getVisibleRange() : null;
+    const minVisIdx = visRange && typeof visRange.from === 'number' ? Math.max(0, visRange.from - 6) : 0;
+    const maxVisIdx = visRange && typeof visRange.to === 'number' ? Math.min(currCandles.length - 1, visRange.to + 6) : currCandles.length - 1;
+    const minVisTime = currCandles[minVisIdx]?.time ?? -Infinity;
+    const maxVisTime = currCandles[maxVisIdx]?.time ?? Infinity;
+
     const renderIndicatorSeries = (
       seriesData: { time: number; value: number }[],
       color: string,
@@ -1437,6 +1455,20 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       isHighlighted = false
     ) => {
       if (seriesData.length < 2) return;
+      let startIdx = 0;
+      if (seriesData[0].time < minVisTime) {
+        let lo = 0;
+        let hi = seriesData.length - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (seriesData[mid].time >= minVisTime) {
+            startIdx = Math.max(0, mid - 1);
+            hi = mid - 1;
+          } else {
+            lo = mid + 1;
+          }
+        }
+      }
       ctx.save();
       ctx.strokeStyle = color;
       ctx.lineWidth = isHighlighted ? lineWidth + 0.9 : lineWidth;
@@ -1448,8 +1480,14 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       ctx.beginPath();
       let started = false;
       const visiblePts: { x: number; y: number }[] = [];
-      for (let i = 0; i < seriesData.length; i++) {
+      for (let i = startIdx; i < seriesData.length; i++) {
         const pt = seriesData[i];
+        if (pt.time > maxVisTime && started) {
+          const x = resolveTimeToX(pt.time, currCandles, chart);
+          const y = priceToY(pt.value, chart);
+          if (x !== null && y !== null) ctx.lineTo(x, y);
+          break;
+        }
         const x = resolveTimeToX(pt.time, currCandles, chart);
         const y = priceToY(pt.value, chart);
         if (x === null || y === null || x < -40 || x > chartPlotWidth + 40) continue;
@@ -2257,13 +2295,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     }
 
     // 1. Trading Session Boxes
-    if (currShowSessions && currTf !== '1D' && currCandles.length > 0) {
-      const boxes: SessionBox[] = computeSessionBoxes(
-        currCandles,
-        currSessions,
-        currTf,
-        decimals
-      );
+    if (currShowSessions && currTf !== '1D' && currSessionBoxes.length > 0) {
+      const boxes: SessionBox[] = currSessionBoxes;
       const sessionMap = new Map(currSessions.map((s) => [s.id, s]));
 
       for (const box of boxes) {
@@ -4251,7 +4284,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         typeof cr.timestamp === 'number'
           ? Math.floor(cr.timestamp / 1000)
           : resolveXToTime(cr.x, currCandles, chart) || lastBarTime;
-      const found = currCandles.find((c) => c.time === timeSec) || null;
+      const found = findExactCandleByTime(currCandles, timeSec) || null;
       setHoveredCandle(found);
 
       const priceAtCursor = yToPrice(cr.y, chart);
@@ -5531,6 +5564,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       }
     };
 
+    cancelAnimationFrame(replayAnimationFrame.current);
     const historyUnchanged = revealedHistorySamplesMatch(prevMeta,candles);
     if (isIncrementalAppendOrUpdate && historyUnchanged && subscribeBarCallbackRef.current && !focusVersionChanged) {
       const chartStore = (chart as any)._chartStore;
@@ -5550,7 +5584,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         const from:Candle=current&&current.timestamp===target.time*1000?{time:target.time,open:current.open,high:current.high,low:current.low,close:current.close,volume:current.volume??0}:{...target,high:target.open,low:target.open,close:target.open,volume:0};
         update(toKLineData(from));
         const started=performance.now();
-        const frame=(now:number)=>{const progress=Math.min(1,(now-started)/replayAnimationMs);update(toKLineData(interpolateRevealedCandle(from,target,progress)));if(progress<1)replayAnimationFrame.current=requestAnimationFrame(frame);};
+        const frame=(now:number)=>{
+          const progress=Math.min(1,(now-started)/replayAnimationMs);
+          update(toKLineData(interpolateRevealedCandle(from,target,progress)));
+          if(progress<1)replayAnimationFrame.current=requestAnimationFrame(frame);
+          else drawOverlay();
+        };
         replayAnimationFrame.current=requestAnimationFrame(frame);
       }else update(toKLineData(target));
 
@@ -5691,6 +5730,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     effectiveIndicatorConfigs,
     activeOverlayMASeries,
     activeVWAPSeries,
+    sessionBoxes,
     defaultFibSettings,
     candleRemainingText,
     isReplayMode,
@@ -5714,7 +5754,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     drawOverlay();
   }, [focusedSessionTime, candles, drawOverlay]);
 
-  const activeCandle = (hoveredCandle && candles.find(c => c.time === hoveredCandle.time)) || candles[candles.length - 1];
+  const activeCandle = (hoveredCandle && findExactCandleByTime(candles, hoveredCandle.time)) || candles[candles.length - 1];
   const latestClose = marketPrice ?? candles[candles.length - 1]?.close ?? instConfig.basePrice;
   const { bid: sellBid, ask: buyAsk, spreadPips: rawSpreadPips } = getBidAskFromMid(
     latestClose,

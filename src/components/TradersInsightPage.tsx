@@ -40,7 +40,9 @@ interface TradersInsightPageProps {
   onOpenLegal?: (page: LegalDocumentKey) => void;
   onOpenSitemap?: () => void;
   /** Navigation handlers for the shared public-site header. */
-  siteHeaderProps: Omit<SiteHeaderProps, 'activePage'>;
+  siteHeaderProps?: Omit<SiteHeaderProps, 'activePage'>;
+  /** Render inside the logged-in client dashboard instead of a full standalone page. */
+  embedded?: boolean;
 }
 
 export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
@@ -51,6 +53,7 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
   onOpenLegal,
   onOpenSitemap,
   siteHeaderProps,
+  embedded = false,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All Topics');
@@ -64,7 +67,12 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
   // Scroll to top and update SEO meta & JSON-LD whenever hub vs article changes
   useEffect(() => {
     scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
-    window.scrollTo({ top: 0, behavior: 'auto' });
+    scrollContainerRef.current?.closest('main')?.scrollTo({ top: 0, behavior: 'auto' });
+    if (!embedded) {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+
+    if (embedded) return;
 
     if (activeArticle) {
       applyPageSeo({
@@ -101,7 +109,7 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
         jsonLd: buildBlogHubJsonLd(),
       });
     }
-  }, [activeArticle]);
+  }, [activeArticle, embedded]);
 
   const filteredArticles = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -156,40 +164,54 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
     return (
       <div
         ref={scrollContainerRef}
-        className="h-[100dvh] w-full max-w-full overflow-y-auto overflow-x-hidden bg-[#060911] text-[#d1d4dc] font-sans custom-scrollbar selection:bg-emerald-500/30 selection:text-emerald-100"
+        className={
+          embedded
+            ? 'w-full max-w-full bg-[#060911] text-[#d1d4dc] font-sans selection:bg-emerald-500/30 selection:text-emerald-100 rounded-none'
+            : 'h-[100dvh] w-full max-w-full overflow-y-auto overflow-x-hidden bg-[#060911] text-[#d1d4dc] font-sans custom-scrollbar selection:bg-emerald-500/30 selection:text-emerald-100'
+        }
       >
-        {/* Shared site header (same as homepage) */}
-        <SiteHeader activePage="insight" {...siteHeaderProps} />
+        {/* Shared site header (only on standalone public page) */}
+        {!embedded && siteHeaderProps && <SiteHeader activePage="insight" {...siteHeaderProps} />}
 
         {/* Full Article Page Body with Recommended Blogs Sidebar */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-20">
+        <div className={embedded ? 'max-w-7xl mx-auto px-3.5 sm:px-8 pt-5 pb-14' : 'max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-20'}>
           {/* Breadcrumbs */}
           <nav
             aria-label="Breadcrumb"
-            className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400 mb-6"
+            className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 mb-6"
           >
-            <a
-              href="/"
-              onClick={(e) => {
-                e.preventDefault();
-                onBackToHome();
-              }}
-              className="hover:text-white transition"
+            <div className="flex flex-wrap items-center gap-1.5">
+              <a
+                href={embedded ? '/dashboard' : '/'}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onBackToHome();
+                }}
+                className="hover:text-white transition"
+              >
+                {embedded ? 'Dashboard' : 'Home'}
+              </a>
+              <ChevronRight className="w-3.5 h-3.5 opacity-50 shrink-0" />
+              <a
+                href="/traders-insight"
+                onClick={(e) => handleArticleLinkClick(e, null)}
+                className="hover:text-emerald-300 transition font-semibold text-emerald-400"
+              >
+                Trader&apos;s Insight
+              </a>
+              <ChevronRight className="w-3.5 h-3.5 opacity-50 shrink-0" />
+              <span className="text-slate-300 truncate max-w-[220px] sm:max-w-md">
+                {activeArticle.title}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onSelectArticle(null)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition"
             >
-              Home
-            </a>
-            <ChevronRight className="w-3.5 h-3.5 opacity-50 shrink-0" />
-            <a
-              href="/traders-insight"
-              onClick={(e) => handleArticleLinkClick(e, null)}
-              className="hover:text-emerald-300 transition font-semibold text-emerald-400"
-            >
-              Trader&apos;s Insight
-            </a>
-            <ChevronRight className="w-3.5 h-3.5 opacity-50 shrink-0" />
-            <span className="text-slate-300 truncate max-w-[220px] sm:max-w-md">
-              {activeArticle.title}
-            </span>
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>All 10 Guides</span>
+            </button>
           </nav>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 xl:gap-10 items-start">
@@ -664,18 +686,20 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
               ))}
             </div>
           </section>
-        </main>
+        </div>
 
         {/* Footer */}
-        <footer className="border-t border-white/[0.07] py-8 px-4 sm:px-6 text-xs text-slate-400">
-          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <ChartReplayLogo size={26} />
-              <span>© Chart Replay · Trader&apos;s Insight Research</span>
+        {!embedded && (
+          <footer className="border-t border-white/[0.07] py-8 px-4 sm:px-6 text-xs text-slate-400">
+            <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <ChartReplayLogo size={26} />
+                <span>© Chart Replay · Trader&apos;s Insight Research</span>
+              </div>
+              <LegalLinks onOpen={onOpenLegal} onOpenSitemap={onOpenSitemap} />
             </div>
-            <LegalLinks onOpen={onOpenLegal} onOpenSitemap={onOpenSitemap} />
-          </div>
-        </footer>
+          </footer>
+        )}
       </div>
     );
   }
@@ -688,12 +712,16 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
   return (
     <div
       ref={scrollContainerRef}
-      className="h-[100dvh] w-full max-w-full overflow-y-auto overflow-x-hidden bg-[#060911] text-[#d1d4dc] font-sans custom-scrollbar selection:bg-emerald-500/30 selection:text-emerald-100"
+      className={
+        embedded
+          ? 'w-full max-w-full bg-[#060911] text-[#d1d4dc] font-sans selection:bg-emerald-500/30 selection:text-emerald-100'
+          : 'h-[100dvh] w-full max-w-full overflow-y-auto overflow-x-hidden bg-[#060911] text-[#d1d4dc] font-sans custom-scrollbar selection:bg-emerald-500/30 selection:text-emerald-100'
+      }
     >
-      {/* Shared site header (same as homepage) */}
-      <SiteHeader activePage="insight" {...siteHeaderProps} />
+      {/* Shared site header (only on standalone public page) */}
+      {!embedded && siteHeaderProps && <SiteHeader activePage="insight" {...siteHeaderProps} />}
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-8 sm:pt-12 pb-20 space-y-10">
+      <div className={embedded ? 'max-w-7xl mx-auto px-3.5 sm:px-8 pt-6 pb-14 space-y-8' : 'max-w-7xl mx-auto px-4 sm:px-6 pt-8 sm:pt-12 pb-20 space-y-10'}>
         {/* Hero Banner */}
         <section className="text-center max-w-3xl mx-auto space-y-4">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-400/25 text-emerald-300 text-xs font-mono font-bold">
@@ -870,20 +898,22 @@ export const TradersInsightPage: React.FC<TradersInsightPageProps> = ({
             </div>
           )}
         </section>
-      </main>
+      </div>
 
       {/* Footer */}
-      <footer className="border-t border-white/[0.07] py-8 px-4 sm:px-6 text-xs text-slate-400">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <ChartReplayLogo size={26} />
-            <span>
-              © Chart Replay · Trader&apos;s Insight · Proudly South African
-            </span>
+      {!embedded && (
+        <footer className="border-t border-white/[0.07] py-8 px-4 sm:px-6 text-xs text-slate-400">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <ChartReplayLogo size={26} />
+              <span>
+                © Chart Replay · Trader&apos;s Insight · Proudly South African
+              </span>
+            </div>
+            <LegalLinks onOpen={onOpenLegal} onOpenSitemap={onOpenSitemap} />
           </div>
-          <LegalLinks onOpen={onOpenLegal} onOpenSitemap={onOpenSitemap} />
-        </div>
-      </footer>
+        </footer>
+      )}
     </div>
   );
 };

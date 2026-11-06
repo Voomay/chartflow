@@ -2971,11 +2971,21 @@ export function App() {
         }
         onOpenPartners={() => {
           setExperiencePopupState((prev) => ({ ...prev, isOpen: false }));
-          openPartnerPage();
+          if (currentUser) {
+            setHubInitialSection('partner');
+            setActiveView('dashboard');
+          } else {
+            openPartnerPage();
+          }
         }}
         onOpenContactUs={() => {
           setExperiencePopupState((prev) => ({ ...prev, isOpen: false }));
-          openContactPage('general_inquiry');
+          if (currentUser) {
+            setHubInitialSection('contact');
+            setActiveView('dashboard');
+          } else {
+            openContactPage('general_inquiry');
+          }
         }}
       />
     </>
@@ -3012,7 +3022,10 @@ export function App() {
       targetPath =
         hubInitialSection === 'analytics'
           ? '/analytics'
-          : hubInitialSection === 'dashboard'
+          : hubInitialSection === 'dashboard' ||
+            hubInitialSection === 'traders_insight' ||
+            hubInitialSection === 'partner' ||
+            hubInitialSection === 'contact'
           ? '/dashboard'
           : `/${hubInitialSection}`;
     } else if (activeView === 'terminal') {

@@ -155,6 +155,9 @@ export const WorkspaceGhostLoader: React.FC<WorkspaceGhostLoaderProps> = ({
     { id: 'notes', width: 'w-14', badge: false },
     { id: 'guide', width: 'w-24', badge: false },
     { id: 'settings', width: 'w-16', badge: false },
+    { id: 'traders_insight', width: 'w-24', badge: true },
+    { id: 'partner', width: 'w-24', badge: false },
+    { id: 'contact', width: 'w-20', badge: false },
   ];
 
   return (

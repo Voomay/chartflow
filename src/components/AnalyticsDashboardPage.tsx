@@ -68,6 +68,10 @@ import {
   Mail,
   Handshake,
 } from 'lucide-react';
+import { ContactPage } from './ContactPage';
+import { PartnerPage } from './PartnerPage';
+import { TradersInsightPage } from './TradersInsightPage';
+import type { ContactInquiryCategory } from '../services/platformAccounts';
 
 export type HubSidebarSection =
   | 'dashboard'
@@ -76,6 +80,9 @@ export type HubSidebarSection =
   | 'strategies'
   | 'notes'
   | 'guide'
+  | 'traders_insight'
+  | 'partner'
+  | 'contact'
   | 'settings';
 
 interface AnalyticsDashboardPageProps {
@@ -174,6 +181,9 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   const [strategySearch, setStrategySearch] = useState('');
   const [sidebarSection, setSidebarSection] =
     useState<HubSidebarSection>(initialSection);
+  const [insightArticleSlug, setInsightArticleSlug] = useState<string | null>(null);
+  const [contactInitialCategory, setContactInitialCategory] =
+    useState<ContactInquiryCategory>('general_inquiry');
   useEffect(()=>{
     if(announcementPending&&sidebarSection==='dashboard'&&!isSessionSetupOpen){
       markChartAnnouncementSeen(announcementUser);
@@ -213,6 +223,21 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         title: 'Quick Start Guide – How to Use Bar Replay | Chart Replay',
         path: '/guide',
         desc: 'Step-by-step guide to using Chart Replay historical bar replay, position sizing tools, and prop firm challenges.',
+      },
+      traders_insight: {
+        title: "Trader's Insight – Quantitative Trading Guides | Chart Replay",
+        path: '/dashboard',
+        desc: 'Explore 10 in-depth Forex, XAUUSD Gold, and Prop Firm challenge playbooks inside your Chart Replay dashboard.',
+      },
+      partner: {
+        title: 'Partner with Us – Support South African Traders | Chart Replay',
+        path: '/dashboard',
+        desc: 'Explore sponsorship, educational collaboration, and community partnership opportunities with Chart Replay.',
+      },
+      contact: {
+        title: 'Contact Us – Support, Feedback & Inquiries | Chart Replay',
+        path: '/dashboard',
+        desc: 'Send a general inquiry, partnership proposal, improvement idea, or bug report directly from your dashboard.',
       },
       settings: {
         title: 'Account & Workspace Settings | Chart Replay',
@@ -569,66 +594,80 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               </button>
             );
           })}
-          {onOpenTradersInsight && (
-            <button
-              type="button"
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onOpenTradersInsight();
-              }}
-              className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition ${
-                isLight
-                  ? 'text-slate-600 hover:bg-slate-100 border border-transparent'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                <BookOpen className="w-4 h-4 text-emerald-400" />
-                <span>Trader&apos;s Insight</span>
-              </span>
-              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">
-                10 Blogs
-              </span>
-            </button>
-          )}
-          {onOpenPartners && (
-            <button
-              type="button"
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onOpenPartners();
-              }}
-              className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition ${
-                isLight
-                  ? 'text-slate-600 hover:bg-slate-100 border border-transparent'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Handshake className="w-4 h-4 text-indigo-400" />
-                <span>Partner with Us</span>
-              </span>
-            </button>
-          )}
-          {onOpenContact && (
-            <button
-              type="button"
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onOpenContact();
-              }}
-              className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition ${
-                isLight
-                  ? 'text-slate-600 hover:bg-slate-100 border border-transparent'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Mail className="w-4 h-4 text-sky-400" />
-                <span>Contact Us</span>
-              </span>
-            </button>
-          )}
+          <button
+            type="button"
+            data-tour="hub-nav-traders_insight"
+            aria-current={sidebarSection === 'traders_insight' ? 'page' : undefined}
+            onClick={() => {
+              setInsightArticleSlug(null);
+              setSidebarSection('traders_insight');
+              setMobileMenuOpen(false);
+            }}
+            className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition ${
+              sidebarSection === 'traders_insight'
+                ? isLight
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  : 'bg-emerald-500/10 text-emerald-100 border border-emerald-500/20'
+                : isLight
+                ? 'text-slate-600 hover:bg-slate-100 border border-transparent'
+                : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <span className="flex items-center gap-2.5">
+              <BookOpen className="w-4 h-4 text-emerald-400" />
+              <span>Trader&apos;s Insight</span>
+            </span>
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">
+              10 Blogs
+            </span>
+          </button>
+          <button
+            type="button"
+            data-tour="hub-nav-partner"
+            aria-current={sidebarSection === 'partner' ? 'page' : undefined}
+            onClick={() => {
+              setSidebarSection('partner');
+              setMobileMenuOpen(false);
+            }}
+            className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition ${
+              sidebarSection === 'partner'
+                ? isLight
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  : 'bg-emerald-500/10 text-emerald-100 border border-emerald-500/20'
+                : isLight
+                ? 'text-slate-600 hover:bg-slate-100 border border-transparent'
+                : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <span className="flex items-center gap-2.5">
+              <Handshake className="w-4 h-4 text-indigo-400" />
+              <span>Partner with Us</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            data-tour="hub-nav-contact"
+            aria-current={sidebarSection === 'contact' ? 'page' : undefined}
+            onClick={() => {
+              setContactInitialCategory('general_inquiry');
+              setSidebarSection('contact');
+              setMobileMenuOpen(false);
+            }}
+            className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition ${
+              sidebarSection === 'contact'
+                ? isLight
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  : 'bg-emerald-500/10 text-emerald-100 border border-emerald-500/20'
+                : isLight
+                ? 'text-slate-600 hover:bg-slate-100 border border-transparent'
+                : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <span className="flex items-center gap-2.5">
+              <Mail className="w-4 h-4 text-sky-400" />
+              <span>Contact Us</span>
+            </span>
+          </button>
         </nav>
       </div>
 
@@ -711,6 +750,12 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 ? 'Your Notebook'
                 : sidebarSection === 'guide'
                 ? 'Step-by-Step Guide'
+                : sidebarSection === 'traders_insight'
+                ? "Trader's Insight"
+                : sidebarSection === 'partner'
+                ? 'Partner with Us'
+                : sidebarSection === 'contact'
+                ? 'Contact Us'
                 : 'Account & Simulator Preferences'}
             </h1>
           </div>
@@ -2819,6 +2864,61 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
               }}
             />
           </div>
+        )}
+
+        {/* TRADER'S INSIGHT SECTION IN DASHBOARD */}
+        {sidebarSection === 'traders_insight' && (
+          <TradersInsightPage
+            embedded
+            activeSlug={insightArticleSlug}
+            onSelectArticle={(slug) => setInsightArticleSlug(slug)}
+            onBackToHome={() => {
+              setInsightArticleSlug(null);
+              setSidebarSection('dashboard');
+            }}
+            onLaunchSimulator={(action) => {
+              if (action === 'prop_firm') {
+                onOpenCreateSessionModal('PROP_FIRM');
+                return;
+              }
+              if (action === 'new_backtest') {
+                onOpenCreateSessionModal('BACKTESTING');
+                return;
+              }
+              if (action === 'analytics') {
+                setSidebarSection('analytics');
+                return;
+              }
+              onReturnToChart();
+            }}
+          />
+        )}
+
+        {/* PARTNER WITH US PAGE IN DASHBOARD */}
+        {sidebarSection === 'partner' && (
+          <PartnerPage
+            embedded
+            isLight={isLight}
+            onBack={() => setSidebarSection('dashboard')}
+            onOpenContactUs={() => {
+              setContactInitialCategory('partnership');
+              setSidebarSection('contact');
+            }}
+          />
+        )}
+
+        {/* CONTACT US SECTION IN DASHBOARD */}
+        {sidebarSection === 'contact' && (
+          <ContactPage
+            embedded
+            isLight={isLight}
+            initialName={currentUser?.name || ''}
+            initialEmail={currentUser?.email || ''}
+            userId={currentUser?.id || null}
+            initialCategory={contactInitialCategory}
+            onBackToPlatform={() => setSidebarSection('dashboard')}
+            onOpenPartners={() => setSidebarSection('partner')}
+          />
         )}
 
         {/* SETTINGS SECTION */}

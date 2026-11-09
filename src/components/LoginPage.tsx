@@ -1,7 +1,7 @@
 import {platformRequest,serverAccountRequest,requestPasswordResetEmail,completePasswordResetWithToken} from '../services/platformAccounts';
 import {hasSeenChartAnnouncement} from './ChartAnnouncement';
 import {hasSeenWorkspaceTour} from './WorkspaceTour';
-import {applyPageSeo,buildAuthJsonLd} from '../services/seo';
+import {applyPageSeo,buildAuthJsonLd,buildWorkspaceRouteJsonLd} from '../services/seo';
 import React, { useEffect, useState } from 'react';
 import { ChartReplayLogo } from './ChartReplayLogo';
 import { LegalDocumentKey } from './LegalLinks';
@@ -46,6 +46,7 @@ export interface ChartFlowUser {
 
 interface LoginPageProps {
   initialMode?: 'login' | 'signup' | 'reset';
+  requestedWorkspaceRoute?: '/dashboard' | '/chart' | '/analytics' | null;
   onModeChange?: (mode: 'login' | 'signup' | 'reset') => void;
   initialResetToken?: string | null;
   initialEmail?: string | null;
@@ -60,6 +61,7 @@ interface LoginPageProps {
 
 export const LoginPage: React.FC<LoginPageProps> = ({
   initialMode = 'login',
+  requestedWorkspaceRoute = null,
   onModeChange,
   initialResetToken = null,
   initialEmail = null,
@@ -147,12 +149,68 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   }, [initialMode, initialResetToken, initialEmail]);
 
   useEffect(() => {
+    if (requestedWorkspaceRoute === '/dashboard') {
+      applyPageSeo({
+        title:
+          'Client Dashboard – Manage Forex Backtest & Prop Firm Sessions | Chart Replay',
+        description:
+          'Launch and manage your historical Forex, Gold (XAUUSD), and Indices backtesting sessions, FTMO/FundedNext prop firm evaluations, and strategy notes on Chart Replay.',
+        path: '/dashboard',
+        image: '/blog/how-to-pass-prop-firm-challenge-ftmo-rules-guide.svg',
+        type: 'website',
+        keywords: [
+          'forex backtesting dashboard',
+          'prop firm simulator dashboard',
+          'Chart Replay workspace',
+          'FTMO challenge simulator South Africa',
+        ],
+        jsonLd: buildWorkspaceRouteJsonLd('/dashboard'),
+      });
+      return;
+    }
+    if (requestedWorkspaceRoute === '/chart') {
+      applyPageSeo({
+        title:
+          'Trading Chart & 1-Minute Historical Bar Replay Terminal | Chart Replay',
+        description:
+          'Interactive multi-timeframe candlestick chart with deterministic 1-minute bar replay, R:R position sizing calculator, AI psychologist coach, and prop firm drawdown rules.',
+        path: '/chart',
+        image: '/blog/best-free-fx-replay-alternative-forex-backtesting.svg',
+        type: 'website',
+        keywords: [
+          'forex bar replay chart',
+          'free TradingView bar replay alternative',
+          'XAUUSD historical chart replay',
+          'backtest your strategy online',
+        ],
+        jsonLd: buildWorkspaceRouteJsonLd('/chart'),
+      });
+      return;
+    }
+    if (requestedWorkspaceRoute === '/analytics') {
+      applyPageSeo({
+        title:
+          'Performance Analytics & R-Multiple Forex Trading Journal | Chart Replay',
+        description:
+          'Analyze your backtesting win rate, Profit Factor, R-Multiple Expectancy, Equity Curve, Maximum Drawdown, and Session Killzone performance.',
+        path: '/analytics',
+        image: '/blog/how-to-build-forex-trading-journal-metrics-expectancy.svg',
+        type: 'website',
+        keywords: [
+          'forex trading journal free',
+          'R-multiple calculator',
+          'backtest performance analytics',
+        ],
+        jsonLd: buildWorkspaceRouteJsonLd('/analytics'),
+      });
+      return;
+    }
     if (mode === 'signup') {
       applyPageSeo({
         title:
           'Sign Up Free – Create Your Forex & Prop Firm Backtesting Account | Chart Replay',
         description:
-          'Create your 100% free Chart Replay account (chartreplay.co.za/signup). Practice Forex, Gold (XAUUSD), NAS100 & US30 with candle-by-candle bar replay, FTMO prop firm challenge rules, and R-multiple trade analytics. No credit card needed.',
+          'Create your 100% free Chart Replay account (www.chartreplay.co.za/signup). Practice Forex, Gold (XAUUSD), NAS100 & US30 with candle-by-candle bar replay, FTMO prop firm challenge rules, and R-multiple trade analytics. No credit card needed.',
         path: '/signup',
         type: 'website',
         keywords: [
@@ -178,7 +236,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         title:
           'Sign In – Client Login to Dashboard & Bar Replay Charts | Chart Replay',
         description:
-          'Sign in to your Chart Replay account (chartreplay.co.za/login) to access your client dashboard, saved historical backtesting sessions, FTMO prop firm challenges, and trading journal.',
+          'Sign in to your Chart Replay account (www.chartreplay.co.za/login) to access your client dashboard, saved historical backtesting sessions, FTMO prop firm challenges, and trading journal.',
         path: '/login',
         type: 'website',
         keywords: [
@@ -190,7 +248,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         jsonLd: buildAuthJsonLd('login'),
       });
     }
-  }, [mode]);
+  }, [mode, requestedWorkspaceRoute]);
 
   const handleCompleteUser = (u: RegisteredUser, isReturning = mode === 'login') => {
     const returning =
@@ -529,8 +587,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         {/* Center Auth Form Container */}
         <div className="relative w-full max-w-md mx-auto my-6 sm:my-8 lg:my-auto lp-fade-up">
           <div className="mb-6">
+            {requestedWorkspaceRoute && (
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3 py-1 text-[11px] font-mono font-semibold text-emerald-300">
+                <span>
+                  {requestedWorkspaceRoute === '/dashboard'
+                    ? 'Client Dashboard & Prop Firm Hub'
+                    : requestedWorkspaceRoute === '/chart'
+                    ? '1-Minute Historical Bar Replay Terminal'
+                    : 'Performance Analytics & Trading Journal'}
+                </span>
+              </div>
+            )}
             <h1 className="text-[1.75rem] leading-tight sm:text-3xl font-black text-white tracking-tight">
-              {mode === 'login'
+              {requestedWorkspaceRoute === '/dashboard'
+                ? 'Client Dashboard & Backtesting Hub'
+                : requestedWorkspaceRoute === '/chart'
+                ? 'Trading Chart & Bar Replay Terminal'
+                : requestedWorkspaceRoute === '/analytics'
+                ? 'Performance Analytics & Trading Journal'
+                : mode === 'login'
                 ? 'Sign in to your account'
                 : mode === 'signup'
                 ? 'Create your account'
@@ -541,7 +616,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 : 'Reset your password'}
             </h1>
             <p className="text-xs sm:text-sm text-[#8b909a] mt-1.5">
-              {mode === 'login'
+              {requestedWorkspaceRoute === '/dashboard'
+                ? 'Sign in or create a 100% free account below to manage your Forex & XAUUSD backtesting sessions, FTMO prop firm challenges, and strategy playbooks.'
+                : requestedWorkspaceRoute === '/chart'
+                ? 'Sign in or create a 100% free account below to launch the interactive multi-timeframe candlestick chart, 1-minute historical bar replay, and R:R position sizing tools.'
+                : requestedWorkspaceRoute === '/analytics'
+                ? 'Sign in or create a 100% free account below to analyze your equity curve, drawdown curve, R-multiple expectancy, Profit Factor, and session killzone metrics.'
+                : mode === 'login'
                 ? 'Enter your details below to enter the trading system.'
                 : mode === 'signup'
                 ? 'Start replaying historical charts and testing strategies.'

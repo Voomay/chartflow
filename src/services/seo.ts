@@ -2,7 +2,7 @@ import type { TradersInsightArticle } from './tradersInsightData';
 import { TRADERS_INSIGHT_PREVIEWS } from './tradersInsightPreviews';
 import { FAQ_ITEMS } from './faq';
 
-export const SITE_ORIGIN = 'https://chartreplay.co.za';
+export const SITE_ORIGIN = 'https://www.chartreplay.co.za';
 export const SITE_NAME = 'Chart Replay';
 export const DEFAULT_TITLE =
   'Chart Replay – Free FX Replay Alternative | Forex & Prop Firm Backtesting Tools (South Africa, Nigeria & Africa)';
@@ -272,6 +272,71 @@ export function buildAuthJsonLd(mode: 'login' | 'signup' | 'reset') {
   };
 }
 
+export function buildWorkspaceRouteJsonLd(
+  route: '/dashboard' | '/chart' | '/analytics'
+) {
+  const metaMap = {
+    '/dashboard': {
+      name: 'Client Dashboard – Manage Forex Backtest & Prop Firm Sessions | Chart Replay',
+      shortName: 'Client Dashboard',
+      description:
+        'Launch and manage your historical Forex, Gold (XAUUSD), and Indices backtesting sessions, FTMO/FundedNext prop firm evaluations, and strategy notes on Chart Replay.',
+    },
+    '/chart': {
+      name: 'Trading Chart & 1-Minute Historical Bar Replay Terminal | Chart Replay',
+      shortName: 'Trading Chart & Bar Replay',
+      description:
+        'Interactive multi-timeframe candlestick chart with deterministic 1-minute bar replay, R:R position sizing calculator, AI psychologist coach, and prop firm drawdown rules.',
+    },
+    '/analytics': {
+      name: 'Performance Analytics & R-Multiple Forex Trading Journal | Chart Replay',
+      shortName: 'Performance Analytics',
+      description:
+        'Analyze your backtesting win rate, Profit Factor, R-Multiple Expectancy, Equity Curve, Maximum Drawdown, and Session Killzone performance.',
+    },
+  } as const;
+  const info = metaMap[route];
+
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          {
+            '@type': 'ListItem',
+            position: 1,
+            name: 'Home',
+            item: `${SITE_ORIGIN}/`,
+          },
+          {
+            '@type': 'ListItem',
+            position: 2,
+            name: info.shortName,
+            item: `${SITE_ORIGIN}${route}`,
+          },
+        ],
+      },
+      {
+        '@type': 'WebApplication',
+        '@id': `${SITE_ORIGIN}${route}#webapp`,
+        url: `${SITE_ORIGIN}${route}`,
+        name: info.name,
+        description: info.description,
+        applicationCategory: 'FinanceApplication',
+        operatingSystem: 'Web, Windows, macOS, Android, iOS (PWA)',
+        isPartOf: { '@id': `${SITE_ORIGIN}/#website` },
+        offers: {
+          '@type': 'Offer',
+          price: '0',
+          priceCurrency: 'USD',
+        },
+        inLanguage: 'en-ZA',
+      },
+    ],
+  };
+}
+
 export function buildSitemapJsonLd() {
   const pages = [
     { name: 'Chart Replay Home', url: `${SITE_ORIGIN}/` },
@@ -286,6 +351,7 @@ export function buildSitemapJsonLd() {
       url: `${SITE_ORIGIN}/traders-insight/${a.slug}`,
     })),
     { name: 'Partner with Us', url: `${SITE_ORIGIN}/partners` },
+    { name: 'Contact Us', url: `${SITE_ORIGIN}/contact` },
     { name: 'Terms & Conditions', url: `${SITE_ORIGIN}/terms` },
     { name: 'Privacy Policy', url: `${SITE_ORIGIN}/privacy` },
     { name: 'POPIA Notice (South Africa)', url: `${SITE_ORIGIN}/popia` },
@@ -302,7 +368,7 @@ export function buildSitemapJsonLd() {
             '@type': 'ListItem',
             position: 1,
             name: 'Home',
-            item: SITE_ORIGIN,
+            item: `${SITE_ORIGIN}/`,
           },
           {
             '@type': 'ListItem',
@@ -318,7 +384,7 @@ export function buildSitemapJsonLd() {
         url: `${SITE_ORIGIN}/sitemap`,
         name: 'Chart Replay Sitemap – All Pages, Tools & Forex Research Guides',
         description:
-          'Complete HTML sitemap of Chart Replay (chartreplay.co.za): Sign Up, Sign In, Client Dashboard, Historical Bar Replay Charts, Analytics, Legal pages, and all 10 Trader’s Insight Forex & Prop Firm guides.',
+          `Complete HTML sitemap of Chart Replay (www.chartreplay.co.za): Sign Up, Sign In, Client Dashboard, Historical Bar Replay Charts, Analytics, Contact, Legal pages, and all ${TRADERS_INSIGHT_PREVIEWS.length} Trader’s Insight Forex & Prop Firm guides.`,
         isPartOf: { '@id': `${SITE_ORIGIN}/#website` },
         mainEntity: {
           '@type': 'ItemList',
@@ -470,7 +536,7 @@ export function applyPageSeo(options: {
   jsonLd?: unknown;
 }) {
   if (typeof document === 'undefined') return;
-  const canonicalUrl = `${SITE_ORIGIN}${options.path === '/' ? '' : options.path}`;
+  const canonicalUrl = `${SITE_ORIGIN}${options.path === '/' ? '/' : options.path}`;
   const imageUrl = options.image
     ? options.image.startsWith('http')
       ? options.image

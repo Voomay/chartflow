@@ -3091,7 +3091,7 @@ export function App() {
     let targetPath = '/';
     if (activeView === 'landing') {
       targetPath = '/';
-    } else if (activeView === 'login' || !currentUser) {
+    } else if (activeView === 'login') {
       if (urlResetParams.token || loginInitialMode === 'reset') {
         targetPath = '/reset-password';
       } else if (loginInitialMode === 'signup') {
@@ -3291,12 +3291,25 @@ export function App() {
 
   // VIEW 2: LOGIN / REGISTRATION / PASSWORD RESET
   if (activeView === 'login' || !currentUser) {
+    const requestedWorkspaceRoute: '/dashboard' | '/chart' | '/analytics' | null =
+      activeView === 'terminal'
+        ? '/chart'
+        : activeView === 'analytics_page' ||
+          (activeView === 'dashboard' && hubInitialSection === 'analytics')
+        ? '/analytics'
+        : activeView === 'dashboard'
+        ? '/dashboard'
+        : null;
     return (
       <Suspense fallback={<div className="min-h-[100dvh] bg-[#06080d]" />}>
       {experiencePopupOverlay}
       <LoginPage
         initialMode={urlResetParams.token ? 'reset' : loginInitialMode}
-        onModeChange={(nextMode) => setLoginInitialMode(nextMode)}
+        requestedWorkspaceRoute={requestedWorkspaceRoute}
+        onModeChange={(nextMode) => {
+          setLoginInitialMode(nextMode);
+          setActiveView('login');
+        }}
         initialResetToken={urlResetParams.token}
         initialEmail={urlResetParams.email}
         onClearResetToken={clearUrlResetParams}
@@ -3326,7 +3339,9 @@ export function App() {
           }
           setCurrentUser(user);
           purgeBrowserSensitiveStorage();
-          setActiveView('dashboard');
+          setActiveView((prev) =>
+            prev === 'terminal' || prev === 'analytics_page' ? prev : 'dashboard'
+          );
         }}
         onLogout={() => {
           purgeBrowserSensitiveStorage();

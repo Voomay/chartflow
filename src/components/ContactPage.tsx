@@ -20,6 +20,7 @@ import {
 import { ChartReplayLogo } from './ChartReplayLogo';
 import { SiteHeader, SiteHeaderProps } from './SiteHeader';
 import { LegalLinks } from './LegalLinks';
+import { applyPageSeo } from '../services/seo';
 
 interface ContactPageProps {
   initialName?: string;
@@ -82,6 +83,23 @@ export const ContactPage: React.FC<ContactPageProps> = ({
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedWhich, setCopiedWhich] = useState<'official' | 'personal' | null>(null);
+
+  useEffect(() => {
+    if (embedded) return;
+    applyPageSeo({
+      title: 'Contact Us – Support, Partnerships & Feedback | Chart Replay',
+      description:
+        'Contact the Chart Replay team in South Africa for general support, prop firm and educator partnerships, feature suggestions, or bug reports.',
+      path: '/contact',
+      type: 'website',
+      keywords: [
+        'Contact Chart Replay',
+        'Chart Replay support South Africa',
+        'forex backtesting support',
+        'prop firm partnership inquiry',
+      ],
+    });
+  }, [embedded]);
 
   useEffect(() => {
     if (initialName && !name) setName(initialName);

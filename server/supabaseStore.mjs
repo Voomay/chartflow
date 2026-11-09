@@ -276,9 +276,19 @@ export function createSupabaseAccountStore({
 
     return users.map((user) => {
       const email = String(user.email || '').toLowerCase();
-      const rawUserSessions = sessionRows.filter(
-        (r) => String(r?.user_email || '').toLowerCase() === email
-      );
+      const rawUserSessions = sessionRows.filter((r) => {
+        if (String(r?.user_email || '').toLowerCase() !== email) return false;
+        const innerOwner = String(r?.session_data?.userId || '').trim().toLowerCase();
+        if (
+          innerOwner &&
+          innerOwner !== 'guest' &&
+          innerOwner !== 'trader@chartflow.io' &&
+          innerOwner !== email
+        ) {
+          return false;
+        }
+        return true;
+      });
       const userSessions = rawUserSessions.filter(
         (s) =>
           !isStarterSessionId(s?.id, email) ||

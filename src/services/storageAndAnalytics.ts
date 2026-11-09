@@ -786,12 +786,93 @@ export function mergeRemoteDeletedSessionIds(userId: string, remoteIds?: string[
   }
 }
 
+export const KNOWN_SESSION_OWNERS: Record<string, string> = {
+  'session-1794140875939-gpd8': 'yonjerico88@gmail.com',
+  'session-1794144127937-tcwc': 'hennas368@gmail.com',
+  'session-1793818036283-b9z5': 'infovoomay@gmail.com',
+  'session-1793822578775-dzs9': 'infovoomay@gmail.com',
+  'session-1793634324680-h24u': 'devadavid86@gmail.com',
+  'session-1793634560706-mf6r': 'devadavid86@gmail.com',
+  'session-1793634748584-y7wm': 'mduduzingwenya5203@gmail.com',
+  'live-paper-1793815965649-vo01pp': 'mduduzingwenya5203@gmail.com',
+  'session-1793548228549-n6g1': 'gathuaalex7@gmail.com',
+  'session-1793549884135-syfe': 'gathuaalex7@gmail.com',
+  'live-paper-1793550199748-bwexlz': 'gathuaalex7@gmail.com',
+  'session-1793891710507-1vef': 'iceking1489@gmail.com',
+  'session-1793283246571-ykl9': 'mabasakroos@gmail.com',
+  'session-1793326070284-1xqs': 'moodleyowen437@gmail.com',
+  'session-1793377028851-gkpe': 'infovoomay@gmail.com',
+  'session-1793546752917-f2h4': 'jeremiahjade42@gmail.com',
+  'session-1793545951917-tn4x': 'jeremiahjade42@gmail.com',
+  'session-1793965806160-ooyw': 'info@voomay.co.za',
+  'session-1794118297574-03qk': 'hugocalitz80@gmail.com',
+  'session-1793957678886-83yq': 'many@foma.com',
+  'session-ny-gold-fx-kagiso-01': 'kagiso.mbeki@chartreplay.co.za',
+  'session-ftmo100k-elena-01': 'elena.vance@chartreplay.co.za',
+  'session-fx-killzone-sipho-01': 'sipho.ndlovu@chartreplay.co.za',
+  'live-paper-1792946938915-nim619': 'sipho.ndlovu@chartreplay.co.za',
+};
+
+export function normalizeUserOwnerKey(userIdOrEmail?: string): string {
+  return (userIdOrEmail || '').trim().toLowerCase();
+}
+
+export function isSessionOwnedByUser(
+  session: TradingSession | null | undefined,
+  userIdOrEmail?: string
+): boolean {
+  if (!session || typeof session.id !== 'string') return false;
+  const target = normalizeUserOwnerKey(userIdOrEmail);
+  const knownOwner = KNOWN_SESSION_OWNERS[session.id];
+  if (knownOwner) {
+    return Boolean(target && target === knownOwner);
+  }
+  const owner = normalizeUserOwnerKey(session.userId);
+  if (!owner || owner === 'guest' || owner === 'trader@chartflow.io') {
+    return true;
+  }
+  if (!target || target === 'guest' || target === 'trader@chartflow.io') {
+    return false;
+  }
+  return owner === target;
+}
+
+export function stampSessionOwner(
+  session: TradingSession,
+  userIdOrEmail?: string
+): TradingSession {
+  const knownOwner = KNOWN_SESSION_OWNERS[session.id];
+  if (knownOwner) {
+    return session.userId === knownOwner ? session : { ...session, userId: knownOwner };
+  }
+  const target = normalizeUserOwnerKey(userIdOrEmail);
+  if (!target || target === 'guest' || target === 'trader@chartflow.io') {
+    return session;
+  }
+  const existingOwner = normalizeUserOwnerKey(session.userId);
+  if (
+    existingOwner &&
+    existingOwner !== 'guest' &&
+    existingOwner !== 'trader@chartflow.io' &&
+    existingOwner !== target
+  ) {
+    return session;
+  }
+  if (session.userId === target) return session;
+  return {
+    ...session,
+    userId: target,
+  };
+}
+
 export function createFreshReplacementSessionForUser(userId: string): TradingSession {
   const defaults = createDefaultSessionsForUser(userId);
   const base = defaults[0];
   const nowIso = new Date().toISOString();
+  const cleanOwner = normalizeUserOwnerKey(userId);
   return {
     ...base,
+    userId: cleanOwner || userId,
     id: `session-custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     createdAt: nowIso,
     updatedAt: nowIso,
@@ -818,9 +899,24 @@ export function loadUserSessions(userId: string): TradingSession[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return deduplicateSessions(
-          parsed.filter((s: TradingSession) => !deletedIds.has(s.id))
+        const cleaned = deduplicateSessions(
+          parsed
+            .filter(
+              (s: TradingSession) =>
+                Boolean(s && typeof s.id === 'string') &&
+                !deletedIds.has(s.id) &&
+                isSessionOwnedByUser(s, userId)
+            )
+            .map((s: TradingSession) => stampSessionOwner(s, userId))
         );
+        if (cleaned.length !== parsed.length) {
+          try {
+            store.setItem(key, JSON.stringify(cleaned));
+          } catch {
+            // ignore
+          }
+        }
+        return cleaned;
       }
     }
   } catch {
@@ -829,24 +925,84 @@ export function loadUserSessions(userId: string): TradingSession[] {
   return [];
 }
 
-const sessionSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-export function saveUserSessions(userId: string, sessions: TradingSession[]): void {
-  const unique = deduplicateSessions(sessions);
+export function cacheUserSessionsLocally(
+  userId: string,
+  sessions: TradingSession[]
+): TradingSession[] {
+  const deletedIds = getDeletedSessionIds(userId);
+  const ownedSessions = deduplicateSessions(
+    sessions
+      .filter(
+        (s) =>
+          Boolean(s && typeof s.id === 'string') &&
+          !deletedIds.has(s.id) &&
+          isSessionOwnedByUser(s, userId)
+      )
+      .map((s) => stampSessionOwner(s, userId))
+  );
   const key = `${getUserScopePrefix(userId)}_sessions_v2`;
   const store = runtimeStorage();
   try {
-    store.setItem(key, JSON.stringify(unique));
+    store.setItem(key, JSON.stringify(ownedSessions));
   } catch {
     // ignore
   }
-  const prevTimer = sessionSyncTimers.get(userId);
+  return ownedSessions;
+}
+
+const sessionSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+export function cancelPendingSessionSync(userId?: string): void {
+  if (typeof userId === 'string' && userId.trim()) {
+    const norm = normalizeUserOwnerKey(userId);
+    const t1 = sessionSyncTimers.get(norm) || sessionSyncTimers.get(userId);
+    if (t1) clearTimeout(t1);
+    sessionSyncTimers.delete(norm);
+    sessionSyncTimers.delete(userId);
+    const n1 = notesSyncTimers.get(norm) || notesSyncTimers.get(userId);
+    if (n1) clearTimeout(n1);
+    notesSyncTimers.delete(norm);
+    notesSyncTimers.delete(userId);
+    return;
+  }
+  for (const timer of sessionSyncTimers.values()) {
+    clearTimeout(timer);
+  }
+  sessionSyncTimers.clear();
+  for (const timer of notesSyncTimers.values()) {
+    clearTimeout(timer);
+  }
+  notesSyncTimers.clear();
+}
+
+export function saveUserSessions(userId: string, sessions: TradingSession[]): void {
+  const cleanOwner = normalizeUserOwnerKey(userId);
+  const deletedIds = getDeletedSessionIds(userId);
+  const ownedSessions = deduplicateSessions(
+    sessions
+      .filter(
+        (s) =>
+          Boolean(s && typeof s.id === 'string') &&
+          !deletedIds.has(s.id) &&
+          isSessionOwnedByUser(s, userId)
+      )
+      .map((s) => stampSessionOwner(s, userId))
+  );
+  const key = `${getUserScopePrefix(userId)}_sessions_v2`;
+  const store = runtimeStorage();
+  try {
+    store.setItem(key, JSON.stringify(ownedSessions));
+  } catch {
+    // ignore
+  }
+  const timerKey = cleanOwner || userId;
+  const prevTimer = sessionSyncTimers.get(timerKey);
   if (prevTimer) clearTimeout(prevTimer);
   const nextTimer = setTimeout(() => {
-    sessionSyncTimers.delete(userId);
-    void syncUserSessionsToSupabase(userId, unique);
+    sessionSyncTimers.delete(timerKey);
+    void syncUserSessionsToSupabase(userId, ownedSessions);
   }, 250);
-  sessionSyncTimers.set(userId, nextTimer);
+  sessionSyncTimers.set(timerKey, nextTimer);
 }
 
 export const DEFAULT_USER_STRATEGIES: Array<Omit<StrategyRecord, 'id' | 'userId' | 'createdAt'>> = [
@@ -1011,12 +1167,35 @@ export function loadUserStrategies(userId: string): StrategyRecord[] {
   const key = `${getUserScopePrefix(userId)}_strategies_v2`;
   const store = runtimeStorage();
   const deletedIds = getDeletedStrategyIds(userId);
+  const cleanUser = normalizeUserOwnerKey(userId);
   try {
     const raw = store.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed.filter((s: StrategyRecord) => !deletedIds.has(s.id));
+        return parsed
+          .filter((s: StrategyRecord) => {
+            if (!s || typeof s.id !== 'string' || deletedIds.has(s.id)) return false;
+            const owner = normalizeUserOwnerKey(s.userId);
+            if (
+              owner &&
+              owner !== 'guest' &&
+              owner !== 'trader@chartflow.io' &&
+              cleanUser &&
+              cleanUser !== 'guest' &&
+              cleanUser !== 'trader@chartflow.io' &&
+              owner !== cleanUser &&
+              !/^strat-[1-6]$/.test(s.id)
+            ) {
+              return false;
+            }
+            return true;
+          })
+          .map((s: StrategyRecord) =>
+            cleanUser && cleanUser !== 'guest' && cleanUser !== 'trader@chartflow.io'
+              ? { ...s, userId: cleanUser }
+              : s
+          );
       }
     }
   } catch {
@@ -1024,7 +1203,7 @@ export function loadUserStrategies(userId: string): StrategyRecord[] {
   }
   const defaults: StrategyRecord[] = DEFAULT_USER_STRATEGIES.map((s, idx) => ({
     id: `strat-${idx + 1}`,
-    userId,
+    userId: cleanUser || userId,
     name: s.name,
     description: s.description,
     defaultChecklist: s.defaultChecklist,
@@ -1042,8 +1221,32 @@ export function loadUserStrategies(userId: string): StrategyRecord[] {
 export function saveUserStrategies(userId: string, strategies: StrategyRecord[]): void {
   const key = `${getUserScopePrefix(userId)}_strategies_v2`;
   const store = runtimeStorage();
+  const cleanUser = normalizeUserOwnerKey(userId);
+  const ownedStrategies = strategies
+    .filter((s) => {
+      if (!s || typeof s.id !== 'string') return false;
+      const owner = normalizeUserOwnerKey(s.userId);
+      if (
+        owner &&
+        owner !== 'guest' &&
+        owner !== 'trader@chartflow.io' &&
+        cleanUser &&
+        cleanUser !== 'guest' &&
+        cleanUser !== 'trader@chartflow.io' &&
+        owner !== cleanUser &&
+        !/^strat-[1-6]$/.test(s.id)
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .map((s) =>
+      cleanUser && cleanUser !== 'guest' && cleanUser !== 'trader@chartflow.io'
+        ? { ...s, userId: cleanUser }
+        : s
+    );
   const prevStrategies = loadUserStrategies(userId);
-  const nextIds = new Set(strategies.map((s) => s.id));
+  const nextIds = new Set(ownedStrategies.map((s) => s.id));
   const deletedSet = getDeletedStrategyIds(userId);
   let deletedChanged = false;
   for (const prev of prevStrategies) {
@@ -1053,7 +1256,7 @@ export function saveUserStrategies(userId: string, strategies: StrategyRecord[])
       void deleteUserStrategyFromSupabase(userId, prev.id);
     }
   }
-  for (const st of strategies) {
+  for (const st of ownedStrategies) {
     if (deletedSet.has(st.id)) {
       deletedSet.delete(st.id);
       deletedChanged = true;
@@ -1069,11 +1272,11 @@ export function saveUserStrategies(userId: string, strategies: StrategyRecord[])
     void syncUserPreferencesToSupabase(userId, { deletedStrategyIds: arr });
   }
   try {
-    store.setItem(key, JSON.stringify(strategies));
+    store.setItem(key, JSON.stringify(ownedStrategies));
   } catch {
     // ignore
   }
-  void syncUserStrategiesToSupabase(userId, strategies);
+  void syncUserStrategiesToSupabase(userId, ownedStrategies);
 }
 
 export function loadUserCustomRuleProfiles(userId: string): CustomRuleProfile[] {

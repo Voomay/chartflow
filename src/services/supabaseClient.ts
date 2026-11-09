@@ -221,7 +221,21 @@ export async function syncUserSessionsToSupabase(
     return;
   }
 
-  const sessionsToSync = sessions.filter((s) => !isUntouchedStarterSession(s));
+  const sessionsToSync = sessions.filter((s) => {
+    if (!s || typeof s.id !== 'string' || isUntouchedStarterSession(s)) {
+      return false;
+    }
+    const owner = (s.userId || '').trim().toLowerCase();
+    if (
+      owner &&
+      owner !== 'guest' &&
+      owner !== 'trader@chartflow.io' &&
+      owner !== cleanEmail
+    ) {
+      return false;
+    }
+    return true;
+  });
   if (sessionsToSync.length === 0) {
     return;
   }
@@ -236,6 +250,7 @@ export async function syncUserSessionsToSupabase(
     const realizedPnl = computeAuthoritativeRealizedPnl(s);
     const sanitizedSessionData: TradingSession = {
       ...s,
+      userId: cleanEmail,
       startingBalance,
       accountCurrency,
       realizedPnL: realizedPnl,
@@ -286,6 +301,7 @@ export async function fetchUserSessionsFromSupabase(
   const rows = await supabaseFetch<
     Array<{
       id: string;
+      user_email?: string;
       name?: string;
       mode?: BacktestSessionMode;
       active_asset?: InstrumentSymbol;
@@ -301,13 +317,28 @@ export async function fetchUserSessionsFromSupabase(
   >(
     `trading_sessions?user_email=eq.${encodeURIComponent(
       cleanEmail
-    )}&select=id,name,mode,active_asset,active_timeframe,starting_balance,account_currency,status,realized_pnl,created_at,updated_at,session_data&order=updated_at.desc`
+    )}&select=id,user_email,name,mode,active_asset,active_timeframe,starting_balance,account_currency,status,realized_pnl,created_at,updated_at,session_data&order=updated_at.desc`
   );
   if (!Array.isArray(rows) || rows.length === 0) return null;
   const parsed = rows
     .map((r) => {
+      if (
+        r.user_email &&
+        r.user_email.trim().toLowerCase() !== cleanEmail
+      ) {
+        return null;
+      }
       const raw = r.session_data;
       if (!raw || typeof raw.id !== 'string') return null;
+      const innerOwner = (raw.userId || '').trim().toLowerCase();
+      if (
+        innerOwner &&
+        innerOwner !== 'guest' &&
+        innerOwner !== 'trader@chartflow.io' &&
+        innerOwner !== cleanEmail
+      ) {
+        return null;
+      }
       const startingBalance = Number(
         raw.frozenConfig?.startingBalance ??
           raw.startingBalance ??
@@ -321,6 +352,7 @@ export async function fetchUserSessionsFromSupabase(
         'USD';
       const normalized: TradingSession = {
         ...raw,
+        userId: cleanEmail,
         name: raw.name || r.name || 'Trading Session',
         mode: raw.mode || r.mode || 'BACKTESTING',
         activeAsset: raw.activeAsset || r.active_asset || 'XAUUSD',

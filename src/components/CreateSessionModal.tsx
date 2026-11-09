@@ -80,6 +80,7 @@ interface CreateSessionModalProps {
   onDeleteCustomRuleProfile?: (profileId: string) => void;
   theme?: ThemeMode;
   userName?: string;
+  userEmail?: string;
   tourWizardStep?: 1 | 2 | 3 | null;
 }
 
@@ -304,6 +305,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   onDeleteCustomRuleProfile,
   theme = 'dark',
   userName,
+  userEmail,
   tourWizardStep = null,
 }) => {
   const isLight = theme === 'light';
@@ -641,8 +643,10 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       instrumentSpecs: finalSpecs,
     };
 
+    const cleanOwnerEmail = (userEmail || '').trim().toLowerCase();
     const newSession: TradingSession = {
       id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      ...(cleanOwnerEmail ? { userId: cleanOwnerEmail } : {}),
       name: finalName,
       description:
         mode === 'PROP_FIRM'

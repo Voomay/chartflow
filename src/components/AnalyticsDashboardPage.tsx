@@ -29,8 +29,10 @@ import {
 import {
   AnalyticsFilterState,
   computeAnalyticsReport,
+  createFreshReplacementSessionForUser,
   exportFilteredTradesToCsv,
   formatDurationCompact,
+  isSessionOwnedByUser,
   triggerCsvDownload,
 } from '../services/storageAndAnalytics';
 import { ChartFlowUser } from './LoginPage';
@@ -135,8 +137,8 @@ interface AnalyticsDashboardPageProps {
 }
 
 export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
-  activeSession,
-  sessions,
+  activeSession: rawActiveSession,
+  sessions: rawSessions,
   onSelectSessionAndResume,
   onSelectSessionForAnalytics,
   onDeleteSession,
@@ -163,6 +165,26 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   onOpenPartners,
 }) => {
   const announcementUser=currentUser?.email||'guest';
+  const sessions = useMemo(
+    () =>
+      (rawSessions || []).filter((s) =>
+        isSessionOwnedByUser(s, currentUser?.email)
+      ),
+    [rawSessions, currentUser?.email]
+  );
+  const activeSession = useMemo(() => {
+    if (rawActiveSession && isSessionOwnedByUser(rawActiveSession, currentUser?.email)) {
+      return rawActiveSession;
+    }
+    if (sessions.length > 0) return sessions[0];
+    const base = createFreshReplacementSessionForUser(currentUser?.email || 'guest');
+    return {
+      ...base,
+      id: `session-empty-${currentUser?.email || 'guest'}`,
+      name: 'New Session',
+      displayTimezone: 'Africa/Johannesburg' as const,
+    };
+  }, [rawActiveSession, sessions, currentUser?.email]);
   const isReturningUser=Boolean(currentUser?.isReturningLogin||(currentUser?.loginCount??1)>1);
   const [announcementManual,setAnnouncementManual]=useState(false);
   useEffect(()=>{

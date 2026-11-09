@@ -71,10 +71,13 @@ import {
 } from './services/simulationEngine';
 import {
   getActiveLoggedInUser,
+  cacheUserSessionsLocally,
   cacheUserStrategyNotesLocally,
+  cancelPendingSessionSync,
   createFreshReplacementSessionForUser,
   getDeletedSessionIds,
   getDeletedStrategyIds,
+  isSessionOwnedByUser,
   loadUserCustomRuleProfiles,
   loadUserSessions,
   loadUserStrategies,
@@ -84,6 +87,7 @@ import {
   purgeBrowserSensitiveStorage,
   saveUserCustomRuleProfiles,
   saveUserSessions,
+  stampSessionOwner,
   deleteUserSession,
   deleteUserAccount,
   saveUserStrategies,
@@ -550,17 +554,34 @@ export function App() {
   }, []);
 
   // 3. Per-User Persistent Sessions, Strategies & Custom Prop Profiles
+  const [sessionsOwnerEmail, setSessionsOwnerEmail] = useState<string>(() =>
+    userEmail.trim().toLowerCase()
+  );
   const [tradingSessions, setTradingSessions] = useState<TradingSession[]>(() => {
+    const cleanEmail = userEmail.trim().toLowerCase();
     const loaded = loadUserSessions(userEmail).filter(
-      (s) => !isUntouchedStarterSession(s)
+      (s) => !isUntouchedStarterSession(s) && isSessionOwnedByUser(s, cleanEmail)
     );
     return loaded.map((s) =>
-      !s.displayTimezone || s.displayTimezone === 'UTC'
-        ? { ...s, displayTimezone: 'Africa/Johannesburg' as const }
-        : s
+      stampSessionOwner(
+        !s.displayTimezone || s.displayTimezone === 'UTC'
+          ? { ...s, displayTimezone: 'Africa/Johannesburg' as const }
+          : s,
+        cleanEmail
+      )
     );
   });
-  usePlatformActivity(currentUser?.email,tradingSessions.map(session=>session.id).join('|'),adminPage);
+  const scopedTradingSessions = useMemo(() => {
+    const cleanEmail = (currentUser?.email || 'trader@chartflow.io').trim().toLowerCase();
+    if (sessionsOwnerEmail !== cleanEmail) return [];
+    return tradingSessions.filter((s) => isSessionOwnedByUser(s, cleanEmail));
+  }, [tradingSessions, sessionsOwnerEmail, currentUser?.email]);
+
+  usePlatformActivity(
+    currentUser?.email,
+    scopedTradingSessions.map((session) => session.id).join('|'),
+    adminPage
+  );
   const [strategies, setStrategies] = useState<StrategyRecord[]>(() =>
     loadUserStrategies(userEmail)
   );
@@ -569,39 +590,37 @@ export function App() {
   >(() => loadUserCustomRuleProfiles(userEmail));
 
   const hasHydratedSessionsRef = useRef<string | null>(null);
+  const locallyCreatedSessionIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!currentUser) return;
+    cancelPendingSessionSync();
     hasHydratedSessionsRef.current = null;
-    const loadedSessions: TradingSession[] = loadUserSessions(currentUser.email)
-      .filter((s) => !isUntouchedStarterSession(s))
+    locallyCreatedSessionIdsRef.current.clear();
+    if (!currentUser) {
+      setSessionsOwnerEmail('trader@chartflow.io');
+      setTradingSessions([]);
+      setActiveSessionId('session-default');
+      return;
+    }
+    const email = currentUser.email;
+    const cleanEmail = email.trim().toLowerCase();
+    setSessionsOwnerEmail(cleanEmail);
+    const loadedSessions: TradingSession[] = loadUserSessions(email)
+      .filter((s) => !isUntouchedStarterSession(s) && isSessionOwnedByUser(s, cleanEmail))
       .map((s) =>
-        !s.displayTimezone || s.displayTimezone === 'UTC'
-          ? { ...s, displayTimezone: 'Africa/Johannesburg' as const }
-          : s
+        stampSessionOwner(
+          !s.displayTimezone || s.displayTimezone === 'UTC'
+            ? { ...s, displayTimezone: 'Africa/Johannesburg' as const }
+            : s,
+          cleanEmail
+        )
       );
     setTradingSessions(loadedSessions);
-    setStrategies(loadUserStrategies(currentUser.email));
-    setCustomRuleProfiles(loadUserCustomRuleProfiles(currentUser.email));
+    setActiveSessionId(loadedSessions[0]?.id || 'session-default');
+    setStrategies(loadUserStrategies(email));
+    setCustomRuleProfiles(loadUserCustomRuleProfiles(email));
 
     let cancelled = false;
-    const email = currentUser.email;
-    void fetchUserPreferencesFromSupabase(email).then((remotePrefs) => {
-      if (cancelled || !remotePrefs) return;
-      if (typeof remotePrefs.skipWelcome === 'boolean' && remotePrefs.skipWelcome) {
-        setMotivationEnabled(email, false, false);
-      }
-      if (remotePrefs.deletedSessionIds?.length) {
-        mergeRemoteDeletedSessionIds(email, remotePrefs.deletedSessionIds);
-        const delSet = getDeletedSessionIds(email);
-        setTradingSessions((prev) => prev.filter((s) => !delSet.has(s.id)));
-      }
-      if (remotePrefs.deletedStrategyIds?.length) {
-        mergeRemoteDeletedStrategyIds(email, remotePrefs.deletedStrategyIds);
-        const delStrats = getDeletedStrategyIds(email);
-        setStrategies((prev) => prev.filter((s) => !delStrats.has(s.id)));
-      }
-    });
     void fetchUserStrategyNotesFromSupabase(email).then((remoteNotes) => {
       if (cancelled || !remoteNotes) return;
       const existing = loadUserStrategyNotes(email);
@@ -609,27 +628,71 @@ export function App() {
         cacheUserStrategyNotesLocally(email, remoteNotes);
       }
     });
-    void fetchUserSessionsFromSupabase(email)
-      .then((remoteSessions) => {
+    void Promise.all([
+      fetchUserPreferencesFromSupabase(email).catch(() => null),
+      fetchUserSessionsFromSupabase(email).catch(() => null),
+    ])
+      .then(([remotePrefs, remoteSessions]) => {
         if (cancelled) return;
-        hasHydratedSessionsRef.current = email;
+        if (remotePrefs) {
+          if (typeof remotePrefs.skipWelcome === 'boolean' && remotePrefs.skipWelcome) {
+            setMotivationEnabled(email, false, false);
+          }
+          if (remotePrefs.deletedSessionIds?.length) {
+            mergeRemoteDeletedSessionIds(email, remotePrefs.deletedSessionIds);
+          }
+          if (remotePrefs.deletedStrategyIds?.length) {
+            mergeRemoteDeletedStrategyIds(email, remotePrefs.deletedStrategyIds);
+            const delStrats = getDeletedStrategyIds(email);
+            setStrategies((prev) => prev.filter((s) => !delStrats.has(s.id)));
+          }
+        }
+        const deletedIds = getDeletedSessionIds(email);
+        hasHydratedSessionsRef.current = cleanEmail;
         if (!remoteSessions || remoteSessions.length === 0) {
+          setTradingSessions((prev) => {
+            const filtered = prev.filter(
+              (s) =>
+                !deletedIds.has(s.id) &&
+                !isUntouchedStarterSession(s) &&
+                isSessionOwnedByUser(s, cleanEmail)
+            );
+            cacheUserSessionsLocally(cleanEmail, filtered);
+            return filtered;
+          });
           completeSessionRestore();
           return;
         }
-        const deletedIds = getDeletedSessionIds(email);
-        const activeRemoteSessions = remoteSessions.filter(
-          (r) => !deletedIds.has(r.id) && !isUntouchedStarterSession(r)
-        );
+        const activeRemoteSessions = remoteSessions
+          .filter(
+            (r) =>
+              !deletedIds.has(r.id) &&
+              !isUntouchedStarterSession(r) &&
+              isSessionOwnedByUser(r, cleanEmail)
+          )
+          .map((r) => stampSessionOwner(r, cleanEmail));
         if (activeRemoteSessions.length === 0) {
+          setTradingSessions((prev) => {
+            const filtered = prev.filter(
+              (s) =>
+                !deletedIds.has(s.id) &&
+                !isUntouchedStarterSession(s) &&
+                isSessionOwnedByUser(s, cleanEmail)
+            );
+            cacheUserSessionsLocally(cleanEmail, filtered);
+            return filtered;
+          });
           completeSessionRestore();
           return;
         }
         setTradingSessions((prev) => {
           const nonStarterPrev = prev.filter(
-            (s) => !deletedIds.has(s.id) && !isUntouchedStarterSession(s)
+            (s) =>
+              !deletedIds.has(s.id) &&
+              !isUntouchedStarterSession(s) &&
+              isSessionOwnedByUser(s, cleanEmail)
           );
-          const byId = new Map(nonStarterPrev.map((s) => [s.id, s]));
+          const byId = new Map(nonStarterPrev.map((s) => [s.id, stampSessionOwner(s, cleanEmail)]));
           for (const r of activeRemoteSessions) {
             if (
               isUntouchedStarterSession(r) &&
@@ -647,7 +710,9 @@ export function App() {
             }
           }
           const merged = Array.from(byId.values());
-          return merged.length > 0 ? merged : activeRemoteSessions;
+          const finalList = merged.length > 0 ? merged : activeRemoteSessions;
+          cacheUserSessionsLocally(cleanEmail, finalList);
+          return finalList;
         });
         const preferredSession =
           activeRemoteSessions.find((r) => (r.positions ?? []).length > 0) ||
@@ -658,14 +723,7 @@ export function App() {
           if (prevSession && !isUntouchedStarterSession(prevSession)) {
             return prevId;
           }
-          // Preserve a locally created session ID if the user created a session before remote hydration completed
-          if (
-            prevId &&
-            !prevId.startsWith('session-default') &&
-            !prevId.startsWith('session-normal-') &&
-            !prevId.startsWith('session-prop-') &&
-            !prevId.startsWith('session-empty-')
-          ) {
+          if (locallyCreatedSessionIdsRef.current.has(prevId)) {
             return prevId;
           }
           return preferredSession.id;
@@ -674,7 +732,7 @@ export function App() {
       })
       .catch(() => {
         if (!cancelled) {
-          hasHydratedSessionsRef.current = email;
+          hasHydratedSessionsRef.current = cleanEmail;
           completeSessionRestore();
         }
       });
@@ -707,13 +765,14 @@ export function App() {
   }, [currentUser?.email]);
 
   const [activeSessionId, setActiveSessionId] = useState<string>(() => {
-    return tradingSessions[0]?.id || 'session-default';
+    return scopedTradingSessions[0]?.id || 'session-default';
   });
 
   const fallbackSession = useMemo<TradingSession>(() => {
     const base = createFreshReplacementSessionForUser(userEmail);
     return {
       ...base,
+      userId: userEmail.trim().toLowerCase(),
       id: `session-empty-${userEmail}`,
       name: 'New Session',
       displayTimezone: 'Africa/Johannesburg',
@@ -722,10 +781,10 @@ export function App() {
 
   const activeSession = useMemo(
     () =>
-      tradingSessions.find((s) => s.id === activeSessionId) ||
-      tradingSessions[0] ||
+      scopedTradingSessions.find((s) => s.id === activeSessionId) ||
+      scopedTradingSessions[0] ||
       fallbackSession,
-    [tradingSessions, activeSessionId, fallbackSession]
+    [scopedTradingSessions, activeSessionId, fallbackSession]
   );
 
   useEffect(() => {
@@ -1025,17 +1084,25 @@ export function App() {
 
   useEffect(() => {
     if (!currentUser?.email || tradingSessions.length === 0) return;
-    const hasNonStarter = tradingSessions.some((s) => !isUntouchedStarterSession(s));
-    if (hasHydratedSessionsRef.current !== currentUser.email && !hasNonStarter) return;
+    const cleanEmail = currentUser.email.trim().toLowerCase();
+    if (sessionsOwnerEmail !== cleanEmail) return;
+    const ownedSessions = tradingSessions.filter(
+      (s) => !isUntouchedStarterSession(s) && isSessionOwnedByUser(s, cleanEmail)
+    );
+    if (ownedSessions.length === 0) return;
+    const hasLocallyCreated = ownedSessions.some((s) =>
+      locallyCreatedSessionIdsRef.current.has(s.id)
+    );
+    if (hasHydratedSessionsRef.current !== cleanEmail && !hasLocallyCreated) return;
     if (!isPlaying) {
-      saveUserSessions(currentUser.email, tradingSessions);
+      saveUserSessions(cleanEmail, ownedSessions);
       return;
     }
     const timer = window.setTimeout(() => {
-      saveUserSessions(currentUser.email, tradingSessions);
+      saveUserSessions(cleanEmail, ownedSessions);
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [currentUser?.email, tradingSessions, isPlaying]);
+  }, [currentUser?.email, sessionsOwnerEmail, tradingSessions, isPlaying]);
 
   const isSessionLocked =
     activeSession.status === 'FAILED' ||
@@ -2292,17 +2359,24 @@ export function App() {
         if (openTerminalView) setActiveView('terminal');
         return;
       }
-      lastCreatedSessionRef.current = { id: newSession.id, signature, at: now };
+      const ownerEmail = (currentUser?.email || 'trader@chartflow.io').trim().toLowerCase();
+      const stampedSession: TradingSession = {
+        ...newSession,
+        userId: ownerEmail,
+      };
+      lastCreatedSessionRef.current = { id: stampedSession.id, signature, at: now };
+      locallyCreatedSessionIdsRef.current.add(stampedSession.id);
+      setSessionsOwnerEmail(ownerEmail);
       setIsPlaying(false);
       replayStepBusy.current = false;
       resetChartIndicatorsOff();
       setTradingSessions((prev) => [
-        newSession,
-        ...prev.filter((s) => s.id !== newSession.id),
+        stampedSession,
+        ...prev.filter((s) => s.id !== stampedSession.id && isSessionOwnedByUser(s, ownerEmail)),
       ]);
-      setActiveSessionId(newSession.id);
-      setSymbol(newSession.activeAsset);
-      const nextTf = newSession.activeTimeframe || '15m';
+      setActiveSessionId(stampedSession.id);
+      setSymbol(stampedSession.activeAsset);
+      const nextTf = stampedSession.activeTimeframe || '15m';
       setTimeframe(nextTf);
       setReplayStepTimeframe('5m');
       setViewportFocusVersion((v) => v + 1);
@@ -2311,15 +2385,23 @@ export function App() {
         setActiveView('terminal');
       }
     },
-    [resetChartIndicatorsOff]
+    [currentUser?.email, resetChartIndicatorsOff]
   );
 
   const handleBranchSession = useCallback(() => {
-    const branched = createPracticeBranchSession(activeSession);
-    setTradingSessions((prev) => [branched, ...prev]);
+    const ownerEmail = (currentUser?.email || 'trader@chartflow.io').trim().toLowerCase();
+    const branched: TradingSession = {
+      ...createPracticeBranchSession(activeSession),
+      userId: ownerEmail,
+    };
+    locallyCreatedSessionIdsRef.current.add(branched.id);
+    setTradingSessions((prev) => [
+      branched,
+      ...prev.filter((s) => isSessionOwnedByUser(s, ownerEmail)),
+    ]);
     setActiveSessionId(branched.id);
     showToast(`Created Practice Branch: "${branched.name}"`, 'up');
-  }, [activeSession, showToast]);
+  }, [activeSession, currentUser?.email, showToast]);
 
   const liveMetrics = useMemo(
     () =>
@@ -2505,6 +2587,12 @@ export function App() {
     if (currentUser && !adminImpersonation) {
       triggerOnceExperiencePopup('logout', currentUser);
     }
+    cancelPendingSessionSync();
+    hasHydratedSessionsRef.current = null;
+    locallyCreatedSessionIdsRef.current.clear();
+    setSessionsOwnerEmail('trader@chartflow.io');
+    setTradingSessions([]);
+    setActiveSessionId('session-default');
     clearAdminImpersonationState();
     setAdminImpersonation(null);
     purgeBrowserSensitiveStorage();
@@ -2515,14 +2603,21 @@ export function App() {
     setActiveView('landing');
   };
   const handleAdminLoginAsUser=useCallback(async(targetUser:AdminUser,previewMode=false)=>{
+    cancelPendingSessionSync();
+    hasHydratedSessionsRef.current = null;
+    locallyCreatedSessionIdsRef.current.clear();
     const res=await adminImpersonateUser({id:targetUser.id,email:targetUser.email,name:targetUser.name},previewMode);
     if(!res.ok||!res.user){
       throw new Error(res.error||'Only the signed-in administrator can log into a user account.');
     }
+    const cleanTargetEmail = res.user.email.trim().toLowerCase();
     markChartAnnouncementSeen(res.user.email);
     markWorkspaceTourSeen(res.user.email);
     markTourSeen('completed',res.user.email);
     setMotivationEnabled(res.user.email,false,false);
+    setSessionsOwnerEmail(cleanTargetEmail);
+    setTradingSessions([]);
+    setActiveSessionId('session-default');
     setAdminImpersonation(res.impersonation||null);
     setCurrentUser({
       id:res.user.id,
@@ -2540,6 +2635,12 @@ export function App() {
   },[]);
   const handleExitAdminImpersonation=useCallback(()=>{
     const wasPreview=adminImpersonation?.adminEmail==='Dashboard preview';
+    cancelPendingSessionSync();
+    hasHydratedSessionsRef.current = null;
+    locallyCreatedSessionIdsRef.current.clear();
+    setSessionsOwnerEmail('trader@chartflow.io');
+    setTradingSessions([]);
+    setActiveSessionId('session-default');
     clearAdminImpersonationState();
     setAdminImpersonation(null);
     setActiveLoggedInUser(null);
@@ -3344,6 +3445,12 @@ export function App() {
           );
         }}
         onLogout={() => {
+          cancelPendingSessionSync();
+          hasHydratedSessionsRef.current = null;
+          locallyCreatedSessionIdsRef.current.clear();
+          setSessionsOwnerEmail('trader@chartflow.io');
+          setTradingSessions([]);
+          setActiveSessionId('session-default');
           purgeBrowserSensitiveStorage();
           setActiveLoggedInUser(null);
           setCurrentUser(null);
@@ -3378,8 +3485,8 @@ export function App() {
             <strong className="text-white">{currentUser.name}</strong> (
             <span className="text-cyan-300">{currentUser.email}</span>) ·{' '}
             <span className="text-emerald-300">
-              {tradingSessions.length}{' '}
-              {tradingSessions.length === 1 ? 'session' : 'sessions'}
+              {scopedTradingSessions.length}{' '}
+              {scopedTradingSessions.length === 1 ? 'session' : 'sessions'}
             </span>
           </span>
         </div>
@@ -3451,7 +3558,7 @@ export function App() {
         {adminImpersonationBanner}
         <AnalyticsDashboardPage
           activeSession={activeSession}
-          sessions={tradingSessions}
+          sessions={scopedTradingSessions}
           onSelectSessionAndResume={(sessId) => {
             setActiveSessionId(sessId);
             setActiveView('terminal');
@@ -3505,6 +3612,12 @@ export function App() {
           customRuleProfiles={customRuleProfiles}
           currentUser={currentUser}
           onDeleteUser={(emailToDelete) => {
+            cancelPendingSessionSync();
+            hasHydratedSessionsRef.current = null;
+            locallyCreatedSessionIdsRef.current.clear();
+            setSessionsOwnerEmail('trader@chartflow.io');
+            setTradingSessions([]);
+            setActiveSessionId('session-default');
             deleteUserAccount(emailToDelete);
             setActiveLoggedInUser(null);
             setCurrentUser(null);
@@ -3528,7 +3641,7 @@ export function App() {
             }
           }}
           onReturnToChart={() => {
-            if (tradingSessions.length === 0) {
+            if (scopedTradingSessions.length === 0) {
               setCreateSessionModalMode('BACKTESTING');
               setCreateSessionTourStep(null);
               setIsCreateSessionModalOpen(true);
@@ -3549,11 +3662,12 @@ export function App() {
               initialMode={createSessionModalMode}
               tourWizardStep={createSessionTourStep}
               userName={currentUser?.name}
+              userEmail={currentUser?.email}
               onClose={() => {
                 setIsCreateSessionModalOpen(false);
                 setCreateSessionTourStep(null);
               }}
-              sessions={tradingSessions}
+              sessions={scopedTradingSessions}
               activeSessionId={activeSession.id}
               theme={theme}
               onCreateSession={(newSession) => {
@@ -4296,8 +4410,9 @@ export function App() {
           isOpen={isCreateSessionModalOpen}
           initialMode={createSessionModalMode}
           userName={currentUser?.name}
+          userEmail={currentUser?.email}
           onClose={() => setIsCreateSessionModalOpen(false)}
-          sessions={tradingSessions}
+          sessions={scopedTradingSessions}
           activeSessionId={activeSession.id}
           theme={theme}
           onCreateSession={(newSession) => handleCreateNewSession(newSession, false)}

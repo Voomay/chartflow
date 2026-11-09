@@ -1,8 +1,10 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {
+  cancelPendingSessionSync,
   createFreshReplacementSessionForUser,
   deleteUserAccount,
   deleteUserSession,
+  isSessionOwnedByUser,
   loadUserSessions,
   loadUserStrategies,
   loadUserStrategyNotes,
@@ -132,5 +134,59 @@ describe('Account-scoped privacy controls',()=>{
   saveUserStrategies(alice, aliceStrats.slice(1));
   expect(loadUserStrategies(alice).map(s => s.id)).not.toContain(removedStratId);
   expect(loadUserStrategies(bob).map(s => s.id)).toContain(removedStratId);
+ });
+
+ it('blocks cross-account session contamination during admin impersonation or user switching and scrubs poisoned localStorage',()=>{
+  const values=new Map<string,string>();
+  vi.stubGlobal('localStorage',{getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value),removeItem:(key:string)=>values.delete(key),key:(index:number)=>[...values.keys()][index]??null,get length(){return values.size;}});
+
+  const jerico = 'yonjerico88@gmail.com';
+  const henre = 'hennas368@gmail.com';
+  const mandy = 'many@foma.com';
+
+  const jericoGoldBacktest = {
+   ...createFreshReplacementSessionForUser(jerico),
+   id: 'session-1794140875939-gpd8',
+   userId: jerico,
+   name: 'XAUUSD Backtest (2025-11-10 → 2026-10-30)',
+   realizedPnL: 200.5,
+  };
+  const henreNasProp = {
+   ...createFreshReplacementSessionForUser(henre),
+   id: 'session-1794144127937-tcwc',
+   userId: henre,
+   name: 'FTMO $10,000.00 (NAS100)',
+   realizedPnL: -339.71,
+  };
+
+  expect(isSessionOwnedByUser(jericoGoldBacktest, jerico)).toBe(true);
+  expect(isSessionOwnedByUser(jericoGoldBacktest, henre)).toBe(false);
+  expect(isSessionOwnedByUser(jericoGoldBacktest, mandy)).toBe(false);
+  expect(isSessionOwnedByUser(henreNasProp, henre)).toBe(true);
+  expect(isSessionOwnedByUser(henreNasProp, jerico)).toBe(false);
+
+  // Attempting to save Jerico's session under Henre's email must strip Jerico's session
+  saveUserSessions(henre, [jericoGoldBacktest, henreNasProp]);
+  cancelPendingSessionSync();
+  const henreLoaded = loadUserSessions(henre);
+  expect(henreLoaded.map(s => s.id)).toEqual(['session-1794144127937-tcwc']);
+
+  // Even if localStorage for Mandy was previously poisoned with Jerico's session (even with wrong userId), loadUserSessions scrubs it
+  const mandyOwnSession = {
+   ...createFreshReplacementSessionForUser(mandy),
+   id: 'session-1793957678886-83yq',
+   userId: mandy,
+   name: 'Mandy',
+   realizedPnL: 262.65,
+  };
+  values.set(
+   'aurum_u_many_foma_com_sessions_v2',
+   JSON.stringify([{ ...jericoGoldBacktest, userId: mandy }, mandyOwnSession])
+  );
+  const mandyLoaded = loadUserSessions(mandy);
+  expect(mandyLoaded.map(s => s.id)).toEqual(['session-1793957678886-83yq']);
+  // Verify localStorage itself was scrubbed
+  const rawAfter = JSON.parse(values.get('aurum_u_many_foma_com_sessions_v2')!);
+  expect(rawAfter.map((s: { id: string }) => s.id)).toEqual(['session-1793957678886-83yq']);
  });
 });

@@ -38,6 +38,7 @@ import {
 import { ChartFlowUser } from './LoginPage';
 import { QuickStartGuide } from './QuickStartGuide';
 import { DrawdownChart, EquityCurveChart, GradientBar } from './analytics/charts';
+import { TradeSimulator } from './analytics/TradeSimulator';
 import {
   BarChart2,
   BookOpen,
@@ -479,6 +480,20 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
       ? 'bg-gradient-to-b from-white to-[#f8f9fd] border-[#e0e3eb] shadow-sm hover:shadow-md'
       : 'bg-gradient-to-b from-[#171b23] to-[#12151b] border-[#242832] hover:border-[#343a47] hover:shadow-[0_8px_30px_-12px_rgba(59,130,246,0.35)]'
   }`;
+
+  // Prop-firm guard rails reused by the forward trade simulator.
+  const simulatorRules =
+    selectedAnalyticsSession.frozenConfig?.propFirmRules ||
+    selectedAnalyticsSession.propFirmRules;
+  const simulatorIsProp = selectedAnalyticsSession.mode === 'PROP_FIRM' && !!simulatorRules;
+  const simulatorTargetLine =
+    simulatorIsProp && simulatorRules
+      ? report.startingBalance * (1 + simulatorRules.profitTargetPct / 100)
+      : null;
+  const simulatorFloorLine =
+    simulatorIsProp && simulatorRules
+      ? report.startingBalance * (1 - simulatorRules.maxTotalDrawdownPct / 100)
+      : null;
 
   const normalSessions = useMemo(
     () => sessions.filter((s) => s.mode === 'BACKTESTING'),
@@ -2662,6 +2677,15 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 </table>
               </div>
             </div>
+
+            {/* Forward trade simulator sits at the bottom of the analytics view,
+                below the historical metrics and the trade log it resamples. */}
+            <TradeSimulator
+              report={report}
+              isLight={isLight}
+              targetLine={simulatorTargetLine}
+              floorLine={simulatorFloorLine}
+            />
           </div>
         )}
 

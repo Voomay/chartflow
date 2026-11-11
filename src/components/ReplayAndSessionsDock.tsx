@@ -9,6 +9,7 @@ import {
   SessionBox,
   SessionConfig,
   SessionId,
+  SkipToSettings,
   ThemeMode,
   Timeframe,
   TradeJournalEntry,
@@ -104,6 +105,8 @@ interface ReplayAndSessionsDockProps {
     target: 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'SYDNEY' | 'NEXT_DAY' | 'TRADE_EXIT'
   ) => void;
   onSaveJournalEntry: (tradeId: string, entry: TradeJournalEntry) => void;
+  /** Persists Skip To preferences onto the active session (all account modes). */
+  onSaveSkipSettings?: (settings: SkipToSettings) => void;
   onOpenAnalyticsPage?: () => void;
   onStartNewChallengeAttempt?: (targetPhase?: 'PHASE_1' | 'PHASE_2') => void;
   timeframe: Timeframe;
@@ -391,6 +394,54 @@ function formatPrettyCalendarDate(dateStr: string): string {
   }).format(new Date(`${dateStr}T00:00:00Z`));
 }
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function isValidTime(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{2}:\d{2}$/.test(value)) return false;
+  const [hh, mm] = value.split(':').map(Number);
+  return hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59;
+}
+
+/** Fallback Skip To preferences, derived from the current replay clock. */
+export function defaultSkipSettings(session: TradingSession): SkipToSettings {
+  const clockTs =
+    session.replayTimestamp || session.startTimestamp || Math.floor(Date.now() / 1000);
+  const parts = formatTsToDateAndTimeInTz(clockTs, 'Africa/Johannesburg');
+  return {
+    customSkipTime: '10:00',
+    customSkipTz: 'Africa/Johannesburg',
+    quickSkipTarget: 'DAILY_TIME',
+    exactSkipDate: parts.dateStr,
+    exactSkipTime: parts.timeStr,
+    exactSkipTz: 'Africa/Johannesburg',
+    exactTimePinned: false,
+  };
+}
+
+/** Merge persisted preferences with safe defaults (guards against stale/corrupt data). */
+export function resolveSkipSettings(session: TradingSession): SkipToSettings {
+  const base = defaultSkipSettings(session);
+  const saved = session.skipToSettings;
+  if (!saved) return base;
+  return {
+    customSkipTime: isValidTime(saved.customSkipTime)
+      ? saved.customSkipTime
+      : base.customSkipTime,
+    customSkipTz: saved.customSkipTz || base.customSkipTz,
+    quickSkipTarget: saved.quickSkipTarget || base.quickSkipTarget,
+    exactSkipDate: ISO_DATE_RE.test(saved.exactSkipDate || '')
+      ? saved.exactSkipDate
+      : base.exactSkipDate,
+    exactSkipTime: isValidTime(saved.exactSkipTime)
+      ? saved.exactSkipTime
+      : base.exactSkipTime,
+    exactSkipTz:
+      saved.exactSkipTz === 'UTC' || saved.exactSkipTz === 'Africa/Johannesburg'
+        ? saved.exactSkipTz
+        : base.exactSkipTz,
+    exactTimePinned: Boolean(saved.exactTimePinned),
+  };
+}
+
 export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   session,
   symbol,
@@ -413,6 +464,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   onMoveToBreakEven,
   onGoToSessionOpen,
   onSaveJournalEntry,
+  onSaveSkipSettings,
   onOpenAnalyticsPage,
   onStartNewChallengeAttempt,
   timeframe,
@@ -435,11 +487,34 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
 
   const [isSkipModalOpen, setIsSkipModalOpen] = useState(false);
   const [replayFeedback, setReplayFeedback] = useState<string | null>(null);
-  const [customSkipTime, setCustomSkipTime] = useState<string>('10:00');
-  const [customSkipTz, setCustomSkipTz] = useState<string>('Africa/Johannesburg');
+
+  // Skip To preferences are restored from the active session, so switching views,
+  // changing account (backtest / prop challenge / new attempt) or reloading keeps
+  // the time the trader saved instead of snapping back to the 10:00 default.
+  const initialSkipRef = useRef<SkipToSettings | null>(null);
+  if (!initialSkipRef.current) initialSkipRef.current = resolveSkipSettings(session);
+  const initialSkip = initialSkipRef.current;
+
+  const [customSkipTime, setCustomSkipTime] = useState<string>(initialSkip.customSkipTime);
+  const [customSkipTz, setCustomSkipTz] = useState<string>(initialSkip.customSkipTz);
   const [quickSkipTarget, setQuickSkipTarget] = useState<
     'DAILY_TIME' | 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'SYDNEY'
-  >('DAILY_TIME');
+  >(initialSkip.quickSkipTarget);
+  const [exactTimePinned, setExactTimePinned] = useState<boolean>(
+    Boolean(initialSkip.exactTimePinned)
+  );
+  const [skipSaveToast, setSkipSaveToast] = useState<string | null>(null);
+  const [skipGapToast, setSkipGapToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!skipSaveToast) return;
+    const timer = setTimeout(() => setSkipSaveToast(null), 3500);
+    return () => clearTimeout(timer);
+  }, [skipSaveToast]);
+  useEffect(() => {
+    if (!skipGapToast) return;
+    const timer = setTimeout(() => setSkipGapToast(null), 6000);
+    return () => clearTimeout(timer);
+  }, [skipGapToast]);
   const [isFloatingWidgetOpen, setIsFloatingWidgetOpen] = useState<boolean>(true);
   const [floatingWidgetOffset, setFloatingWidgetOffset] = useState<{ x: number; y: number }>({
     x: 0,
@@ -518,14 +593,17 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
     return () => clearTimeout(timer);
   }, [weekendSkipPopup]);
   const [exactSkipTz, setExactSkipTz] = useState<'Africa/Johannesburg' | 'UTC'>(
-    'Africa/Johannesburg'
+    initialSkip.exactSkipTz
   );
-  const [exactSkipDate, setExactSkipDate] = useState<string>('2015-01-19');
-  const [exactSkipTime, setExactSkipTime] = useState<string>('11:35');
-  const [pickerMonth, setPickerMonth] = useState<Date>(() => new Date(Date.UTC(2015, 0, 1)));
+  const [exactSkipDate, setExactSkipDate] = useState<string>(initialSkip.exactSkipDate);
+  const [exactSkipTime, setExactSkipTime] = useState<string>(initialSkip.exactSkipTime);
+  const [pickerMonth, setPickerMonth] = useState<Date>(() => {
+    const [y, m] = initialSkip.exactSkipDate.split('-').map(Number);
+    return new Date(Date.UTC(Number.isFinite(y) ? y : 2015, (Number.isFinite(m) ? m : 1) - 1, 1));
+  });
   const [pickerCalendarView, setPickerCalendarView] = useState<'days' | 'months' | 'years'>('days');
-  const [pickerHour, setPickerHour] = useState<string>('10');
-  const [pickerMinute, setPickerMinute] = useState<string>('00');
+  const [pickerHour, setPickerHour] = useState<string>(initialSkip.customSkipTime.split(':')[0] || '10');
+  const [pickerMinute, setPickerMinute] = useState<string>(initialSkip.customSkipTime.split(':')[1] || '00');
 
   // Inline editing states for Open Positions & Pending Orders
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
@@ -567,7 +645,89 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
     }
   }, [requestedJournalTradeId]);
 
+  /* ---- Skip To persistence ------------------------------------------------
+   * Every preference is written back to the active session. A ref holds the
+   * callback so an inline prop from the parent cannot make this effect fire on
+   * every render (which would loop: set session -> re-render -> set session).
+   */
+  const saveSkipSettingsRef = useRef(onSaveSkipSettings);
   useEffect(() => {
+    saveSkipSettingsRef.current = onSaveSkipSettings;
+  }, [onSaveSkipSettings]);
+
+  const skipSaveFirstRunRef = useRef(true);
+  const skipEditedRef = useRef(false);
+  useEffect(() => {
+    if (skipSaveFirstRunRef.current) {
+      skipSaveFirstRunRef.current = false;
+      return;
+    }
+    skipEditedRef.current = true;
+    saveSkipSettingsRef.current?.({
+      customSkipTime,
+      customSkipTz,
+      quickSkipTarget,
+      exactSkipDate,
+      exactSkipTime,
+      exactSkipTz,
+      exactTimePinned,
+    });
+  }, [
+    customSkipTime,
+    customSkipTz,
+    quickSkipTarget,
+    exactSkipDate,
+    exactSkipTime,
+    exactSkipTz,
+    exactTimePinned,
+  ]);
+
+  const applySkipSettings = (next: SkipToSettings) => {
+    setCustomSkipTime(next.customSkipTime);
+    setCustomSkipTz(next.customSkipTz);
+    setQuickSkipTarget(next.quickSkipTarget);
+    setExactSkipDate(next.exactSkipDate);
+    setExactSkipTime(next.exactSkipTime);
+    setExactSkipTz(next.exactSkipTz);
+    setExactTimePinned(Boolean(next.exactTimePinned));
+    const [y, m] = next.exactSkipDate.split('-').map(Number);
+    if (Number.isFinite(y) && Number.isFinite(m)) {
+      setPickerMonth(new Date(Date.UTC(y, m - 1, 1)));
+    }
+  };
+
+  // A normal backtest, a prop-firm challenge and a new challenge attempt each
+  // keep their own saved Skip To time.
+  const hydratedSessionIdRef = useRef<string>(session.id);
+  useEffect(() => {
+    if (hydratedSessionIdRef.current === session.id) return;
+    hydratedSessionIdRef.current = session.id;
+    skipEditedRef.current = false;
+    applySkipSettings(resolveSkipSettings(session));
+    setSkipModalNotice(null);
+    // Only re-run when the active session identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
+
+  // Adopt settings that arrive from remote session hydration after mount,
+  // unless this session's settings were already edited locally.
+  const hydratedRemoteKeyRef = useRef<string>('');
+  useEffect(() => {
+    const saved = session.skipToSettings;
+    if (!saved || skipEditedRef.current) return;
+    const key = `${session.id}:${saved.customSkipTime}:${saved.customSkipTz}:${saved.quickSkipTarget}:${saved.exactSkipDate}:${saved.exactSkipTime}:${saved.exactSkipTz}:${saved.exactTimePinned}`;
+    if (hydratedRemoteKeyRef.current === key) return;
+    hydratedRemoteKeyRef.current = key;
+    applySkipSettings(resolveSkipSettings(session));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id, session.skipToSettings]);
+
+  // The exact date/time picker syncs to the replay clock ONLY when the modal is
+  // opened and no explicit choice has been made. The old version re-ran on every
+  // replayTs change, silently replacing a saved 09:15 with the current 10:00
+  // clock after playback ticks or a jump.
+  useEffect(() => {
+    if (!isSkipModalOpen || exactTimePinned) return;
     const parts = formatTsToDateAndTimeInTz(replayTs, exactSkipTz);
     setExactSkipDate(parts.dateStr);
     setExactSkipTime(parts.timeStr);
@@ -575,7 +735,9 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
     if (Number.isFinite(y) && Number.isFinite(m)) {
       setPickerMonth(new Date(Date.UTC(y, m - 1, 1)));
     }
-  }, [replayTs, exactSkipTz]);
+    // Intentionally limited to the modal-open transition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSkipModalOpen]);
 
   useEffect(() => {
     if (!isSkipModalOpen) {
@@ -658,6 +820,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   const handleChooseExactDate = (rawIsoDate: string) => {
     const snapped = snapToOpenTradingDate(rawIsoDate, symbol, 'forward');
     setExactSkipDate(snapped.date);
+    setExactTimePinned(true);
     const [y, m] = snapped.date.split('-').map(Number);
     if (Number.isFinite(y) && Number.isFinite(m)) {
       setPickerMonth(new Date(Date.UTC(y, m - 1, 1)));
@@ -676,6 +839,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
     const localNow = new Date(replayTs * 1000 + getTzOffsetMs(replayTs, customSkipTz));
     const startLocalDow = localNow.getUTCDay();
     let skippedClosureLabel: string | null = null;
+    let snappedFromSavedTime = false;
 
     for (let i = 0; i <= 10; i++) {
       const guess =
@@ -715,7 +879,24 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
             continue;
           }
           if (avail && avail.kind === 'GAP' && avail.nextTime !== undefined) {
-            target = avail.nextTime;
+            // Keep the trader's saved HH:MM: if the gap runs into the next
+            // trading day, re-apply the same time there instead of silently
+            // landing on an arbitrary later bar (e.g. 10:00).
+            const nextLocal = formatTsToDateAndTimeInTz(avail.nextTime, customSkipTz);
+            const sameTimeNextDay = dateAndTimeInTzToTimestampSec(
+              nextLocal.dateStr,
+              customSkipTime,
+              customSkipTz
+            );
+            const retry = Number.isFinite(sameTimeNextDay)
+              ? getHistoricalReplayAvailability(symbol, sameTimeNextDay)
+              : undefined;
+            if (retry?.kind === 'READY' && sameTimeNextDay > replayTs) {
+              target = sameTimeNextDay;
+            } else {
+              target = avail.nextTime;
+              snappedFromSavedTime = true;
+            }
           }
         }
       }
@@ -735,6 +916,12 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
         setTimeout(() => setReplayFeedback(null), 4000);
       } else {
         setSkipModalNotice(null);
+        if (snappedFromSavedTime) {
+          const landed = formatTsToDateAndTimeInTz(target, customSkipTz);
+          setSkipGapToast(
+            `No source bar at ${customSkipTime} — landed ${landed.timeStr} on ${formatPrettyCalendarDate(landed.dateStr)}. Your saved time was kept.`
+          );
+        }
         const targetLocal = formatTsToDateAndTimeInTz(target, customSkipTz);
         const targetLocalDow = new Date(`${targetLocal.dateStr}T00:00:00Z`).getUTCDay();
         const crossedWeekendFromFriday =
@@ -846,9 +1033,11 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
 
   const handleSkipToDateTime = () => {
     if (!exactSkipDate || !exactSkipTime) return;
+    setExactTimePinned(true);
     const snapped = snapToOpenTradingDate(exactSkipDate, symbol, 'forward');
     const effectiveDate = snapped.date;
     let noticeMsg = snapped.adjusted && snapped.reason ? snapped.reason : null;
+    let snappedFromSelectedTime = false;
 
     if (snapped.adjusted) {
       setExactSkipDate(effectiveDate);
@@ -873,7 +1062,24 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
       if (hasHistoricalArchive(symbol)) {
         const avail = getHistoricalReplayAvailability(symbol, targetSec);
         if (avail && avail.kind !== 'READY' && avail.nextTime !== undefined) {
-          targetSec = avail.nextTime;
+          // Preserve the exact HH:MM the trader entered whenever the next
+          // available trading day has a bar at that time.
+          const nextLocal = formatTsToDateAndTimeInTz(avail.nextTime, exactSkipTz);
+          const sameTimeNextDay = dateAndTimeInTzToTimestampSec(
+            nextLocal.dateStr,
+            exactSkipTime,
+            exactSkipTz
+          );
+          const retry = Number.isFinite(sameTimeNextDay)
+            ? getHistoricalReplayAvailability(symbol, sameTimeNextDay)
+            : undefined;
+          if (retry?.kind === 'READY') {
+            targetSec = sameTimeNextDay;
+            setExactSkipDate(nextLocal.dateStr);
+          } else {
+            targetSec = avail.nextTime;
+            snappedFromSelectedTime = true;
+          }
         }
       }
     }
@@ -911,6 +1117,12 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
       setTimeout(() => setReplayFeedback(null), 4000);
     } else {
       setSkipModalNotice(null);
+      if (snappedFromSelectedTime) {
+        const landed = formatTsToDateAndTimeInTz(targetSec, exactSkipTz);
+        setSkipGapToast(
+          `No source bar at ${exactSkipTime} — landed ${landed.timeStr} on ${formatPrettyCalendarDate(landed.dateStr)}. Your saved time was kept.`
+        );
+      }
       if (noticeMsg) {
         setReplayFeedback(noticeMsg);
         setTimeout(() => setReplayFeedback(null), 4500);
@@ -1149,6 +1361,18 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
 
           {/* 1-Click Quick Skip + Skip To Modal Button + Floating Widget Toggle */}
           <div className="flex shrink-0 items-center gap-1 pl-1 border-l border-gray-500/20">
+            {skipSaveToast && (
+              <span className="mr-1 hidden items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 sm:inline-flex">
+                <Check className="w-3 h-3" />
+                {skipSaveToast}
+              </span>
+            )}
+            {skipGapToast && (
+              <span className="mr-1 hidden max-w-[280px] items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-400 xl:inline-flex">
+                <AlertTriangle className="w-3 h-3 shrink-0" />
+                <span className="truncate">{skipGapToast}</span>
+              </span>
+            )}
             <button
               type="button"
               disabled={isLocked}
@@ -2247,8 +2471,11 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               ).padStart(2, '0');
               if (target === 'daily_time') {
                 setCustomSkipTime(`${hh}:${mm}`);
+                setSkipSaveToast(`Saved ${hh}:${mm} · daily skip`);
               } else {
                 setExactSkipTime(`${hh}:${mm}`);
+                setExactTimePinned(true);
+                setSkipSaveToast(`Saved ${hh}:${mm} · exact jump`);
               }
               setActiveSkipPicker(null);
             };
@@ -2590,6 +2817,9 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                           type="button"
                           onClick={() => {
                             setQuickSkipTarget('DAILY_TIME');
+                            setSkipSaveToast(
+                              `Saved ${customSkipTime} ${selectedTzObj.code} · this session`
+                            );
                             handleSkipToCustomTime();
                           }}
                           className="motivation-cta-btn group relative flex flex-1 items-center justify-center gap-1.5 overflow-hidden rounded-xl px-3.5 py-2 text-xs font-extrabold text-slate-950 transition-all"
@@ -2605,6 +2835,9 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                           type="button"
                           onClick={() => {
                             setQuickSkipTarget('DAILY_TIME');
+                            setSkipSaveToast(
+                              `Saved ${customSkipTime} ${selectedTzObj.code} · this session`
+                            );
                             setIsSkipModalOpen(false);
                           }}
                           className={`rounded-xl border px-3 py-2 text-[11px] font-extrabold transition ${
@@ -2669,7 +2902,10 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                               <button
                                 type="button"
                                 key={tzOpt.id}
-                                onClick={() => setExactSkipTz(tzOpt.id)}
+                                onClick={() => {
+                                  setExactSkipTz(tzOpt.id);
+                                  setExactTimePinned(true);
+                                }}
                                 className={`rounded-md px-2 py-0.5 transition ${
                                   active
                                     ? 'bg-emerald-400 text-slate-950 font-extrabold shadow-sm'
@@ -2745,6 +2981,30 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                           <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const parts = formatTsToDateAndTimeInTz(replayTs, exactSkipTz);
+                          setExactSkipDate(parts.dateStr);
+                          setExactSkipTime(parts.timeStr);
+                          setExactTimePinned(false);
+                          const [y, m] = parts.dateStr.split('-').map(Number);
+                          if (Number.isFinite(y) && Number.isFinite(m)) {
+                            setPickerMonth(new Date(Date.UTC(y, m - 1, 1)));
+                          }
+                          setSkipSaveToast('Exact time reset to current replay clock');
+                        }}
+                        className={`mt-2 text-[10px] font-bold underline-offset-2 transition hover:underline ${
+                          isLight
+                            ? 'text-slate-500 hover:text-slate-700'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                        title="Set the exact date & time back to the current replay clock"
+                      >
+                        Use current replay clock ({formatTsToDateAndTimeInTz(replayTs, exactSkipTz).dateStr}{' '}
+                        {formatTsToDateAndTimeInTz(replayTs, exactSkipTz).timeStr} {exactTzLabel})
+                      </button>
                     </div>
                   </div>
 
@@ -2910,6 +3170,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                                     onClick={() => {
                                       setCustomSkipTz(tz.value);
                                       setActiveSkipPicker(null);
+                                      setSkipSaveToast(`Saved ${customSkipTime} ${tz.code} · daily skip`);
                                     }}
                                     className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-bold transition ${
                                       isSelected

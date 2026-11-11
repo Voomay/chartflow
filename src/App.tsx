@@ -33,6 +33,7 @@ import {
   PassedEventRecord,
   SessionConfig,
   SessionId,
+  SkipToSettings,
   StrategyRecord,
   ThemeMode,
   Timeframe,
@@ -1774,6 +1775,19 @@ export function App() {
       return { ok: true };
     },
     [activeSession, authoritativeClockTs, replayStepTimeframe, showToast, symbol]
+  );
+
+  /** Persist the Skip To modal preferences on the active session so they
+   *  survive view switches, account changes and reloads. */
+  const handleSaveSkipSettings = useCallback(
+    (settings: SkipToSettings) => {
+      setTradingSessions((prevList) =>
+        prevList.map((s) =>
+          s.id === activeSession.id ? { ...s, skipToSettings: settings } : s
+        )
+      );
+    },
+    [activeSession.id]
   );
 
   const handleStepBar = useCallback(
@@ -4392,6 +4406,7 @@ export function App() {
           onSaveJournalEntry={(tradeId, entry) =>
             handleSaveJournalEntry(tradeId, entry)
           }
+          onSaveSkipSettings={handleSaveSkipSettings}
           onOpenAnalyticsPage={() => {
             setHubInitialSection('analytics');
             setActiveView('analytics_page');

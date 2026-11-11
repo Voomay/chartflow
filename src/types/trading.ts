@@ -428,6 +428,23 @@ export interface StrategyRecord {
   createdAt: string;
 }
 
+/**
+ * Persisted "Skip Replay To" modal preferences. Stored on each session so a
+ * normal backtest, a prop-firm challenge and a new challenge attempt each keep
+ * their own saved daily time / exact date & time (instead of resetting to the
+ * 10:00 default whenever the dock unmounts or the replay clock moves).
+ */
+export interface SkipToSettings {
+  customSkipTime: string; // 'HH:MM'
+  customSkipTz: string; // IANA timezone id
+  quickSkipTarget: 'DAILY_TIME' | 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'SYDNEY';
+  exactSkipDate: string; // 'YYYY-MM-DD'
+  exactSkipTime: string; // 'HH:MM'
+  exactSkipTz: 'Africa/Johannesburg' | 'UTC';
+  /** True once the user has explicitly picked a date/time (blocks clock auto-sync). */
+  exactTimePinned?: boolean;
+}
+
 export interface TradingSession {
   marketMode?: 'LIVE_PAPER';
   paperOriginSessionId?: string;
@@ -478,6 +495,7 @@ export interface TradingSession {
   parentChallengeId?: string;
   previousAttempts?: ChallengeAttemptSummary[];
   drawingsBySymbol?: Partial<Record<InstrumentSymbol, ChartDrawing[]>>;
+  skipToSettings?: SkipToSettings;
   mindsetNote?: {
     text: string;
     pinned: boolean;

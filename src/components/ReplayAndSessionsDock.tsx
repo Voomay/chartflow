@@ -604,6 +604,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   const [pickerCalendarView, setPickerCalendarView] = useState<'days' | 'months' | 'years'>('days');
   const [pickerHour, setPickerHour] = useState<string>(initialSkip.customSkipTime.split(':')[0] || '10');
   const [pickerMinute, setPickerMinute] = useState<string>(initialSkip.customSkipTime.split(':')[1] || '00');
+  const [pickerActiveField, setPickerActiveField] = useState<'hour' | 'minute'>('hour');
 
   // Inline editing states for Open Positions & Pending Orders
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
@@ -2459,6 +2460,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
               const [h, m] = src.split(':');
               setPickerHour(h || '10');
               setPickerMinute(m || '00');
+              setPickerActiveField('hour');
               setActiveSkipPicker(target);
             };
 
@@ -3050,13 +3052,19 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                                   inputMode="numeric"
                                   maxLength={2}
                                   value={pickerHour}
+                                  onFocus={() => setPickerActiveField('hour')}
+                                  onClick={() => setPickerActiveField('hour')}
                                   onChange={(e) =>
                                     setPickerHour(e.target.value.replace(/[^0-9]/g, ''))
                                   }
-                                  className={`w-16 rounded-xl border py-1.5 text-center font-mono text-lg font-extrabold outline-none ${
-                                    isLight
-                                      ? 'border-slate-200 bg-slate-50 text-slate-900 focus:border-emerald-500'
-                                      : 'border-white/15 bg-black/30 text-white focus:border-emerald-400'
+                                  className={`w-16 rounded-xl border py-1.5 text-center font-mono text-lg font-extrabold outline-none transition ${
+                                    pickerActiveField === 'hour'
+                                      ? isLight
+                                        ? 'border-emerald-500 ring-1 ring-emerald-500/40 bg-emerald-50/40 text-slate-900'
+                                        : 'border-emerald-400 ring-1 ring-emerald-400/40 bg-black/40 text-white'
+                                      : isLight
+                                      ? 'border-slate-200 bg-slate-50 text-slate-900'
+                                      : 'border-white/15 bg-black/30 text-white'
                                   }`}
                                 />
                               </label>
@@ -3070,41 +3078,73 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                                   inputMode="numeric"
                                   maxLength={2}
                                   value={pickerMinute}
+                                  onFocus={() => setPickerActiveField('minute')}
+                                  onClick={() => setPickerActiveField('minute')}
                                   onChange={(e) =>
                                     setPickerMinute(e.target.value.replace(/[^0-9]/g, ''))
                                   }
-                                  className={`w-16 rounded-xl border py-1.5 text-center font-mono text-lg font-extrabold outline-none ${
-                                    isLight
-                                      ? 'border-slate-200 bg-slate-50 text-slate-900 focus:border-emerald-500'
-                                      : 'border-white/15 bg-black/30 text-white focus:border-emerald-400'
+                                  className={`w-16 rounded-xl border py-1.5 text-center font-mono text-lg font-extrabold outline-none transition ${
+                                    pickerActiveField === 'minute'
+                                      ? isLight
+                                        ? 'border-emerald-500 ring-1 ring-emerald-500/40 bg-emerald-50/40 text-slate-900'
+                                        : 'border-emerald-400 ring-1 ring-emerald-400/40 bg-black/40 text-white'
+                                      : isLight
+                                      ? 'border-slate-200 bg-slate-50 text-slate-900'
+                                      : 'border-white/15 bg-black/30 text-white'
                                   }`}
                                 />
                               </label>
                             </div>
 
-                            <div className="grid grid-cols-6 gap-1.5">
-                              {Array.from({ length: 24 }, (_, i) =>
-                                String(i).padStart(2, '0')
-                              ).map((hVal) => {
-                                const selected = Number(pickerHour) === Number(hVal);
-                                return (
-                                  <button
-                                    type="button"
-                                    key={hVal}
-                                    onClick={() => setPickerHour(hVal)}
-                                    className={`rounded-lg py-1.5 font-mono text-xs font-bold transition ${
-                                      selected
-                                        ? 'bg-emerald-400 text-slate-950 shadow-sm'
-                                        : isLight
-                                        ? 'bg-slate-100 text-slate-700 hover:bg-emerald-50'
-                                        : 'bg-white/5 text-slate-300 hover:bg-emerald-500/20'
-                                    }`}
-                                  >
-                                    {hVal}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                            {pickerActiveField === 'hour' ? (
+                              <div className="grid grid-cols-6 gap-1.5">
+                                {Array.from({ length: 24 }, (_, i) =>
+                                  String(i).padStart(2, '0')
+                                ).map((hVal) => {
+                                  const selected = Number(pickerHour) === Number(hVal);
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={hVal}
+                                      onClick={() => setPickerHour(hVal)}
+                                      className={`rounded-lg py-1.5 font-mono text-xs font-bold transition ${
+                                        selected
+                                          ? 'bg-emerald-400 text-slate-950 shadow-sm'
+                                          : isLight
+                                          ? 'bg-slate-100 text-slate-700 hover:bg-emerald-50'
+                                          : 'bg-white/5 text-slate-300 hover:bg-emerald-500/20'
+                                      }`}
+                                    >
+                                      {hVal}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-10 gap-1">
+                                {Array.from({ length: 60 }, (_, i) =>
+                                  String(i).padStart(2, '0')
+                                ).map((mVal) => {
+                                  const selected = Number(pickerMinute) === Number(mVal);
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={mVal}
+                                      onClick={() => setPickerMinute(mVal)}
+                                      className={`rounded-md py-1 font-mono text-[11px] font-bold transition ${
+                                        selected
+                                          ? 'bg-emerald-400 text-slate-950 shadow-sm'
+                                          : isLight
+                                          ? 'bg-slate-100 text-slate-700 hover:bg-emerald-50'
+                                          : 'bg-white/5 text-slate-300 hover:bg-emerald-500/20'
+                                      }`}
+                                    >
+                                      {mVal}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/10">

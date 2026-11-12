@@ -138,6 +138,8 @@ interface TopNavigationProps {
   onToggleBalance?:()=>void;
   onChangeTimezone?:(timezone:DisplayTimezone)=>void;
   onChangeCurrency?:(currency:AccountCurrency)=>void;
+  showTradeBadges?: boolean;
+  onToggleTradeBadges?: () => void;
 }
 
 const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M'];
@@ -204,6 +206,8 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   onToggleBalance=()=>{},
   onChangeTimezone,
   onChangeCurrency,
+  showTradeBadges = true,
+  onToggleTradeBadges,
 }) => {
   const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false);
   const [isCandleMenuOpen, setIsCandleMenuOpen] = useState(false);
@@ -793,6 +797,47 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                                   </div>
                                 </div>
                               ))}
+                            </div>
+                          )}
+
+                          {onToggleTradeBadges && (
+                            <div className="pt-1.5 mt-1 border-t border-gray-500/15">
+                              <div className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider opacity-60">
+                                Chart Labels
+                              </div>
+                              <div
+                                className={`w-full flex items-center justify-between gap-1 px-2 py-1.5 rounded text-[11px] font-semibold transition ${
+                                  isLight ? 'hover:bg-[#f0f3fa]' : 'hover:bg-[#242832]'
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={onToggleTradeBadges}
+                                  className="flex-1 flex items-center gap-2 text-left min-w-0"
+                                >
+                                  <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-rose-500" />
+                                  <span className="truncate">SL / TP Amount Badges</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="Toggle SL / TP Amount Badges"
+                                  aria-pressed={showTradeBadges}
+                                  onClick={onToggleTradeBadges}
+                                  className={`relative w-7 h-4 rounded-full transition shrink-0 ${
+                                    showTradeBadges
+                                      ? 'bg-emerald-500'
+                                      : isLight
+                                      ? 'bg-gray-300'
+                                      : 'bg-gray-600'
+                                  }`}
+                                >
+                                  <span
+                                    className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${
+                                      showTradeBadges ? 'left-3.5' : 'left-0.5'
+                                    }`}
+                                  />
+                                </button>
+                              </div>
                             </div>
                           )}
 

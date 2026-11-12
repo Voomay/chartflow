@@ -1495,6 +1495,25 @@ export function App() {
     useState<SessionConfig[]>(INITIAL_SESSIONS);
   const [showSessionBoxes, setShowSessionBoxes] = useState<boolean>(false);
   const [showSRLevels, setShowSRLevels] = useState<boolean>(false);
+  const [showTradeBadges, setShowTradeBadges] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('chartflow_show_trade_badges');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const handleToggleTradeBadges = useCallback(() => {
+    setShowTradeBadges((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('chartflow_show_trade_badges', String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  }, []);
   const [focusedSessionTime, setFocusedSessionTime] = useState<number | null>(
     null
   );
@@ -3858,6 +3877,8 @@ export function App() {
         isPlanPinned={isPlanPinned}
         indicators={chartIndicators}
         onToggleIndicator={handleToggleIndicator}
+        showTradeBadges={showTradeBadges}
+        onToggleTradeBadges={handleToggleTradeBadges}
         indicatorConfigs={indicatorConfigs}
         onUpdateIndicatorConfigs={handleUpdateIndicatorConfigs}
         onOpenIndicatorSettings={setActiveIndicatorSettingsId}
@@ -3962,6 +3983,8 @@ export function App() {
               onToggleSessionBoxes={() => setShowSessionBoxes((v) => !v)}
               showSRLevels={showSRLevels}
               onToggleSRLevels={() => setShowSRLevels((v) => !v)}
+              showTradeBadges={showTradeBadges}
+              onToggleTradeBadges={handleToggleTradeBadges}
               keySupport={[]}
               keyResistance={[]}
               positions={(activeSession.positions || []).filter(
@@ -4241,6 +4264,8 @@ export function App() {
                   onToggleSessionBoxes={() => setShowSessionBoxes((v) => !v)}
                   showSRLevels={showSRLevels}
                   onToggleSRLevels={() => setShowSRLevels((v) => !v)}
+                  showTradeBadges={showTradeBadges}
+                  onToggleTradeBadges={handleToggleTradeBadges}
                   keySupport={[]}
                   keyResistance={[]}
                   positions={(activeSession.positions || []).filter(

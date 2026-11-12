@@ -26,6 +26,7 @@ import {
   getInstrumentPipLabel,
 } from '../services/simulationEngine';
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { ChartReplayMark } from './ChartReplayLogo';
 import { TradeReactions } from './TradeReactions';
 import { FibonacciSettingsModal } from './FibonacciSettingsModal';
 import { IndicatorSettingsModal } from './IndicatorSettingsModal';
@@ -124,6 +125,8 @@ interface TradingChartProps {
   onToggleSessionBoxes: () => void;
   showSRLevels: boolean;
   onToggleSRLevels: () => void;
+  showTradeBadges?: boolean;
+  onToggleTradeBadges?: () => void;
   keySupport: number[];
   keyResistance: number[];
   positions: BacktestPosition[];
@@ -374,6 +377,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   onToggleSessionBoxes,
   showSRLevels,
   onToggleSRLevels,
+  showTradeBadges = true,
+  onToggleTradeBadges,
   keySupport,
   keyResistance,
   positions,
@@ -935,6 +940,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     sessions,
     showSessionBoxes,
     showSRLevels,
+    showTradeBadges,
     keySupport,
     keyResistance,
     positions,
@@ -992,6 +998,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     sessions,
     showSessionBoxes,
     showSRLevels,
+    showTradeBadges,
     keySupport,
     keyResistance,
     positions,
@@ -1348,6 +1355,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       sessions: currSessions,
       showSessionBoxes: currShowSessions,
       showSRLevels: currShowSR,
+      showTradeBadges: currShowTradeBadges,
       keySupport: currSupport,
       keyResistance: currResistance,
       positions: currPositions,
@@ -3478,7 +3486,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             showDetails,
             pos.status
           );
-        } else if (pos.exitTime && pos.exitPrice) {
+        } else if (currShowTradeBadges && pos.exitTime && pos.exitPrice) {
           const xExit = resolveTimeToX(pos.exitTime, currCandles, chart);
           const yExit = priceToY(pos.exitPrice, chart);
           if (xExit !== null && yExit !== null && xExit > 20 && xExit < chartPlotWidth - 20) {
@@ -5714,6 +5722,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     sessions,
     showSessionBoxes,
     showSRLevels,
+    showTradeBadges,
     keySupport,
     keyResistance,
     positions,
@@ -5813,6 +5822,32 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         isLight ? 'bg-white text-[#131722]' : 'bg-[#0b0e14] text-[#d1d4dc]'
       }`}
     >
+      {/* Faded Chart Background Watermark */}
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none select-none absolute inset-0 z-0 flex flex-col items-center justify-center gap-1.5 ${
+          isLight ? 'opacity-[0.045]' : 'opacity-[0.04]'
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <ChartReplayMark size={48} className="grayscale" />
+          <span
+            className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${
+              isLight ? 'text-slate-900' : 'text-white'
+            }`}
+          >
+            Chart Replay
+          </span>
+        </div>
+        <span
+          className={`font-mono text-[11px] sm:text-xs font-semibold tracking-[0.22em] uppercase ${
+            isLight ? 'text-slate-700' : 'text-slate-300'
+          }`}
+        >
+          chartreplay.co.za
+        </span>
+      </div>
+
       {/* Main KLineChart Container */}
       <div
         ref={containerRef}
@@ -5820,7 +5855,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           activeTool === 'replay_cut' ? 'cursor-col-resize' : cursorStyle
         }
         style={{ touchAction: 'none', WebkitTapHighlightColor: 'transparent' }}
-        className={`w-full h-[calc(100%-20px)] ${
+        className={`relative z-[1] w-full h-[calc(100%-20px)] ${
           activeTool === 'replay_cut' ? 'cursor-col-resize' : cursorStyle
         }`}
       />
@@ -8179,6 +8214,31 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   </label>
                 </div>
               </div>
+
+              {/* Chart Labels Toggle */}
+              {onToggleTradeBadges && (
+                <div className="pt-2 border-t border-gray-500/20">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleTradeBadges();
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 flex items-center justify-between text-left font-medium"
+                  >
+                    <span>SL / TP Amount Badges</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        showTradeBadges
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : 'bg-gray-500/20 text-gray-400'
+                      }`}
+                    >
+                      {showTradeBadges ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+                </div>
+              )}
 
               {/* Reset View & Clear Drawings */}
               <div className="pt-2 border-t border-gray-500/20 flex items-center justify-between gap-1.5">

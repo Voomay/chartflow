@@ -1,10 +1,24 @@
-const RESEND_API_URL = 'https://api.resend.com/emails';
+const RESEND_API_BASE_URL = 'https://api.resend.com';
+const RESEND_API_URL = `${RESEND_API_BASE_URL}/emails`;
+const RESEND_SUPPRESSIONS_URL = `${RESEND_API_BASE_URL}/suppressions`;
 const DEFAULT_FROM_EMAIL = 'Cheslin from Chart Replay <noreply@chartreplay.co.za>';
 const DEFAULT_REPLY_TO = 'info@voomay.co.za';
 const DEFAULT_APP_URL = 'https://chartreplay.co.za';
 const WELCOME_BANNER_URL = 'https://chartreplay.co.za/email-welcome-banner.png';
 export const CONTACT_INQUIRY_RECIPIENT = 'info@voomay.co.za';
 export const PERSONAL_CONTACT_EMAIL = 'cheslin@voomay.co.za';
+
+function extractEmailAddress(value) {
+  const raw = String(value || '').trim();
+  const bracketMatch = raw.match(/<([^>]+)>/);
+  return (bracketMatch ? bracketMatch[1] : raw).trim().toLowerCase();
+}
+
+function extractEmailDomain(value) {
+  const addr = extractEmailAddress(value);
+  const atIdx = addr.lastIndexOf('@');
+  return atIdx >= 0 ? addr.slice(atIdx + 1) : '';
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -37,6 +51,13 @@ function sanitizeOfficialAppUrl(rawUrl) {
 }
 
 export function resolveResendConfig(env = process.env) {
+  if (
+    env === process.env &&
+    (env.VITEST || env.NODE_ENV === 'test') &&
+    env.RESEND_ALLOW_IN_TESTS !== 'true'
+  ) {
+    return null;
+  }
   const apiKey = String(env.RESEND_API_KEY || '').trim();
   if (!apiKey || env.RESEND_ENABLED === 'false') return null;
   const fromEmail = String(env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL).trim() || DEFAULT_FROM_EMAIL;
@@ -76,25 +97,41 @@ export async function sendResendEmail(
     return { sent: false, reason: 'NO_RECIPIENT' };
   }
 
+  const explicitNoReplyTo = replyTo === null;
+  const candidateReplyTo = explicitNoReplyTo
+    ? ''
+    : (typeof replyTo === 'string' && replyTo.trim()) || cfg.replyTo;
+  const normalizedReplyToAddr = extractEmailAddress(candidateReplyTo);
+  const replyToMatchesRecipient =
+    Boolean(normalizedReplyToAddr) && recipients.includes(normalizedReplyToAddr);
   const effectiveReplyTo =
-    (typeof replyTo === 'string' && replyTo.trim()) || cfg.replyTo;
+    normalizedReplyToAddr && !replyToMatchesRecipient ? candidateReplyTo.trim() : '';
+  const fromDomain = extractEmailDomain(cfg.fromEmail);
+  const replyToDomain = extractEmailDomain(effectiveReplyTo);
   const cleanUnsubUrl =
     typeof unsubscribeUrl === 'string' && unsubscribeUrl.trim()
       ? unsubscribeUrl.trim()
       : '';
+  const includeMailtoUnsub =
+    Boolean(effectiveReplyTo) && Boolean(fromDomain) && replyToDomain === fromDomain;
+  const listUnsubscribeValue = cleanUnsubUrl
+    ? includeMailtoUnsub
+      ? `<${cleanUnsubUrl}>, <mailto:${normalizedReplyToAddr}?subject=Unsubscribe>`
+      : `<${cleanUnsubUrl}>`
+    : '';
 
   try {
     const payload = {
       from: cfg.fromEmail,
       to: recipients,
-      reply_to: effectiveReplyTo,
+      ...(effectiveReplyTo ? { reply_to: effectiveReplyTo } : {}),
       subject: String(subject || '').trim(),
       html: String(html || ''),
       text: String(text || ''),
-      ...(cleanUnsubUrl
+      ...(listUnsubscribeValue
         ? {
             headers: {
-              'List-Unsubscribe': `<${cleanUnsubUrl}>, <mailto:${effectiveReplyTo}?subject=Unsubscribe>`,
+              'List-Unsubscribe': listUnsubscribeValue,
               'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
             },
           }
@@ -784,7 +821,7 @@ export function buildContactInquiryEmail({
           </tr>
           <tr>
             <td style="padding:18px 32px;background-color:#070b14;border-top:1px solid #1e293b;font-size:11px;color:#64748b;text-align:center;">
-              Routed to <strong>${escapeHtml(CONTACT_INQUIRY_RECIPIENT)}</strong> · Hit Reply to respond directly to ${cleanName}.
+              Routed to <strong>${escapeHtml(CONTACT_INQUIRY_RECIPIENT)}</strong> · Reply directly to <a href="mailto:${safeEmail}" style="color:#38bdf8;text-decoration:underline;">${safeEmail}</a>.
             </td>
           </tr>
         </table>
@@ -818,7 +855,7 @@ export async function sendContactInquiryEmail(
   const result = await sendResendEmail(
     {
       to: recipient,
-      replyTo: String(email || '').trim().toLowerCase() || recipient,
+      replyTo: null,
       subject: content.subject,
       html: content.html,
       text: content.text,
@@ -826,6 +863,126 @@ export async function sendContactInquiryEmail(
     { env, request }
   );
   return { ...result, recipientEmail: recipient };
+}
+
+export function buildFeedbackNotificationEmail({
+  name,
+  email,
+  ratingUserFriendliness,
+  ratingCharts,
+  ratingSmoothness,
+  overallRating,
+  improvementsText,
+  favoriteText,
+  source,
+  appUrl = DEFAULT_APP_URL,
+}) {
+  const officialUrl = sanitizeOfficialAppUrl(appUrl);
+  const rawName = String(name || 'Trader').trim() || 'Trader';
+  const rawEmail = String(email || '').trim().toLowerCase();
+  const safeName = escapeHtml(rawName);
+  const safeEmail = escapeHtml(rawEmail);
+  const safeSource = escapeHtml(source || 'platform');
+  const safeAdminUrl = escapeHtml(`${officialUrl}/admin`);
+  const safeScore = escapeHtml(overallRating ?? '5');
+  const subject = `[Chart Replay · Trader Review ${overallRating}/5] Feedback from ${rawName}`;
+  const writtenComment =
+    String(improvementsText || '').trim() || 'No written comment provided.';
+  const writtenFavorite = String(favoriteText || '').trim();
+
+  const text = [
+    `New Trader Experience Review (${overallRating} / 5.0)`,
+    `From: ${rawName} <${rawEmail}>`,
+    `Source: ${source || 'platform'}`,
+    '',
+    'Ratings Summary:',
+    `- User Friendliness: ${ratingUserFriendliness}/5`,
+    `- Charts & Tools: ${ratingCharts}/5`,
+    `- Smoothness & Speed: ${ratingSmoothness}/5`,
+    '',
+    'How was your experience / How can we improve:',
+    writtenComment,
+    writtenFavorite ? `\nFavorite part:\n${writtenFavorite}` : '',
+    '',
+    `Reply directly to ${rawName}: ${rawEmail}`,
+    `View in Administrator Dashboard: ${officialUrl}/admin`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9;padding:32px 14px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:20px;overflow:hidden;">
+          <tr>
+            <td style="padding:28px 32px 18px 32px;background-color:#ffffff;border-bottom:1px solid #e2e8f0;">
+              <div style="display:inline-block;padding:5px 14px;border-radius:999px;background-color:#ecfdf5;border:1px solid #a7f3d0;color:#047857;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">
+                Trader Experience Review · ${safeScore} / 5.0
+              </div>
+              <h1 style="margin:14px 0 6px 0;font-size:21px;line-height:1.3;font-weight:800;color:#0f172a;">
+                Feedback from ${safeName}
+              </h1>
+              <p style="margin:0;font-size:13px;color:#475569;">
+                Submitted by <strong style="color:#0f172a;">${safeName}</strong>${
+    safeEmail
+      ? ` (<a href="mailto:${safeEmail}" style="color:#0284c7;text-decoration:underline;">${safeEmail}</a>)`
+      : ''
+  } · Source: ${safeSource}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:22px 32px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;margin-bottom:18px;">
+                <tr>
+                  <td style="padding:14px 18px;font-size:13px;line-height:1.7;color:#334155;">
+                    <div><strong>User Friendliness:</strong> ${escapeHtml(ratingUserFriendliness)} / 5</div>
+                    <div><strong>Charts &amp; Tools:</strong> ${escapeHtml(ratingCharts)} / 5</div>
+                    <div><strong>Smoothness &amp; Speed:</strong> ${escapeHtml(ratingSmoothness)} / 5</div>
+                  </td>
+                </tr>
+              </table>
+              <div style="padding:16px 18px;background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;font-size:14px;line-height:1.65;color:#1e293b;">
+                <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#475569;margin-bottom:6px;">
+                  How was your experience &amp; how we can improve
+                </div>
+                ${escapeHtml(writtenComment).replace(/\r?\n/g, '<br/>')}
+                ${
+                  writtenFavorite
+                    ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;"><strong>Favorite part:</strong><br/>${escapeHtml(
+                        writtenFavorite
+                      ).replace(/\r?\n/g, '<br/>')}</div>`
+                    : ''
+                }
+              </div>
+              <div style="margin-top:20px;text-align:center;">
+                <a href="${safeAdminUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 22px;border-radius:12px;background-color:#059669;color:#ffffff;font-size:13px;font-weight:700;text-decoration:none;">
+                  Open Administrator Dashboard
+                </a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 32px;background-color:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b;text-align:center;">
+              Chart Replay Notification · Sent to <strong>${escapeHtml(CONTACT_INQUIRY_RECIPIENT)}</strong>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return { subject, html, text };
 }
 
 export async function sendFeedbackNotificationEmail(
@@ -848,45 +1005,26 @@ export async function sendFeedbackNotificationEmail(
     String(env.CONTACT_RECIPIENT_EMAIL || CONTACT_INQUIRY_RECIPIENT)
       .trim()
       .toLowerCase() || CONTACT_INQUIRY_RECIPIENT;
-  const rawName = String(name || 'Trader').trim() || 'Trader';
-  const rawEmail = String(email || '').trim().toLowerCase();
-  const subject = `[Chart Replay · Trader Review ${overallRating}★] Feedback from ${rawName}`;
-  const text = [
-    `New Trader Experience Review (${overallRating} / 5.0 ★)`,
-    `From: ${rawName} <${rawEmail}>`,
-    `Source: ${source || 'platform'}`,
-    '',
-    `Ratings:`,
-    `- User Friendliness: ${ratingUserFriendliness}/5`,
-    `- Charts & Tools: ${ratingCharts}/5`,
-    `- Smoothness: ${ratingSmoothness}/5`,
-    '',
-    `How was your experience / How can we improve:`,
-    improvementsText || '(No written comment)',
-    favoriteText ? `\nFavorite part:\n${favoriteText}` : '',
-    '',
-    `View in Administrator Dashboard: ${appUrl}/admin`,
-  ]
-    .filter(Boolean)
-    .join('\n');
-
-  const html = `<div style="font-family:sans-serif;background:#0b111e;color:#e2e8f0;padding:24px;border-radius:16px;border:1px solid #1e293b;max-width:580px;">
-    <h2 style="margin:0 0 8px 0;color:#34d399;">New Trader Experience Review (${escapeHtml(overallRating)} / 5.0 ★)</h2>
-    <p style="margin:0 0 16px 0;font-size:13px;color:#94a3b8;">From <strong style="color:#fff;">${escapeHtml(rawName)}</strong> (${escapeHtml(rawEmail)}) · Source: ${escapeHtml(source || 'platform')}</p>
-    <p style="font-size:13px;color:#fbbf24;">User Friendliness: <strong>${escapeHtml(ratingUserFriendliness)}★</strong> · Charts: <strong>${escapeHtml(ratingCharts)}★</strong> · Smoothness: <strong>${escapeHtml(ratingSmoothness)}★</strong></p>
-    <div style="padding:14px;background:#080d17;border:1px solid #1e293b;border-radius:12px;font-size:14px;line-height:1.6;color:#e2e8f0;">
-      <strong>How was your experience &amp; how we can improve:</strong><br/>
-      ${escapeHtml(improvementsText || 'No written comment provided.').replace(/\r?\n/g, '<br/>')}
-    </div>
-  </div>`;
+  const content = buildFeedbackNotificationEmail({
+    name,
+    email,
+    ratingUserFriendliness,
+    ratingCharts,
+    ratingSmoothness,
+    overallRating,
+    improvementsText,
+    favoriteText,
+    source,
+    appUrl,
+  });
 
   return sendResendEmail(
     {
       to: recipient,
-      replyTo: rawEmail || recipient,
-      subject,
-      html,
-      text,
+      replyTo: null,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
     },
     { env, request }
   );
@@ -1558,7 +1696,7 @@ export function buildPersonalizedNewsletterEmail({
   const trackingPixelHtml = openTrackingUrl
     ? `<img src="${escapeHtml(
         openTrackingUrl
-      )}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;opacity:0;" />`
+      )}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;" />`
     : '';
 
   const html = `<!DOCTYPE html>
@@ -1629,7 +1767,7 @@ export function buildPersonalizedNewsletterEmail({
           <tr>
             <td style="padding:22px 34px;background-color:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;line-height:1.7;color:#64748b;text-align:center;">
               <strong style="color:#0f172a;">Cheslin from Chart Replay</strong> · Sent to <span style="color:#334155;font-weight:600;">${escapeHtml(rawName)} (${safeEmail})</span><br/>
-              Built for deliberate trader development · Questions? Reply or email <a href="mailto:info@voomay.co.za" style="color:#059669;text-decoration:underline;font-weight:600;">info@voomay.co.za</a> · <a href="${safeAppUrl}" style="color:#0284c7;text-decoration:underline;font-weight:600;">chartreplay.co.za</a><br/>
+              Built for deliberate trader development · Questions? <a href="${safeAppUrl}/contact" target="_blank" rel="noopener noreferrer" style="color:#059669;text-decoration:underline;font-weight:600;">Contact Us</a> · <a href="${safeAppUrl}" style="color:#0284c7;text-decoration:underline;font-weight:600;">chartreplay.co.za</a><br/>
               <span style="color:#64748b;">Don't want to receive these emails?</span> <a href="${safeUnsubscribeUrl}" target="_blank" rel="noopener noreferrer" style="color:#475569;text-decoration:underline;font-weight:600;">Unsubscribe</a>
               ${trackingPixelHtml}
             </td>
@@ -1686,6 +1824,47 @@ export async function sendPersonalizedNewsletterEmail(
   };
 }
 
+export function normalizeResendDeliveryStatus(lastEvent) {
+  const evt = String(lastEvent || '').trim().toLowerCase().replace(/^email\./, '');
+  if (!evt || evt === 'sent' || evt === 'queued') return 'sent';
+  if (evt === 'delivered' || evt === 'opened' || evt === 'clicked') return 'delivered';
+  if (evt === 'bounced') return 'bounced';
+  if (evt === 'suppressed') return 'suppressed';
+  if (evt === 'complained') return 'complained';
+  if (evt === 'delivery_delayed') return 'delivery_delayed';
+  if (evt === 'failed' || evt === 'canceled' || evt === 'scheduled_cancelled') return 'failed';
+  return 'sent';
+}
+
+export function formatResendBounceMessage(data, deliveryStatus) {
+  const bounce = data && typeof data.bounce === 'object' ? data.bounce : null;
+  if (bounce) {
+    const diag = Array.isArray(bounce.diagnosticCode)
+      ? bounce.diagnosticCode.filter(Boolean).join(' ')
+      : typeof bounce.diagnosticCode === 'string'
+      ? bounce.diagnosticCode
+      : '';
+    const msg = String(diag || bounce.message || '').trim();
+    if (msg) return msg.slice(0, 300);
+  }
+  if (deliveryStatus === 'suppressed') {
+    return 'Recipient is on your Resend suppression list due to a previous hard bounce. Unblock in Admin or Resend Suppressions after confirming the mailbox works.';
+  }
+  if (deliveryStatus === 'bounced') {
+    return 'Recipient mail server rejected this message (hard/soft bounce).';
+  }
+  if (deliveryStatus === 'complained') {
+    return 'Recipient marked this email as spam.';
+  }
+  if (deliveryStatus === 'delivery_delayed') {
+    return 'Delivery is temporarily delayed by the recipient mail server.';
+  }
+  if (deliveryStatus === 'failed') {
+    return 'Email failed to send.';
+  }
+  return null;
+}
+
 export async function fetchResendEmailStatus(
   emailId,
   { env = process.env, request = fetch } = {}
@@ -1709,14 +1888,104 @@ export async function fetchResendEmailStatus(
     const data = await response.json().catch(() => null);
     if (!data || typeof data !== 'object') return null;
     const lastEvent = String(data.last_event || '').toLowerCase();
+    const deliveryStatus = normalizeResendDeliveryStatus(lastEvent);
     return {
       id: cleanId,
       lastEvent,
+      deliveryStatus,
+      bounceMessage: formatResendBounceMessage(data, deliveryStatus),
       opened: lastEvent === 'opened' || lastEvent === 'clicked',
       clicked: lastEvent === 'clicked',
     };
   } catch {
     return null;
+  }
+}
+
+export async function fetchResendSuppressions(
+  { env = process.env, request = fetch } = {}
+) {
+  const cfg = resolveResendConfig(env);
+  if (!cfg) return [];
+  const entries = [];
+  let after = '';
+  try {
+    for (let page = 0; page < 5; page++) {
+      const url = after
+        ? `${RESEND_SUPPRESSIONS_URL}?limit=100&after=${encodeURIComponent(after)}`
+        : `${RESEND_SUPPRESSIONS_URL}?limit=100`;
+      const response = await request(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${cfg.apiKey}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!response.ok) break;
+      const data = await response.json().catch(() => null);
+      const rows = Array.isArray(data?.data) ? data.data : [];
+      for (const row of rows) {
+        const email = String(row?.email || '').trim().toLowerCase();
+        if (!email) continue;
+        entries.push({
+          id: String(row.id || ''),
+          email,
+          origin: String(row.origin || 'bounce').toLowerCase(),
+          sourceId: row.source_id ? String(row.source_id) : null,
+          createdAt: row.created_at ? String(row.created_at) : null,
+        });
+      }
+      if (!data?.has_more || rows.length === 0) break;
+      after = String(rows[rows.length - 1]?.id || '');
+      if (!after) break;
+    }
+  } catch {
+    return entries;
+  }
+  return entries;
+}
+
+export async function removeResendSuppression(
+  emailOrId,
+  { env = process.env, request = fetch } = {}
+) {
+  const cfg = resolveResendConfig(env);
+  const cleanTarget = String(emailOrId || '').trim().toLowerCase();
+  if (!cfg) return { ok: false, error: 'RESEND_NOT_CONFIGURED' };
+  if (!cleanTarget) return { ok: false, error: 'MISSING_TARGET' };
+  try {
+    const response = await request(
+      `${RESEND_SUPPRESSIONS_URL}/${encodeURIComponent(cleanTarget)}`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${cfg.apiKey}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(6000),
+      }
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error:
+          (data && typeof data === 'object' && (data.message || data.error)) ||
+          `Resend HTTP ${response.status}`,
+      };
+    }
+    return {
+      ok: true,
+      email: cleanTarget,
+      deleted: Boolean(data?.deleted ?? true),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

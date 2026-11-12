@@ -1,6 +1,6 @@
 import {readAdminWaitlist} from './waitlistStore.mjs';
 import {createSupabaseAccountStore,hasSqlInjectionPattern,isSafeEmailFormat,isSafeIdentifier} from './supabaseStore.mjs';
-import {sendWelcomeEmail,sendPasswordResetEmail,sendFirstTradeFeedbackEmail,sendContactInquiryEmail,sendFeedbackNotificationEmail,DEFAULT_NEWSLETTER_TEMPLATES,buildPersonalizedNewsletterEmail,sendPersonalizedNewsletterEmail,stripLegacyDayPrefix,fetchResendEmailStatus,CONTACT_INQUIRY_RECIPIENT,formatContactCategoryLabel,resolvePublicAppUrl,isResendConfigured} from './resendMail.mjs';
+import {sendWelcomeEmail,sendPasswordResetEmail,sendFirstTradeFeedbackEmail,sendContactInquiryEmail,sendFeedbackNotificationEmail,DEFAULT_NEWSLETTER_TEMPLATES,buildPersonalizedNewsletterEmail,sendPersonalizedNewsletterEmail,stripLegacyDayPrefix,fetchResendEmailStatus,fetchResendSuppressions,removeResendSuppression,normalizeResendDeliveryStatus,formatResendBounceMessage,CONTACT_INQUIRY_RECIPIENT,formatContactCategoryLabel,resolvePublicAppUrl,isResendConfigured} from './resendMail.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
@@ -383,6 +383,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
     userName:recipient.name,
     sentBy,
     deliveryStatus:sentResult.sent?'sent':isResendConfigured(env)?'failed':'queued_ready',
+    deliveryError:sentResult.error||null,
     sentAt:nowIso,
     resendEmailId:sentResult.id||null,
     opened:false,
@@ -408,6 +409,36 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
   }
   return {results,sentAt:nowIso,sentCount:results.length};
  };
+ const applyResendStatusToLog=(log,status,nowIso)=>{
+  if(!log||!status)return null;
+  const nextStatus=status.deliveryStatus||log.deliveryStatus||'sent';
+  const nextError=status.bounceMessage!==undefined?(status.bounceMessage||null):(log.deliveryError||null);
+  const nextOpened=Boolean(log.opened||status.opened);
+  const nextClicked=Boolean(log.clicked||status.clicked);
+  const statusChanged=nextStatus!==(log.deliveryStatus||'sent')||nextError!==(log.deliveryError||null);
+  const engageChanged=(nextOpened&&!log.opened)||(nextClicked&&!log.clicked);
+  if(!statusChanged&&!engageChanged)return null;
+  return {
+   ...log,
+   deliveryStatus:nextStatus,
+   deliveryError:nextError,
+   ...(nextOpened
+    ?{
+       opened:true,
+       firstOpenedAt:log.firstOpenedAt||log.openedAt||nowIso,
+       openedAt:log.openedAt||nowIso,
+       openCount:Math.max(1,Number(log.openCount||0)),
+      }
+    :{}),
+   ...(nextClicked
+    ?{
+       clicked:true,
+       clickedAt:log.clickedAt||nowIso,
+       clickCount:Math.max(1,Number(log.clickCount||0)),
+      }
+    :{}),
+  };
+ };
  const markNewsletterEngagement=async({logId,email,resendEmailId,clicked=false}={})=>{
   if(typeof store.readNewsletterLogs!=='function'||typeof store.recordNewsletterLog!=='function')return null;
   const logs=await store.readNewsletterLogs().catch(()=>[]);
@@ -425,6 +456,7 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
   const nowIso=new Date(now()).toISOString();
   const updated={
    ...target,
+   deliveryStatus:target.deliveryStatus==='sent'||!target.deliveryStatus?'delivered':target.deliveryStatus,
    opened:true,
    firstOpenedAt:target.firstOpenedAt||target.openedAt||nowIso,
    openedAt:nowIso,
@@ -442,28 +474,16 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
  };
  const syncResendOpenStatuses=async(logs)=>{
   if(!isResendConfigured(env)||!Array.isArray(logs)||logs.length===0)return logs;
-  const candidates=logs.filter(l=>l&&l.resendEmailId&&!l.opened).slice(0,12);
+  const candidates=logs
+   .filter(l=>l&&l.resendEmailId&&(!l.opened||!l.deliveryStatus||l.deliveryStatus==='sent'||l.deliveryStatus==='delivery_delayed'))
+   .slice(0,24);
   if(candidates.length===0)return logs;
   const updatesById=new Map();
   await Promise.allSettled(
    candidates.map(async log=>{
     const status=await fetchResendEmailStatus(log.resendEmailId,{env,request});
-    if(status&&status.opened){
-     const nowIso=new Date(now()).toISOString();
-     const updated={
-      ...log,
-      opened:true,
-      firstOpenedAt:log.firstOpenedAt||log.openedAt||nowIso,
-      openedAt:log.openedAt||nowIso,
-      openCount:Math.max(1,Number(log.openCount||0)),
-      ...(status.clicked
-       ?{
-          clicked:true,
-          clickedAt:log.clickedAt||nowIso,
-          clickCount:Math.max(1,Number(log.clickCount||0)),
-         }
-       :{}),
-     };
+    const updated=applyResendStatusToLog(log,status,new Date(now()).toISOString());
+    if(updated){
      updatesById.set(log.id,updated);
      if(typeof store.recordNewsletterLog==='function'){
       await store.recordNewsletterLog(updated).catch(()=>{});
@@ -473,6 +493,28 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
   );
   if(updatesById.size===0)return logs;
   return logs.map(l=>updatesById.get(l.id)||l);
+ };
+ const syncResendFeedbackEmailStatuses=async(emailLogs)=>{
+  if(!isResendConfigured(env)||!Array.isArray(emailLogs)||emailLogs.length===0)return emailLogs;
+  const candidates=emailLogs
+   .filter(l=>l&&l.resendEmailId&&(l.deliveryStatus==='sent'||l.deliveryStatus==='delivery_delayed'))
+   .slice(0,15);
+  if(candidates.length===0)return emailLogs;
+  const updatesById=new Map();
+  await Promise.allSettled(
+   candidates.map(async log=>{
+    const status=await fetchResendEmailStatus(log.resendEmailId,{env,request});
+    const updated=applyResendStatusToLog(log,status,new Date(now()).toISOString());
+    if(updated){
+     updatesById.set(log.id,updated);
+     if(typeof store.recordFeedbackEmail==='function'){
+      await store.recordFeedbackEmail(updated).catch(()=>{});
+     }
+    }
+   })
+  );
+  if(updatesById.size===0)return emailLogs;
+  return emailLogs.map(l=>updatesById.get(l.id)||l);
  };
  const processDueNewsletters=async(newsletters,origin,adminEmail='scheduler')=>{
   const curMs=now();
@@ -618,15 +660,18 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
   if(req.method==='GET'&&action==='session')return admin?send(200,{admin:{email:config.email}}):send(401,{error:'Administrator sign-in required.'});
   if(req.method==='GET'&&action==='waitlist'){if(!admin)return send(401,{error:'Administrator sign-in required.'});try{return send(200,await waitlistReader());}catch{return send(503,{error:'The waiting list is temporarily unavailable.'});}}
   if(req.method==='GET'&&action==='users'){if(!admin)return send(401,{error:'Administrator sign-in required.'});try{const act=online();const onlineIds=new Set([...visitors.values()].map(v=>v.userId).filter(Boolean));const curNow=now();return send(200,{users:(await store.read()).map(u=>adminAccountProjection(u,curNow,onlineIds)),activity:act,scope});}catch{return send(503,{error:'User records are temporarily unavailable.'});}}
-  if(req.method==='GET'&&(action==='feedback'||action==='contact-inquiries')){if(!admin)return send(401,{error:'Administrator sign-in required.'});try{const [feedback,emailLogs,contactInquiries]=await Promise.all([typeof store.readFeedback==='function'?store.readFeedback():[],typeof store.readFeedbackEmails==='function'?store.readFeedbackEmails():[],typeof store.readContactInquiries==='function'?store.readContactInquiries():[]]);return send(200,{ok:true,feedback:feedback||[],emailLogs:emailLogs||[],contactInquiries:contactInquiries||[],resendConfigured:isResendConfigured(env),scope});}catch{return send(503,{error:'Feedback records are temporarily unavailable.'});}}
+  if(req.method==='GET'&&(action==='feedback'||action==='contact-inquiries')){if(!admin)return send(401,{error:'Administrator sign-in required.'});try{const [feedback,rawEmailLogs,contactInquiries,suppressedRecipients]=await Promise.all([typeof store.readFeedback==='function'?store.readFeedback():[],typeof store.readFeedbackEmails==='function'?store.readFeedbackEmails():[],typeof store.readContactInquiries==='function'?store.readContactInquiries():[],isResendConfigured(env)?fetchResendSuppressions({env,request}).catch(()=>[]):[]]);const emailLogs=await syncResendFeedbackEmailStatuses(rawEmailLogs||[]);return send(200,{ok:true,feedback:feedback||[],emailLogs:emailLogs||[],contactInquiries:contactInquiries||[],suppressedRecipients:suppressedRecipients||[],resendConfigured:isResendConfigured(env),scope});}catch{return send(503,{error:'Feedback records are temporarily unavailable.'});}}
   if(req.method==='GET'&&action==='newsletters'){
    if(!admin)return send(401,{error:'Administrator sign-in required.'});
    try{
     const initialNewsletters=await loadMergedNewsletters();
     const newsletters=await processDueNewsletters(initialNewsletters,req.headers.origin,config?.email||'admin');
-    const rawLogs=typeof store.readNewsletterLogs==='function'?await store.readNewsletterLogs().catch(()=>[]):[];
+    const [rawLogs,suppressedRecipients]=await Promise.all([
+     typeof store.readNewsletterLogs==='function'?store.readNewsletterLogs().catch(()=>[]):[],
+     isResendConfigured(env)?fetchResendSuppressions({env,request}).catch(()=>[]):[],
+    ]);
     const logs=await syncResendOpenStatuses(rawLogs||[]);
-    return send(200,{ok:true,newsletters,logs:logs||[],unsubscribedEmails:Array.from(unsubscribedEmailsRegistry),resendConfigured:isResendConfigured(env),scope});
+    return send(200,{ok:true,newsletters,logs:logs||[],unsubscribedEmails:Array.from(unsubscribedEmailsRegistry),suppressedRecipients:suppressedRecipients||[],resendConfigured:isResendConfigured(env),scope});
    }catch{
     return send(503,{error:'Newsletter records are temporarily unavailable.'});
    }
@@ -643,16 +688,46 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
    if(action==='resend-webhook'){
     const evtType=String(body.type||'').toLowerCase();
     const evtData=body.data&&typeof body.data==='object'?body.data:{};
-    const resendEmailId=evtData.email_id||evtData.id||body.email_id||'';
+    const resendEmailId=String(evtData.email_id||evtData.id||body.email_id||'').trim();
     const toField=Array.isArray(evtData.to)?evtData.to[0]:evtData.to||'';
+    const cleanTo=String(toField||'').trim().toLowerCase();
+    const deliveryStatus=normalizeResendDeliveryStatus(evtType);
+    const bounceMessage=formatResendBounceMessage(evtData,deliveryStatus);
+    const nowIso=new Date(now()).toISOString();
     if(evtType==='email.opened'||evtType==='email.clicked'){
      await markNewsletterEngagement({
       resendEmailId,
-      email:toField,
+      email:cleanTo,
       clicked:evtType==='email.clicked',
      }).catch(()=>{});
+    }else if(evtType.startsWith('email.')){
+     if(typeof store.readNewsletterLogs==='function'&&typeof store.recordNewsletterLog==='function'){
+      const nlLogs=await store.readNewsletterLogs().catch(()=>[]);
+      const target=Array.isArray(nlLogs)
+       ?nlLogs.find(item=>item&&((resendEmailId&&item.resendEmailId===resendEmailId)||(!resendEmailId&&cleanTo&&String(item.userEmail||'').toLowerCase()===cleanTo)))
+       :null;
+      const updated=applyResendStatusToLog(target,{deliveryStatus,bounceMessage},nowIso);
+      if(updated)await store.recordNewsletterLog(updated).catch(()=>{});
+     }
+     if(typeof store.readFeedbackEmails==='function'&&typeof store.recordFeedbackEmail==='function'){
+      const fbLogs=await store.readFeedbackEmails().catch(()=>[]);
+      const fbTarget=Array.isArray(fbLogs)
+       ?fbLogs.find(item=>item&&resendEmailId&&item.resendEmailId===resendEmailId)
+       :null;
+      const fbUpdated=applyResendStatusToLog(fbTarget,{deliveryStatus,bounceMessage},nowIso);
+      if(fbUpdated)await store.recordFeedbackEmail(fbUpdated).catch(()=>{});
+     }
     }
     return send(200,{ok:true});
+   }
+   if(action==='remove-email-suppression'){
+    if(!admin)return send(401,{error:'Only the signed-in administrator can manage email suppressions.'});
+    const targetEmail=typeof body.email==='string'?body.email.trim().toLowerCase():'';
+    if(!isSafeEmailFormat(targetEmail))return send(400,{error:'Please provide a valid email address.'});
+    const rmRes=await removeResendSuppression(targetEmail,{env,request});
+    if(!rmRes.ok)return send(rmRes.status&&rmRes.status>=400?rmRes.status:502,{error:rmRes.error||'Could not remove Resend suppression.'});
+    const suppressedRecipients=await fetchResendSuppressions({env,request}).catch(()=>[]);
+    return send(200,{ok:true,email:targetEmail,suppressedRecipients});
    }
    const secure=req.socket?.encrypted||req.headers['x-forwarded-proto']==='https';
    const cookieOptions=`Path=/api/platform; HttpOnly; SameSite=Strict${secure?'; Secure':''}`;
@@ -902,6 +977,8 @@ export function createPlatformHandler({store=createSupabaseAccountStore({fallbac
       userName:recipient.name,
       sentBy:config?.email||'admin',
       deliveryStatus:sentResult.sent?'sent':isResendConfigured(env)?'failed':'link_ready',
+      resendEmailId:sentResult.id||null,
+      deliveryError:sentResult.error||null,
       sentAt:new Date(now()).toISOString(),
      };
      if(typeof store.recordFeedbackEmail==='function'){

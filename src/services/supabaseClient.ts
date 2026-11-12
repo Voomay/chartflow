@@ -787,6 +787,8 @@ export interface FeedbackEmailLogItem {
   userName: string;
   sentBy: string;
   deliveryStatus: string;
+  resendEmailId?: string | null;
+  deliveryError?: string | null;
   sentAt: string;
 }
 

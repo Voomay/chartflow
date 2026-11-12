@@ -41,7 +41,9 @@ import {
   getLocalUnsubscribedEmails,
   getTraderDaysSinceActive,
   isTraderInactive2To3PlusDays,
+  SuppressedEmailItem,
   loadAdminNewsletters,
+  removeAdminEmailSuppression,
   personalizeClientNewsletterText,
   saveAdminNewsletter,
   scheduleAdminNewsletter,
@@ -131,8 +133,12 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
   const [userFilterMode, setUserFilterMode] = useState<
     'all' | 'subscribed' | 'unsubscribed' | 'inactive_2_3_days'
   >('all');
-  const [openFilterMode, setOpenFilterMode] = useState<'all' | 'opened' | 'unopened' | 'clicked'>('all');
+  const [openFilterMode, setOpenFilterMode] = useState<
+    'all' | 'opened' | 'unopened' | 'clicked' | 'issue'
+  >('all');
   const [openLogSearch, setOpenLogSearch] = useState('');
+  const [suppressedRecipients, setSuppressedRecipients] = useState<SuppressedEmailItem[]>([]);
+  const [unblockingEmail, setUnblockingEmail] = useState<string | null>(null);
   const [statusBanner, setStatusBanner] = useState<{
     tone: 'success' | 'info' | 'error';
     text: string;
@@ -144,6 +150,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       const res = await loadAdminNewsletters(preview);
       setNewsletters(res.newsletters);
       setLogs(res.logs);
+      setSuppressedRecipients(res.suppressedRecipients || []);
       const localUnsub = getLocalUnsubscribedEmails();
       if (Array.isArray(res.unsubscribedEmails)) {
         for (const em of res.unsubscribedEmails) {
@@ -178,6 +185,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
         if (res.ok) {
           setNewsletters(res.newsletters);
           setLogs(res.logs);
+          setSuppressedRecipients(res.suppressedRecipients || []);
         }
       });
     }, 45000);
@@ -392,6 +400,11 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       newsletters.reduce((sum, n) => sum + (n.sentCount || 0), 0);
     const openedLogsCount = logs.filter((l) => l.opened).length;
     const clickedLogsCount = logs.filter((l) => l.clicked).length;
+    const issueLogsCount = logs.filter((l) =>
+      ['suppressed', 'bounced', 'failed', 'complained'].includes(
+        String(l.deliveryStatus || '').toLowerCase()
+      )
+    ).length;
     const openRate =
       logs.length > 0 ? Math.round((openedLogsCount / logs.length) * 100) : 0;
 
@@ -405,6 +418,7 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       totalDeliveries,
       openedLogsCount,
       clickedLogsCount,
+      issueLogsCount,
       openRate,
     };
   }, [
@@ -415,6 +429,38 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
     unsubscribedUsersCount,
     inactiveTraders.length,
   ]);
+
+  const suppressedByEmail = useMemo(() => {
+    const map = new Map<string, SuppressedEmailItem>();
+    for (const item of suppressedRecipients) {
+      const key = String(item?.email || '').trim().toLowerCase();
+      if (key) map.set(key, item);
+    }
+    return map;
+  }, [suppressedRecipients]);
+
+  const handleRemoveSuppression = async (email: string) => {
+    const clean = email.trim().toLowerCase();
+    setUnblockingEmail(clean);
+    try {
+      const res = await removeAdminEmailSuppression(clean, preview);
+      if (!res.ok) {
+        setStatusBanner({
+          tone: 'error',
+          text: res.error || `Could not unblock ${clean} on Resend.`,
+        });
+        return;
+      }
+      setSuppressedRecipients(res.suppressedRecipients || []);
+      setStatusBanner({
+        tone: 'success',
+        text: `Removed ${clean} from Resend's suppression list! Emails to ${clean} can now be delivered.`,
+      });
+      await refreshNewsletters();
+    } finally {
+      setUnblockingEmail(null);
+    }
+  };
 
   const perUserOpenStats = useMemo(() => {
     const map = new Map<
@@ -450,6 +496,13 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       if (openFilterMode === 'opened' && !l.opened) return false;
       if (openFilterMode === 'unopened' && l.opened) return false;
       if (openFilterMode === 'clicked' && !l.clicked) return false;
+      if (
+        openFilterMode === 'issue' &&
+        !['suppressed', 'bounced', 'failed', 'complained', 'delivery_delayed'].includes(
+          String(l.deliveryStatus || '').toLowerCase()
+        )
+      )
+        return false;
       if (!q) return true;
       return `${l.userName} ${l.userEmail} ${l.subject} ${l.badgeText || ''}`
         .toLowerCase()
@@ -984,17 +1037,25 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
       }
       if (res.newsletters) setNewsletters(res.newsletters);
       if (res.logs) setLogs(res.logs);
+      const suppressedMatches = recipients
+        .map((r) => r.email.trim().toLowerCase())
+        .filter((em) => suppressedByEmail.has(em));
       setStatusBanner({
-        tone: 'success',
-        text: singleRecipient
-          ? `Email "${cleanBadge}" sent individually to ${singleRecipient.name} (${singleRecipient.email})!`
-          : effectiveAudience === 'inactive_2_3_days'
-          ? `Sent Comeback Motivation playbook to ${
-              res.results?.length || recipients.length
-            } trader(s) who were away 2–3+ days! Open tracking is active.`
-          : `Sent "${cleanBadge}" from Cheslin from Chart Replay to ${
-              res.results?.length || recipients.length
-            } subscribed trader(s)! Open tracking & Unsubscribe link active.`,
+        tone: suppressedMatches.length > 0 ? 'info' : 'success',
+        text:
+          suppressedMatches.length > 0
+            ? `Dispatched "${cleanBadge}", but ${suppressedMatches.join(
+                ', '
+              )} is currently on Resend's suppression list and will not receive emails until unblocked below.`
+            : singleRecipient
+            ? `Email "${cleanBadge}" sent individually to ${singleRecipient.name} (${singleRecipient.email})!`
+            : effectiveAudience === 'inactive_2_3_days'
+            ? `Sent Comeback Motivation playbook to ${
+                res.results?.length || recipients.length
+              } trader(s) who were away 2–3+ days! Open tracking is active.`
+            : `Sent "${cleanBadge}" from Cheslin from Chart Replay to ${
+                res.results?.length || recipients.length
+              } subscribed trader(s)! Open tracking & Unsubscribe link active.`,
       });
     } finally {
       setBusyAction(null);
@@ -1183,6 +1244,43 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
             </button>
           </div>
         </div>
+
+        {suppressedRecipients.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-amber-400/35 bg-amber-500/10 p-4 text-xs text-amber-100">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-amber-200">
+                  Delivery Alert: {suppressedRecipients.length} address
+                  {suppressedRecipients.length === 1 ? ' is' : 'es are'} currently blocked on Resend&apos;s Suppression List
+                </p>
+                <p className="mt-1 text-[11px] text-amber-100/80">
+                  Resend silently suppresses emails to addresses that previously bounced. Unblock verified customer addresses after confirming their inbox accepts mail:
+                </p>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {suppressedRecipients.map((item) => (
+                    <div
+                      key={item.email}
+                      className="inline-flex items-center gap-2 rounded-xl border border-amber-400/30 bg-black/30 px-3 py-1.5 text-[11px]"
+                    >
+                      <span className="font-mono text-white">{item.email}</span>
+                      <span className="text-[10px] uppercase text-amber-300">
+                        ({item.origin || 'bounce'})
+                      </span>
+                      <button
+                        type="button"
+                        disabled={unblockingEmail === item.email}
+                        onClick={() => void handleRemoveSuppression(item.email)}
+                        className="rounded-lg bg-emerald-500/20 border border-emerald-400/40 px-2 py-0.5 text-[10px] font-bold text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-50"
+                      >
+                        {unblockingEmail === item.email ? 'Unblocking…' : 'Unblock'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Visual Mode Cards: Send to All Subscribed vs Send to Selected Individuals */}
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -2244,6 +2342,19 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
               >
                 Clicked CTA ({metrics.clickedLogsCount})
               </button>
+              {metrics.issueLogsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setOpenFilterMode('issue')}
+                  className={`rounded-lg px-2.5 py-1 transition ${
+                    openFilterMode === 'issue'
+                      ? 'bg-rose-400/20 text-rose-200 font-semibold'
+                      : 'text-rose-300 hover:text-rose-200'
+                  }`}
+                >
+                  Bounced / Blocked ({metrics.issueLogsCount})
+                </button>
+              )}
             </div>
 
             <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-1.5">
@@ -2301,20 +2412,60 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {log.opened ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 px-2.5 py-0.5 text-[11px] font-bold text-emerald-200">
-                            <MailOpen size={12} />
-                            Opened ✓
-                            {Number(log.openCount || 1) > 1
-                              ? ` (${log.openCount}x)`
-                              : ''}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] border border-white/10 px-2.5 py-0.5 text-[11px] text-slate-400">
-                            <Mail size={11} />
-                            Sent · Not opened yet
-                          </span>
-                        )}
+                        {(() => {
+                          const dStatus = String(log.deliveryStatus || 'sent').toLowerCase();
+                          if (log.opened) {
+                            return (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 px-2.5 py-0.5 text-[11px] font-bold text-emerald-200">
+                                <MailOpen size={12} />
+                                Opened ✓
+                                {Number(log.openCount || 1) > 1
+                                  ? ` (${log.openCount}x)`
+                                  : ''}
+                              </span>
+                            );
+                          }
+                          if (dStatus === 'suppressed') {
+                            return (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-400/40 px-2.5 py-0.5 text-[11px] font-semibold text-amber-200">
+                                <UserMinus size={11} />
+                                Suppressed (Blocked)
+                              </span>
+                            );
+                          }
+                          if (
+                            dStatus === 'bounced' ||
+                            dStatus === 'failed' ||
+                            dStatus === 'complained'
+                          ) {
+                            return (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/20 border border-rose-400/40 px-2.5 py-0.5 text-[11px] font-semibold text-rose-200">
+                                <Mail size={11} />
+                                {dStatus === 'bounced'
+                                  ? 'Bounced (Rejected)'
+                                  : dStatus === 'complained'
+                                  ? 'Spam Complaint'
+                                  : 'Send Failed'}
+                              </span>
+                            );
+                          }
+                          if (dStatus === 'delivery_delayed') {
+                            return (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-400/30 px-2.5 py-0.5 text-[11px] text-amber-200">
+                                <Clock3 size={11} />
+                                Delivery Delayed
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] border border-white/10 px-2.5 py-0.5 text-[11px] text-slate-400">
+                              <Mail size={11} />
+                              {dStatus === 'delivered'
+                                ? 'Delivered · Not opened yet'
+                                : 'Sent · Awaiting status'}
+                            </span>
+                          );
+                        })()}
                         {log.clicked && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/20 border border-sky-400/40 px-2 py-0.5 text-[10px] font-bold text-sky-200">
                             <MousePointerClick size={11} />
@@ -2322,6 +2473,11 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                           </span>
                         )}
                       </div>
+                      {log.deliveryError && (
+                        <p className="mt-1 text-[10px] text-rose-300/90 line-clamp-2" title={log.deliveryError}>
+                          {log.deliveryError}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-slate-300">
                       {log.opened && log.openedAt ? (
@@ -2483,17 +2639,32 @@ export const AdminNewsletter: React.FC<AdminNewsletterProps> = ({
                       </p>
                     </td>
                     <td className="px-4 py-3">
-                      {isUnsubscribed ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 border border-rose-400/35 px-2.5 py-0.5 text-[11px] font-semibold text-rose-200">
-                          <UserMinus size={11} />
-                          Unsubscribed
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-400/35 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-200">
-                          <CheckCircle2 size={11} />
-                          Subscribed
-                        </span>
-                      )}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {isUnsubscribed ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 border border-rose-400/35 px-2.5 py-0.5 text-[11px] font-semibold text-rose-200">
+                            <UserMinus size={11} />
+                            Unsubscribed
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-400/35 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-200">
+                            <CheckCircle2 size={11} />
+                            Subscribed
+                          </span>
+                        )}
+                        {suppressedByEmail.has(emailKey) && (
+                          <button
+                            type="button"
+                            disabled={unblockingEmail === emailKey}
+                            onClick={() => void handleRemoveSuppression(emailKey)}
+                            title="This address is suppressed on Resend (previous bounce). Click to unblock."
+                            className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-400/40 px-2.5 py-0.5 text-[10px] font-bold text-amber-200 hover:bg-amber-500/30 disabled:opacity-50"
+                          >
+                            {unblockingEmail === emailKey
+                              ? 'Unblocking…'
+                              : 'Suppressed · Click to Unblock'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {inactive ? (

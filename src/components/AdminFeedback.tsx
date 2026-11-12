@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   Bug,
   Check,
   CheckCircle2,
@@ -23,7 +24,9 @@ import {
   ContactInquiryItem,
   OFFICIAL_CONTACT_EMAIL,
   PERSONAL_CONTACT_EMAIL,
+  SuppressedEmailItem,
   loadAdminFeedbackData,
+  removeAdminEmailSuppression,
   sendAdminFeedbackEmails,
 } from '../services/platformAccounts';
 import {
@@ -89,6 +92,8 @@ export const AdminFeedback: React.FC<AdminFeedbackProps> = ({
   const [feedbackList, setFeedbackList] = useState<PlatformFeedbackItem[]>([]);
   const [emailLogs, setEmailLogs] = useState<FeedbackEmailLogItem[]>([]);
   const [contactInquiries, setContactInquiries] = useState<ContactInquiryItem[]>([]);
+  const [suppressedRecipients, setSuppressedRecipients] = useState<SuppressedEmailItem[]>([]);
+  const [unblockingEmail, setUnblockingEmail] = useState<string | null>(null);
   const [inquiryCategoryFilter, setInquiryCategoryFilter] = useState<
     'all' | ContactInquiryCategory
   >('all');
@@ -114,10 +119,43 @@ export const AdminFeedback: React.FC<AdminFeedbackProps> = ({
       setFeedbackList(res.feedback);
       setEmailLogs(res.emailLogs);
       setContactInquiries(res.contactInquiries || []);
+      setSuppressedRecipients(res.suppressedRecipients || []);
     } finally {
       setLoading(false);
     }
   }, [preview]);
+
+  const suppressedByEmail = useMemo(() => {
+    const map = new Map<string, SuppressedEmailItem>();
+    for (const item of suppressedRecipients) {
+      const key = String(item?.email || '').trim().toLowerCase();
+      if (key) map.set(key, item);
+    }
+    return map;
+  }, [suppressedRecipients]);
+
+  const handleRemoveSuppression = async (email: string) => {
+    const clean = email.trim().toLowerCase();
+    setUnblockingEmail(clean);
+    try {
+      const res = await removeAdminEmailSuppression(clean, preview);
+      if (!res.ok) {
+        setStatusBanner({
+          tone: 'error',
+          text: res.error || `Could not remove suppression for ${clean}.`,
+        });
+        return;
+      }
+      setSuppressedRecipients(res.suppressedRecipients || []);
+      setStatusBanner({
+        tone: 'success',
+        text: `Removed ${clean} from Resend's suppression list. Future emails to ${clean} can now transmit.`,
+      });
+      await refreshFeedback();
+    } finally {
+      setUnblockingEmail(null);
+    }
+  };
 
   useEffect(() => {
     void refreshFeedback();
@@ -230,11 +268,19 @@ export const AdminFeedback: React.FC<AdminFeedbackProps> = ({
         url: r.feedbackUrl,
       }));
       if (sentCount > 0) {
+        const suppressedMatches = recipients
+          .map((r) => r.email.trim().toLowerCase())
+          .filter((em) => suppressedByEmail.has(em));
         setStatusBanner({
-          tone: 'success',
-          text: `Feedback email sent to ${sentCount} ${
-            sentCount === 1 ? 'trader' : 'traders'
-          } and logged in Supabase!`,
+          tone: suppressedMatches.length > 0 ? 'info' : 'success',
+          text:
+            suppressedMatches.length > 0
+              ? `Submitted ${sentCount} feedback email(s), but ${suppressedMatches.join(
+                  ', '
+                )} is currently suppressed on Resend and will be blocked until unblocked below.`
+              : `Feedback email sent to ${sentCount} ${
+                  sentCount === 1 ? 'trader' : 'traders'
+                } and logged in Supabase!`,
           links,
         });
       } else {
@@ -394,6 +440,44 @@ export const AdminFeedback: React.FC<AdminFeedbackProps> = ({
           </div>
         </div>
 
+        {suppressedRecipients.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-amber-400/35 bg-amber-500/10 p-4 text-xs text-amber-100">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-300" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-amber-200">
+                  Resend Suppression List Active ({suppressedRecipients.length} address
+                  {suppressedRecipients.length === 1 ? '' : 'es'} blocked from delivery)
+                </p>
+                <p className="mt-1 text-[11px] text-amber-100/80">
+                  Addresses below previously bounced and are silently dropped by Resend until removed:
+                </p>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {suppressedRecipients.map((item) => (
+                    <div
+                      key={item.email}
+                      className="inline-flex items-center gap-2 rounded-xl border border-amber-400/30 bg-black/30 px-3 py-1.5 text-[11px]"
+                    >
+                      <span className="font-mono text-white">{item.email}</span>
+                      <span className="text-[10px] uppercase text-amber-300">
+                        ({item.origin || 'bounce'})
+                      </span>
+                      <button
+                        type="button"
+                        disabled={unblockingEmail === item.email}
+                        onClick={() => void handleRemoveSuppression(item.email)}
+                        className="rounded-lg bg-emerald-500/20 border border-emerald-400/40 px-2 py-0.5 text-[10px] font-bold text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-50"
+                      >
+                        {unblockingEmail === item.email ? 'Unblocking…' : 'Unblock'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {statusBanner && (
           <div
             role="status"
@@ -545,14 +629,56 @@ export const AdminFeedback: React.FC<AdminFeedbackProps> = ({
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      {sentLog ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-300">
-                          <Check size={11} /> Sent{' '}
-                          {formatSaDate(sentLog.sentAt)}
-                        </span>
-                      ) : (
-                        <span className="text-slate-600">Not sent yet</span>
-                      )}
+                      {(() => {
+                        const suppressedItem = suppressedByEmail.get(emailKey);
+                        const status = String(sentLog?.deliveryStatus || '').toLowerCase();
+                        if (suppressedItem || status === 'suppressed') {
+                          return (
+                            <span
+                              title={
+                                sentLog?.deliveryError ||
+                                'Blocked by Resend suppression list (prior bounce)'
+                              }
+                              className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-400/35 px-2.5 py-0.5 text-[10px] font-semibold text-amber-200"
+                            >
+                              <AlertTriangle size={11} /> Suppressed
+                            </span>
+                          );
+                        }
+                        if (
+                          status === 'bounced' ||
+                          status === 'failed' ||
+                          status === 'complained'
+                        ) {
+                          return (
+                            <span
+                              title={sentLog?.deliveryError || `Delivery ${status}`}
+                              className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 border border-rose-400/35 px-2.5 py-0.5 text-[10px] font-semibold text-rose-200"
+                            >
+                              <AlertTriangle size={11} />{' '}
+                              {status === 'bounced'
+                                ? 'Bounced'
+                                : status === 'complained'
+                                ? 'Spam Complaint'
+                                : 'Failed'}
+                            </span>
+                          );
+                        }
+                        if (sentLog) {
+                          return (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                              <Check size={11} />{' '}
+                              {status === 'delivered'
+                                ? 'Delivered'
+                                : status === 'delivery_delayed'
+                                ? 'Delayed'
+                                : 'Sent'}{' '}
+                              {formatSaDate(sentLog.sentAt)}
+                            </span>
+                          );
+                        }
+                        return <span className="text-slate-600">Not sent yet</span>;
+                      })()}
                     </td>
                     <td className="px-4 py-3">
                       {submittedFb ? (

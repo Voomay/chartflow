@@ -1467,7 +1467,17 @@ export async function readSupabaseFeedbackEmails({
 
   const byId = new Map();
   for (const item of combined) {
-    if (!byId.has(item.id)) byId.set(item.id, item);
+    const prev = byId.get(item.id);
+    if (!prev) {
+      byId.set(item.id, item);
+    } else {
+      byId.set(item.id, {
+        ...item,
+        ...prev,
+        resendEmailId: prev.resendEmailId || item.resendEmailId || null,
+        deliveryError: prev.deliveryError || item.deliveryError || null,
+      });
+    }
   }
   return Array.from(byId.values()).sort(
     (a, b) =>
@@ -1485,6 +1495,10 @@ export async function saveSupabaseFeedbackEmailLog(
     userName: String(logEntry.userName || 'Trader'),
     sentBy: String(logEntry.sentBy || 'admin'),
     deliveryStatus: String(logEntry.deliveryStatus || 'sent'),
+    resendEmailId: logEntry.resendEmailId ? String(logEntry.resendEmailId) : null,
+    deliveryError: logEntry.deliveryError
+      ? String(logEntry.deliveryError).slice(0, 300)
+      : null,
     sentAt: logEntry.sentAt || new Date().toISOString(),
   };
 
@@ -1810,6 +1824,9 @@ export async function saveSupabaseNewsletterLog(
     userName: String(logEntry.userName || 'Trader'),
     sentBy: String(logEntry.sentBy || 'admin'),
     deliveryStatus: String(logEntry.deliveryStatus || 'sent'),
+    deliveryError: logEntry.deliveryError
+      ? String(logEntry.deliveryError).slice(0, 300)
+      : null,
     sentAt: logEntry.sentAt || new Date().toISOString(),
     resendEmailId: logEntry.resendEmailId ? String(logEntry.resendEmailId) : null,
     opened: Boolean(logEntry.opened),

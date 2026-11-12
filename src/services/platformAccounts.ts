@@ -221,17 +221,27 @@ export async function adminImpersonateUser(
   return { ok: true, user, impersonation };
 }
 
+export interface SuppressedEmailItem {
+  id?: string;
+  email: string;
+  origin?: string;
+  sourceId?: string | null;
+  createdAt?: string | null;
+}
+
 export async function loadAdminFeedbackData(preview = false): Promise<{
   ok: boolean;
   feedback: PlatformFeedbackItem[];
   emailLogs: FeedbackEmailLogItem[];
   contactInquiries: ContactInquiryItem[];
+  suppressedRecipients: SuppressedEmailItem[];
   resendConfigured: boolean;
 }> {
   if (preview) {
     return {
       ok: true,
       resendConfigured: true,
+      suppressedRecipients: [],
       feedback: [
         {
           id: 'preview-fb-1',
@@ -352,6 +362,9 @@ export async function loadAdminFeedbackData(preview = false): Promise<{
     contactInquiries: Array.from(inquiryMap.values()).sort(
       (a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)
     ),
+    suppressedRecipients: Array.isArray(srv?.suppressedRecipients)
+      ? (srv.suppressedRecipients as SuppressedEmailItem[])
+      : [],
     resendConfigured: Boolean(srv?.resendConfigured),
   };
 }
@@ -613,6 +626,7 @@ export interface NewsletterDeliveryLogItem {
   userName: string;
   sentBy: string;
   deliveryStatus: string;
+  deliveryError?: string | null;
   sentAt: string;
   isBulk?: boolean;
   resendEmailId?: string | null;
@@ -1104,6 +1118,7 @@ export async function loadAdminNewsletters(preview = false): Promise<{
   newsletters: NewsletterEditionItem[];
   logs: NewsletterDeliveryLogItem[];
   unsubscribedEmails?: string[];
+  suppressedRecipients?: SuppressedEmailItem[];
   resendConfigured: boolean;
 }> {
   if (preview) {
@@ -1112,6 +1127,7 @@ export async function loadAdminNewsletters(preview = false): Promise<{
       newsletters: previewNewslettersState,
       logs: previewNewsletterLogsState,
       unsubscribedEmails: Array.from(getLocalUnsubscribedEmails()),
+      suppressedRecipients: [],
       resendConfigured: true,
     };
   }
@@ -1130,6 +1146,9 @@ export async function loadAdminNewsletters(preview = false): Promise<{
         unsubscribedEmails: Array.isArray(res.unsubscribedEmails)
           ? (res.unsubscribedEmails as string[])
           : Array.from(getLocalUnsubscribedEmails()),
+        suppressedRecipients: Array.isArray(res.suppressedRecipients)
+          ? (res.suppressedRecipients as SuppressedEmailItem[])
+          : [],
         resendConfigured: Boolean(res.resendConfigured),
       };
     }
@@ -1141,7 +1160,38 @@ export async function loadAdminNewsletters(preview = false): Promise<{
     newsletters: DEFAULT_CLIENT_NEWSLETTER_TEMPLATES,
     logs: [],
     unsubscribedEmails: Array.from(getLocalUnsubscribedEmails()),
+    suppressedRecipients: [],
     resendConfigured: false,
+  };
+}
+
+export async function removeAdminEmailSuppression(
+  email: string,
+  preview = false
+): Promise<{
+  ok: boolean;
+  email?: string;
+  suppressedRecipients?: SuppressedEmailItem[];
+  error?: string;
+}> {
+  const clean = String(email || '').trim().toLowerCase();
+  if (!clean) return { ok: false, error: 'Email address is required.' };
+  if (preview) {
+    return { ok: true, email: clean, suppressedRecipients: [] };
+  }
+  const res = await platformRequest('remove-email-suppression', { email: clean });
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: (res.error as string) || 'Unable to remove email suppression.',
+    };
+  }
+  return {
+    ok: true,
+    email: clean,
+    suppressedRecipients: Array.isArray(res.suppressedRecipients)
+      ? (res.suppressedRecipients as SuppressedEmailItem[])
+      : [],
   };
 }
 

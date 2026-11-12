@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error Node server module has no .d.ts
 import { createAdminSession, createPlatformHandler, hashPassword } from '../../../server/platformAccounts.mjs';
 // @ts-expect-error Node server module has no .d.ts
-import { buildFirstTradeFeedbackEmail, buildContactInquiryEmail, buildPersonalizedNewsletterEmail, DEFAULT_NEWSLETTER_TEMPLATES, CONTACT_INQUIRY_RECIPIENT, PERSONAL_CONTACT_EMAIL } from '../../../server/resendMail.mjs';
+import { buildFirstTradeFeedbackEmail, buildFeedbackNotificationEmail, buildContactInquiryEmail, buildPersonalizedNewsletterEmail, sendFeedbackNotificationEmail, sendContactInquiryEmail, sendResendEmail, resolveResendConfig, DEFAULT_NEWSLETTER_TEMPLATES, CONTACT_INQUIRY_RECIPIENT, PERSONAL_CONTACT_EMAIL } from '../../../server/resendMail.mjs';
 import {
   hasSeenExperiencePopup,
   markExperiencePopupSeen,
@@ -158,7 +158,7 @@ describe('Administrator user impersonation & trader feedback system', () => {
       sessionSecret: 'test-session-secret-key-123456',
     };
     const store = createInMemoryTestStore(adminConfig);
-    const handler = createPlatformHandler({ store });
+    const handler = createPlatformHandler({ store, env: {} });
 
     // 1. Unauthenticated request is rejected with 401
     const unauth = await callHandler(handler, {
@@ -211,7 +211,7 @@ describe('Administrator user impersonation & trader feedback system', () => {
       sessionSecret: 'test-session-secret-key-123456',
     };
     const store = createInMemoryTestStore(adminConfig);
-    const handler = createPlatformHandler({ store });
+    const handler = createPlatformHandler({ store, env: {} });
     const adminCookie = `chart_replay_admin=${createAdminSession(
       adminConfig,
       Date.now()
@@ -276,7 +276,7 @@ describe('Administrator user impersonation & trader feedback system', () => {
       sessionSecret: 'test-session-secret-key-123456',
     };
     const store = createInMemoryTestStore(adminConfig);
-    const handler = createPlatformHandler({ store });
+    const handler = createPlatformHandler({ store, env: {} });
     const adminCookie = `chart_replay_admin=${createAdminSession(
       adminConfig,
       Date.now()
@@ -346,7 +346,7 @@ describe('Administrator user impersonation & trader feedback system', () => {
       sessionSecret: 'test-session-secret-key-123456',
     };
     const store = createInMemoryTestStore(adminConfig);
-    const handler = createPlatformHandler({ store });
+    const handler = createPlatformHandler({ store, env: {} });
     const adminCookie = `chart_replay_admin=${createAdminSession(
       adminConfig,
       Date.now()
@@ -421,7 +421,7 @@ describe('Administrator user impersonation & trader feedback system', () => {
       sessionSecret: 'test-session-secret-key-123456',
     };
     const store = createInMemoryTestStore(adminConfig);
-    const handler = createPlatformHandler({ store });
+    const handler = createPlatformHandler({ store, env: {} });
     const adminCookie = `chart_replay_admin=${createAdminSession(
       adminConfig,
       Date.now()
@@ -553,5 +553,247 @@ describe('Administrator user impersonation & trader feedback system', () => {
     expect(trackedLog.opened).toBe(true);
     expect(trackedLog.openCount).toBe(1);
     expect(trackedLog.openedAt).toBeTruthy();
+  });
+
+  it('prevents live Resend sends during Vitest, hardens corporate deliverability headers/HTML, and syncs Resend bounce & suppression states', async () => {
+    // 1. Default process.env under Vitest must never transmit live emails
+    const nodeProcess = (
+      globalThis as unknown as {
+        process: { env: Record<string, string | undefined> };
+      }
+    ).process;
+    const origKey = nodeProcess.env.RESEND_API_KEY;
+    const origEnabled = nodeProcess.env.RESEND_ENABLED;
+    nodeProcess.env.RESEND_API_KEY = 're_live_should_not_send_in_test';
+    nodeProcess.env.RESEND_ENABLED = 'true';
+    try {
+      expect(resolveResendConfig()).toBeNull();
+    } finally {
+      if (origKey === undefined) delete nodeProcess.env.RESEND_API_KEY;
+      else nodeProcess.env.RESEND_API_KEY = origKey;
+      if (origEnabled === undefined) delete nodeProcess.env.RESEND_ENABLED;
+      else nodeProcess.env.RESEND_ENABLED = origEnabled;
+    }
+
+    // 2. Notification HTML & newsletter hygiene
+    const builtFeedback = buildFeedbackNotificationEmail({
+      name: 'Sipho Ndlovu',
+      email: 'sipho@example.com',
+      ratingUserFriendliness: 5,
+      ratingCharts: 4,
+      ratingSmoothness: 5,
+      overallRating: 4.67,
+      improvementsText: 'Great replay controls.',
+      source: 'email_link',
+    });
+    expect(builtFeedback.html).toContain('<!DOCTYPE html>');
+    expect(builtFeedback.html).toContain('<html lang="en">');
+    expect(builtFeedback.html).toContain('mailto:sipho@example.com');
+
+    const newsletterHtml = buildPersonalizedNewsletterEmail({
+      newsletter: DEFAULT_NEWSLETTER_TEMPLATES[0],
+      recipient: { name: 'Brandon', email: 'info@voomay.co.za' },
+      trackingId: 'nl-test-hygiene',
+    });
+    expect(newsletterHtml.html).not.toContain('opacity:0');
+    expect(newsletterHtml.html).not.toContain('mailto:info@voomay.co.za');
+
+    // 3. Headers: never loop reply_to to recipient or embed cross-domain mailto unsubscribe
+    const capturedPosts: Array<{ url: string; method: string; body: any }> = [];
+    const customEnv = {
+      RESEND_API_KEY: 're_mock_test_key',
+      RESEND_FROM_EMAIL: 'Chart Replay <noreply@chartreplay.co.za>',
+      RESEND_REPLY_TO: 'info@voomay.co.za',
+      PUBLIC_APP_URL: 'https://chartreplay.co.za',
+    };
+    const mockSendFetch = async (url: string, init: any = {}) => {
+      const parsedBody = init.body ? JSON.parse(init.body) : null;
+      capturedPosts.push({ url, method: init.method || 'GET', body: parsedBody });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id: `re_msg_${capturedPosts.length}` }),
+      };
+    };
+
+    await sendFeedbackNotificationEmail(
+      {
+        name: 'Sipho Ndlovu',
+        email: 'sipho@example.com',
+        ratingUserFriendliness: 5,
+        ratingCharts: 5,
+        ratingSmoothness: 5,
+        overallRating: 5,
+        improvementsText: 'Solid charts',
+        source: 'platform',
+      },
+      { env: customEnv, request: mockSendFetch }
+    );
+    await sendContactInquiryEmail(
+      {
+        name: 'Thabo',
+        email: 'thabo@example.com',
+        category: 'general_inquiry',
+        subject: 'Question',
+        message: 'Hello team',
+      },
+      { env: customEnv, request: mockSendFetch }
+    );
+    await sendResendEmail(
+      {
+        to: 'info@voomay.co.za',
+        subject: 'Newsletter test',
+        html: '<p>Hello</p>',
+        text: 'Hello',
+        unsubscribeUrl: 'https://chartreplay.co.za/?unsubscribe=1&email=info%40voomay.co.za',
+      },
+      { env: customEnv, request: mockSendFetch }
+    );
+
+    expect(capturedPosts).toHaveLength(3);
+    for (const post of capturedPosts) {
+      expect(post.body.reply_to).toBeUndefined();
+    }
+    expect(capturedPosts[2].body.headers['List-Unsubscribe']).toBe(
+      '<https://chartreplay.co.za/?unsubscribe=1&email=info%40voomay.co.za>'
+    );
+
+    // 4. Platform handler: suppression list visibility, bounce/suppressed sync, webhook & unblock
+    const adminConfig = {
+      email: 'admin@chartreplay.co.za',
+      passwordHash: await hashPassword('admin-secret-pass'),
+      sessionSecret: 'test-session-secret-key-123456',
+    };
+    const store = createInMemoryTestStore(adminConfig);
+    await store.recordNewsletterLog({
+      id: 'nl-suppressed-1',
+      newsletterId: 'newsletter-day-1',
+      dayNumber: 1,
+      badgeText: 'Prop Firm Playbook',
+      category: 'prop_firm',
+      isBulk: true,
+      subject: 'Hi Brandon — Test',
+      userEmail: 'info@voomay.co.za',
+      userName: 'Brandon',
+      sentBy: 'admin@chartreplay.co.za',
+      deliveryStatus: 'sent',
+      sentAt: '2026-11-10T08:00:00.000Z',
+      resendEmailId: 're_email_suppressed_1',
+      opened: false,
+      openCount: 0,
+      clicked: false,
+      clickCount: 0,
+    });
+    await store.recordNewsletterLog({
+      id: 'nl-bounced-2',
+      newsletterId: 'newsletter-day-1',
+      dayNumber: 1,
+      badgeText: 'Prop Firm Playbook',
+      category: 'prop_firm',
+      isBulk: true,
+      subject: 'Hi Test — Test',
+      userEmail: 'missing@voomay.co.za',
+      userName: 'Missing',
+      sentBy: 'admin@chartreplay.co.za',
+      deliveryStatus: 'sent',
+      sentAt: '2026-11-10T08:01:00.000Z',
+      resendEmailId: 're_email_bounced_2',
+      opened: false,
+      openCount: 0,
+      clicked: false,
+      clickCount: 0,
+    });
+
+    let activeSuppressions = [
+      {
+        id: 'sup-1',
+        email: 'info@voomay.co.za',
+        origin: 'bounce',
+        source_id: '01a19dfe-832d-790d-b650-e41452e12b41',
+        created_at: '2026-11-02T20:41:12.000Z',
+      },
+    ];
+    const mockResendApi = async (url: string, init: any = {}) => {
+      const method = String(init.method || 'GET').toUpperCase();
+      if (url.startsWith('https://api.resend.com/suppressions/info%40voomay.co.za') && method === 'DELETE') {
+        activeSuppressions = [];
+        return { ok: true, status: 200, json: async () => ({ deleted: true }) };
+      }
+      if (url.startsWith('https://api.resend.com/suppressions') && method === 'GET') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', has_more: false, data: activeSuppressions }),
+        };
+      }
+      if (url.endsWith('/re_email_suppressed_1') && method === 'GET') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ id: 're_email_suppressed_1', last_event: 'suppressed' }),
+        };
+      }
+      if (url.endsWith('/re_email_bounced_2') && method === 'GET') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: 're_email_bounced_2',
+            last_event: 'bounced',
+            bounce: { diagnosticCode: ['smtp; 550 No such recipient here'] },
+          }),
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({ error: 'Not found' }) };
+    };
+
+    const handler = createPlatformHandler({
+      store,
+      env: customEnv,
+      request: mockResendApi,
+    });
+    const adminCookie = `chart_replay_admin=${createAdminSession(adminConfig, Date.now())}`;
+
+    const nlRes = await callHandler(handler, {
+      method: 'GET',
+      action: 'newsletters',
+      cookie: adminCookie,
+    });
+    expect(nlRes.status).toBe(200);
+    expect(nlRes.data.suppressedRecipients).toHaveLength(1);
+    expect(nlRes.data.suppressedRecipients[0].email).toBe('info@voomay.co.za');
+
+    const supLog = nlRes.data.logs.find((l: any) => l.id === 'nl-suppressed-1');
+    const bncLog = nlRes.data.logs.find((l: any) => l.id === 'nl-bounced-2');
+    expect(supLog.deliveryStatus).toBe('suppressed');
+    expect(supLog.deliveryError).toContain('suppression list');
+    expect(bncLog.deliveryStatus).toBe('bounced');
+    expect(bncLog.deliveryError).toContain('550 No such recipient here');
+
+    // Webhook updates delivery status cleanly too
+    const webhookRes = await callHandler(handler, {
+      method: 'POST',
+      action: 'resend-webhook',
+      body: {
+        type: 'email.delivered',
+        data: { email_id: 're_email_suppressed_1', to: ['info@voomay.co.za'] },
+      },
+    });
+    expect(webhookRes.status).toBe(200);
+    const updatedAfterWebhook = (await store.readNewsletterLogs()).find(
+      (l: any) => l.id === 'nl-suppressed-1'
+    );
+    expect(updatedAfterWebhook.deliveryStatus).toBe('delivered');
+
+    // Admin unblocks suppressed recipient
+    const unblockRes = await callHandler(handler, {
+      method: 'POST',
+      action: 'remove-email-suppression',
+      cookie: adminCookie,
+      body: { email: 'info@voomay.co.za' },
+    });
+    expect(unblockRes.status).toBe(200);
+    expect(unblockRes.data.email).toBe('info@voomay.co.za');
+    expect(unblockRes.data.suppressedRecipients).toEqual([]);
   });
 });

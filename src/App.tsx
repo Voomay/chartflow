@@ -476,6 +476,7 @@ export function App() {
         if (p === '/dashboard' || p === '/desktop') return 'dashboard';
         if (
           p === '/sessions' ||
+          p === '/calculator' ||
           p === '/strategies' ||
           p === '/notes' ||
           p === '/guide' ||
@@ -539,6 +540,7 @@ export function App() {
         setActiveView('dashboard');
       } else if (
         p === '/sessions' ||
+        p === '/calculator' ||
         p === '/strategies' ||
         p === '/notes' ||
         p === '/guide' ||
@@ -2403,10 +2405,16 @@ export function App() {
       setIsPlaying(false);
       replayStepBusy.current = false;
       resetChartIndicatorsOff();
-      setTradingSessions((prev) => [
-        stampedSession,
-        ...prev.filter((s) => s.id !== stampedSession.id && isSessionOwnedByUser(s, ownerEmail)),
-      ]);
+      setTradingSessions((prev) => {
+        const nextList = [
+          stampedSession,
+          ...prev.filter((s) => s.id !== stampedSession.id && isSessionOwnedByUser(s, ownerEmail)),
+        ];
+        if (currentUser?.email) {
+          saveUserSessions(ownerEmail, nextList);
+        }
+        return nextList;
+      });
       setActiveSessionId(stampedSession.id);
       setSymbol(stampedSession.activeAsset);
       const nextTf = stampedSession.activeTimeframe || '15m';
@@ -3707,6 +3715,10 @@ export function App() {
                 setCreateSessionTourStep(null);
                 handleCreateNewSession(newSession, true);
               }}
+              onSaveSession={(newSession) => {
+                setCreateSessionTourStep(null);
+                handleCreateNewSession(newSession, false);
+              }}
               onSelectSession={(sessId) => {
                 setIsPlaying(false);
                 setActiveSessionId(sessId);
@@ -3855,7 +3867,11 @@ export function App() {
         onLogout={signOut}
         liveBalance={liveMetrics.currentBalance}
         liveEquity={liveMetrics.currentEquity}
-        onOpenCreateSession={() => setIsCreateSessionModalOpen(true)}
+        onOpenCreateSession={() => {
+          setCreateSessionModalMode('BACKTESTING');
+          setCreateSessionTourStep(null);
+          setIsCreateSessionModalOpen(true);
+        }}
         onOpenAnalyticsPage={() => {
           setHubInitialSection('analytics');
           setActiveView('analytics_page');
@@ -4456,6 +4472,7 @@ export function App() {
           activeSessionId={activeSession.id}
           theme={theme}
           onCreateSession={(newSession) => handleCreateNewSession(newSession, false)}
+          onSaveSession={(newSession) => handleCreateNewSession(newSession, false)}
           onSelectSession={(sessId) => {
             setIsPlaying(false);
             setActiveSessionId(sessId);

@@ -70,6 +70,7 @@ interface CreateSessionModalProps {
   sessions: TradingSession[];
   activeSessionId: string;
   onCreateSession: (session: TradingSession) => void;
+  onSaveSession?: (session: TradingSession) => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
   onStartNewAttempt?: (sessionId: string) => void;
@@ -295,6 +296,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   sessions,
   activeSessionId,
   onCreateSession,
+  onSaveSession,
   onSelectSession,
   onDeleteSession,
   onStartNewAttempt,
@@ -602,10 +604,10 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
     });
   };
 
-  const handleCreateAndOpenChart = () => {
-    if (isSubmittingRef.current) return;
-    if (selectedAssets.some(isInstrumentComingSoon)) return;
-    if (!dataValidation.valid) return;
+  const buildNewSession = (): TradingSession | null => {
+    if (isSubmittingRef.current) return null;
+    if (selectedAssets.some(isInstrumentComingSoon)) return null;
+    if (!dataValidation.valid) return null;
     isSubmittingRef.current = true;
     const finalStrategyName = commitStrategy();
 
@@ -644,7 +646,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
     };
 
     const cleanOwnerEmail = (userEmail || '').trim().toLowerCase();
-    const newSession: TradingSession = {
+    return {
       id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       ...(cleanOwnerEmail ? { userId: cleanOwnerEmail } : {}),
       name: finalName,
@@ -700,8 +702,23 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
             )
           : undefined,
     };
+  };
 
+  const handleCreateAndOpenChart = () => {
+    const newSession = buildNewSession();
+    if (!newSession) return;
     onCreateSession(newSession);
+    onClose();
+  };
+
+  const handleSaveSessionOnly = () => {
+    const newSession = buildNewSession();
+    if (!newSession) return;
+    if (onSaveSession) {
+      onSaveSession(newSession);
+    } else {
+      onCreateSession(newSession);
+    }
     onClose();
   };
 
@@ -2237,7 +2254,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
           </div>
 
           {activeView === 'setup' && (
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {wizardStep < 3 ? (
                 <button
                   type="button"
@@ -2247,28 +2264,50 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                     }
                     goToStep(Math.min(3, wizardStep + 1) as 1 | 2 | 3);
                   }}
-                  className="px-7 py-3 rounded-xl text-sm font-extrabold bg-[#00f2c3] text-[#032221] shadow-[0_8px_24px_-6px_rgba(0,242,195,0.5)] hover:brightness-105 transition flex items-center gap-2"
+                  className="px-6 sm:px-7 py-2.5 sm:py-3 rounded-xl text-sm font-extrabold bg-[#00f2c3] text-[#032221] shadow-[0_8px_24px_-6px_rgba(0,242,195,0.5)] hover:brightness-105 transition flex items-center gap-2"
                 >
                   <span>Continue</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               ) : (
-                <button
-                  type="button"
-                  disabled={
-                    !dataValidation.valid ||
-                    selectedAssets.some(isInstrumentComingSoon)
-                  }
-                  onClick={handleCreateAndOpenChart}
-                  className={`px-7 py-3 rounded-xl text-sm font-extrabold flex items-center gap-2 transition ${
-                    dataValidation.valid
-                      ? 'bg-[#00f2c3] text-[#032221] shadow-[0_8px_24px_-6px_rgba(0,242,195,0.55)] hover:brightness-105'
-                      : 'bg-white/5 text-slate-500 border border-white/10 cursor-not-allowed'
-                  }`}
-                >
-                  <Play className="w-4 h-4 fill-current" />
-                  <span>Start session</span>
-                </button>
+                <>
+                  {onSaveSession && (
+                    <button
+                      type="button"
+                      disabled={
+                        !dataValidation.valid ||
+                        selectedAssets.some(isInstrumentComingSoon)
+                      }
+                      onClick={handleSaveSessionOnly}
+                      className={`px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-bold border flex items-center gap-1.5 transition ${
+                        dataValidation.valid
+                          ? isLight
+                            ? 'border-emerald-500/50 bg-emerald-50 text-teal-800 hover:bg-emerald-100'
+                            : 'border-[#00f2c3]/45 bg-[#00f2c3]/10 text-[#00f2c3] hover:bg-[#00f2c3]/20'
+                          : 'bg-white/5 text-slate-500 border-white/10 cursor-not-allowed'
+                      }`}
+                    >
+                      <BookmarkPlus className="w-4 h-4" />
+                      <span>Save session</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={
+                      !dataValidation.valid ||
+                      selectedAssets.some(isInstrumentComingSoon)
+                    }
+                    onClick={handleCreateAndOpenChart}
+                    className={`px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition ${
+                      dataValidation.valid
+                        ? 'bg-[#00f2c3] text-[#032221] shadow-[0_8px_24px_-6px_rgba(0,242,195,0.55)] hover:brightness-105'
+                        : 'bg-white/5 text-slate-500 border border-white/10 cursor-not-allowed'
+                    }`}
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Start session</span>
+                  </button>
+                </>
               )}
             </div>
           )}

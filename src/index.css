@@ -55,6 +55,44 @@
   cursor: crosshair !important;
 }
 
+/* Modern, sleek scrollbars matching the Chart Replay dark/emerald aesthetic */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.65), rgba(20, 184, 166, 0.65));
+}
+
+.hub-modern[data-hub-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.25);
+}
+
+.hub-modern[data-hub-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(5, 150, 105, 0.6), rgba(13, 148, 136, 0.6));
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -64,13 +102,30 @@
   background: transparent;
 }
 
+.custom-scrollbar::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(120, 123, 134, 0.35);
-  border-radius: 3px;
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(120, 123, 134, 0.6);
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.65), rgba(20, 184, 166, 0.65));
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+  }
+
+  .hub-modern[data-hub-theme="light"] * {
+    scrollbar-color: rgba(100, 116, 139, 0.28) transparent;
+  }
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -78,7 +133,7 @@
 }
 .no-scrollbar {
   -ms-overflow-style: none;
-  scrollbar-width: none;
+  scrollbar-width: none !important;
 }
 
 /* =====================================================================

@@ -3,6 +3,7 @@ import {applyPageSeo} from '../services/seo';
 import { WorkspaceTour } from './WorkspaceTour';
 import { PerformanceOverview } from './PerformanceOverview';
 import { DashboardOverview } from './DashboardOverview';
+import { PropEvaluationCalculator } from './PropEvaluationCalculator';
 import { StrategyNotes } from './StrategyNotes';
 import { MotivationPreference } from './MotivationWelcome';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
@@ -42,6 +43,7 @@ import { TradeSimulator } from './analytics/TradeSimulator';
 import {
   BarChart2,
   BookOpen,
+  Calculator,
   NotebookPen,
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -80,6 +82,7 @@ export type HubSidebarSection =
   | 'dashboard'
   | 'sessions'
   | 'analytics'
+  | 'calculator'
   | 'strategies'
   | 'notes'
   | 'guide'
@@ -227,6 +230,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         path: '/analytics',
         desc: 'Analyze your equity curve, drawdown curve, R-multiple expectancy, win rate by session, and trade journal.',
       },
+      calculator: {
+        title: 'Interactive Evaluation Calculator – Prop Firm Planner | Chart Replay',
+        path: '/calculator',
+        desc: 'Calculate how many winning and losing trades you need to pass Step 1 or Step 2 of a prop firm evaluation.',
+      },
       strategies: {
         title: 'Trading Strategies & Playbooks | Chart Replay',
         path: '/strategies',
@@ -279,6 +287,14 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   const [dashboardModeTab, setDashboardModeTab] = useState<
     'ALL' | 'BACKTESTING' | 'PROP_FIRM'
   >('ALL');
+  const prevSessionsCountRef = React.useRef(sessions.length);
+  useEffect(() => {
+    if (sessions.length > prevSessionsCountRef.current) {
+      setDashboardModeTab('ALL');
+      setSessionSearch('');
+    }
+    prevSessionsCountRef.current = sessions.length;
+  }, [sessions.length]);
 
   // Session Settings Modal State
   const [editingSession, setEditingSession] = useState<TradingSession | null>(null);
@@ -510,7 +526,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   }, [dashboardModeTab, normalSessions, propSessions, sessions, sessionSearch]);
 
   const renderSidebarContent = () => (
-    <div className="h-full flex flex-col justify-between overflow-y-auto">
+    <div className="h-full flex flex-col justify-between overflow-y-auto custom-scrollbar">
       <div className="p-4 space-y-5">
         {/* Brand Header */}
         <div className="flex items-center justify-between">
@@ -586,6 +602,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 badge: sessions.length,
               },
               { id: 'analytics', label: 'Analytics', icon: BarChart2 },
+              {
+                id: 'calculator',
+                label: 'Evaluation Calculator',
+                icon: Calculator,
+              },
               {
                 id: 'strategies',
                 label: 'Strategies',
@@ -776,6 +797,8 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 ? 'All Backtesting & Prop Firm Challenge Sessions'
                 : sidebarSection === 'analytics'
                 ? 'Performance Analytics & Audit'
+                : sidebarSection === 'calculator'
+                ? 'Interactive Evaluation Calculator'
                 : sidebarSection === 'strategies'
                 ? 'Strategy Playbooks & Prop Rule Profiles'
                 : sidebarSection === 'notes'
@@ -2689,9 +2712,19 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
           </div>
         )}
 
+        {/* EVALUATION CALCULATOR SECTION */}
+        {sidebarSection === 'calculator' && (
+          <div className="px-3.5 sm:px-8 pt-5 pb-10 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 mx-auto">
+            <PropEvaluationCalculator
+              isLight={isLight}
+              onCreatePropChallenge={() => onOpenCreateSessionModal('PROP_FIRM')}
+            />
+          </div>
+        )}
+
         {/* STRATEGIES SECTION */}
         {sidebarSection === 'strategies' && (
-          <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
+          <div className="px-3.5 sm:px-8 pt-5 pb-10 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 mx-auto">
             {/* Header & Description */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-gray-500/20 pb-4">
               <div>
@@ -2884,7 +2917,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
         )}
 
         {sidebarSection === 'notes' && (
-          <div className="px-4 sm:px-8 py-6 sm:py-8 max-w-5xl w-full mx-auto space-y-6">
+          <div className="px-3.5 sm:px-8 pt-5 pb-10 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 mx-auto">
             <div><p className="text-[10px] uppercase tracking-[.18em] font-bold text-emerald-500 mb-2">Personal notebook</p><h2 className="text-2xl sm:text-3xl font-semibold tracking-tight">Make room for your ideas.</h2><p className="text-sm opacity-60 mt-2">Setup reminders, observations, and lessons for your next session.</p></div>
             <StrategyNotes key={currentUser?.email || 'guest'} userId={currentUser?.email || 'guest'} isLight={isLight} />
           </div>
@@ -2892,7 +2925,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* HOW-TO GUIDE SECTION */}
         {sidebarSection === 'guide' && (
-          <div className="px-3 sm:px-6 py-6 max-w-7xl w-full mx-auto">
+          <div className="px-3.5 sm:px-8 pt-5 pb-10 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 mx-auto">
             <QuickStartGuide
               isInsideApp={true}
               isLight={isLight}
@@ -2964,7 +2997,7 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
         {/* SETTINGS SECTION */}
         {sidebarSection === 'settings' && (
-          <div className="px-4 sm:px-8 py-6 sm:py-8 space-y-6 max-w-7xl w-full mx-auto">
+          <div className="px-3.5 sm:px-8 pt-5 pb-10 sm:py-8 space-y-5 sm:space-y-6 max-w-7xl w-full min-w-0 mx-auto">
             {/* Header */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-gray-500/20 pb-4">
               <div>

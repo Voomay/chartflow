@@ -104,8 +104,9 @@ export function AccessibilityWidget() {
   const [chartSlot, setChartSlot] = useState<HTMLElement | null>(null);
   const [faqSlot, setFaqSlot] = useState<HTMLElement | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [isLightTheme, setIsLightTheme] = useState(false);
 
-  // Observe DOM for #chart-a11y-slot (chart workspace) and #faq-a11y-slot (home page underneath "Ask us")
+  // Observe DOM for #chart-a11y-slot, #faq-a11y-slot, and active light/dark theme
   useEffect(() => {
     let rafId = 0;
     const syncSlot = () => {
@@ -113,9 +114,13 @@ export function AccessibilityWidget() {
       const chartEl = document.getElementById('chart-a11y-slot');
       const faqEl = document.getElementById('faq-a11y-slot');
       const panelOpen = chartEl?.getAttribute('data-panel-open') === 'true';
+      const hubTheme = document.querySelector('[data-hub-theme]')?.getAttribute('data-hub-theme');
+      const docTheme = document.documentElement.getAttribute('data-theme');
+      const nextIsLight = hubTheme === 'light' || docTheme === 'light';
       setChartSlot((prev) => (prev === chartEl ? prev : chartEl));
       setFaqSlot((prev) => (prev === faqEl ? prev : faqEl));
       setRightPanelOpen((prev) => (prev === panelOpen ? prev : panelOpen));
+      setIsLightTheme((prev) => (prev === nextIsLight ? prev : nextIsLight));
     };
     const scheduleSync = () => {
       if (!rafId) {
@@ -128,7 +133,7 @@ export function AccessibilityWidget() {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['data-panel-open'],
+      attributeFilter: ['data-panel-open', 'data-hub-theme', 'data-theme'],
     });
     return () => {
       if (rafId) window.cancelAnimationFrame(rafId);
@@ -339,7 +344,11 @@ export function AccessibilityWidget() {
                 ? { right: rightPanelOpen ? 424 : 158 }
                 : undefined
             }
-            className={`fixed z-[150] flex flex-col overflow-hidden rounded-2xl border border-emerald-400/35 bg-[#0c1420]/98 text-slate-100 shadow-[0_25px_70px_-15px_rgba(0,0,0,0.9)] backdrop-blur-xl inset-x-3 bottom-3 max-h-[82dvh] sm:w-[390px] sm:max-h-[min(660px,calc(100dvh-100px))] ${
+            className={`fixed z-[150] flex flex-col overflow-hidden rounded-2xl border backdrop-blur-xl inset-x-3 bottom-3 max-h-[82dvh] sm:w-[390px] sm:max-h-[min(660px,calc(100dvh-100px))] ${
+              isLightTheme
+                ? 'border-emerald-500/35 bg-white/95 text-slate-900 shadow-[0_25px_70px_-15px_rgba(15,23,42,0.28)]'
+                : 'border-emerald-400/35 bg-[#0c1420]/95 text-slate-100 shadow-[0_25px_70px_-15px_rgba(0,0,0,0.9)]'
+            } ${
               isOnChart
                 ? 'sm:inset-x-auto sm:bottom-16'
                 : isOnFaq
@@ -348,13 +357,29 @@ export function AccessibilityWidget() {
             }`}
           >
             {/* Header */}
-            <header className="flex items-center justify-between border-b border-white/10 bg-gradient-to-r from-emerald-500/20 via-teal-500/15 to-cyan-500/20 px-3.5 py-3 sm:px-4 sm:py-3.5">
+            <header
+              className={`flex items-center justify-between border-b px-3.5 py-3 sm:px-4 sm:py-3.5 ${
+                isLightTheme
+                  ? 'border-slate-200 bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50'
+                  : 'border-white/10 bg-gradient-to-r from-emerald-500/20 via-teal-500/15 to-cyan-500/20'
+              }`}
+            >
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
+                <div
+                  className={`flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl border ${
+                    isLightTheme
+                      ? 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30'
+                      : 'bg-emerald-400/20 text-emerald-300 border-emerald-400/30'
+                  }`}
+                >
                   <WheelchairIcon className="h-4 w-4 sm:h-5 sm:w-5" />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-xs sm:text-sm font-extrabold tracking-tight text-white flex items-center gap-2 truncate">
+                  <h2
+                    className={`text-xs sm:text-sm font-extrabold tracking-tight flex items-center gap-2 truncate ${
+                      isLightTheme ? 'text-slate-950' : 'text-white'
+                    }`}
+                  >
                     <span>Accessibility</span>
                     {activeCount > 0 && (
                       <span className="rounded-full bg-emerald-400 px-2 py-0.5 text-[10px] font-black text-slate-950">
@@ -362,7 +387,11 @@ export function AccessibilityWidget() {
                       </span>
                     )}
                   </h2>
-                  <p className="text-[10px] sm:text-[11px] text-slate-300 truncate">
+                  <p
+                    className={`text-[10px] sm:text-[11px] truncate ${
+                      isLightTheme ? 'text-slate-700' : 'text-slate-300'
+                    }`}
+                  >
                     Text size, reading comfort &amp; contrast
                   </p>
                 </div>
@@ -373,7 +402,11 @@ export function AccessibilityWidget() {
                     type="button"
                     onClick={resetAll}
                     title="Reset all accessibility settings"
-                    className="inline-flex items-center gap-1 rounded-lg border border-rose-400/30 bg-rose-500/15 px-2 py-1.5 text-[11px] font-bold text-rose-200 hover:bg-rose-500/25"
+                    className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-bold ${
+                      isLightTheme
+                        ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                        : 'border-rose-400/30 bg-rose-500/15 text-rose-200 hover:bg-rose-500/25'
+                    }`}
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                     <span className="hidden xs:inline">Reset</span>
@@ -386,7 +419,11 @@ export function AccessibilityWidget() {
                     setHidden(true);
                   }}
                   title="Hide accessibility button from screen"
-                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-rose-500/20 hover:border-rose-400/40 hover:text-rose-200"
+                  className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold ${
+                    isLightTheme
+                      ? 'border-slate-300 bg-white text-slate-800 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-700'
+                      : 'border-white/10 bg-white/5 text-slate-300 hover:bg-rose-500/20 hover:border-rose-400/40 hover:text-rose-200'
+                  }`}
                 >
                   <EyeOff className="h-3.5 w-3.5" />
                   <span>Hide</span>
@@ -395,7 +432,11 @@ export function AccessibilityWidget() {
                   type="button"
                   onClick={() => setOpen(false)}
                   aria-label="Close accessibility menu"
-                  className="rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white"
+                  className={`rounded-lg p-1.5 ${
+                    isLightTheme
+                      ? 'text-slate-700 hover:bg-slate-200/70 hover:text-slate-950'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -405,13 +446,21 @@ export function AccessibilityWidget() {
             {/* Scrollable Body */}
             <div className="custom-scrollbar overflow-y-auto overscroll-contain p-3 sm:p-4 space-y-3 sm:space-y-3.5">
               {/* 1. Font Size Stepper */}
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5 sm:p-3">
+              <div
+                className={`rounded-xl border p-2.5 sm:p-3 ${
+                  isLightTheme
+                    ? 'border-slate-200 bg-slate-50/90'
+                    : 'border-white/10 bg-white/[0.03]'
+                }`}
+              >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <Type className="h-4 w-4 text-emerald-400" />
-                    <span className="text-xs font-bold text-white">Text &amp; Wording Size</span>
+                    <Type className={`h-4 w-4 ${isLightTheme ? 'text-emerald-700' : 'text-emerald-400'}`} />
+                    <span className={`text-xs font-bold ${isLightTheme ? 'text-slate-950' : 'text-white'}`}>
+                      Text &amp; Wording Size
+                    </span>
                   </div>
-                  <span className="text-[11px] font-semibold text-emerald-300">
+                  <span className={`text-[11px] font-semibold ${isLightTheme ? 'text-emerald-700' : 'text-emerald-300'}`}>
                     {FONT_SCALE_LABELS[settings.fontScale]}
                   </span>
                 </div>
@@ -423,7 +472,11 @@ export function AccessibilityWidget() {
                       setSettings((s) => ({ ...s, fontScale: Math.max(0, s.fontScale - 1) }))
                     }
                     aria-label="Decrease text size"
-                    className="flex h-9 w-9 sm:w-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white hover:bg-white/10 disabled:opacity-35"
+                    className={`flex h-9 w-9 sm:w-10 shrink-0 items-center justify-center rounded-lg border disabled:opacity-35 ${
+                      isLightTheme
+                        ? 'border-slate-300 bg-white text-slate-900 hover:bg-slate-100'
+                        : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
+                    }`}
                   >
                     <Minus className="h-4 w-4" />
                   </button>
@@ -436,6 +489,8 @@ export function AccessibilityWidget() {
                         className={`h-9 rounded-lg text-[11px] sm:text-xs font-extrabold transition ${
                           settings.fontScale === step
                             ? 'bg-emerald-400 text-slate-950 shadow-sm'
+                            : isLightTheme
+                            ? 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-100'
                             : 'border border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/10'
                         }`}
                       >
@@ -450,7 +505,11 @@ export function AccessibilityWidget() {
                       setSettings((s) => ({ ...s, fontScale: Math.min(3, s.fontScale + 1) }))
                     }
                     aria-label="Increase text size"
-                    className="flex h-9 w-9 sm:w-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white hover:bg-white/10 disabled:opacity-35"
+                    className={`flex h-9 w-9 sm:w-10 shrink-0 items-center justify-center rounded-lg border disabled:opacity-35 ${
+                      isLightTheme
+                        ? 'border-slate-300 bg-white text-slate-900 hover:bg-slate-100'
+                        : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
+                    }`}
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -466,19 +525,27 @@ export function AccessibilityWidget() {
                   }
                   className={`flex flex-col items-start justify-between rounded-xl border p-2.5 sm:p-3 text-left transition ${
                     settings.letterSpacing > 0
-                      ? 'border-emerald-400/60 bg-emerald-500/15 text-white'
+                      ? isLightTheme
+                        ? 'border-emerald-500 bg-emerald-50 text-slate-950'
+                        : 'border-emerald-400/60 bg-emerald-500/15 text-white'
+                      : isLightTheme
+                      ? 'border-slate-200 bg-slate-50/90 text-slate-900 hover:border-slate-300 hover:bg-slate-100'
                       : 'border-white/10 bg-white/[0.03] text-slate-200 hover:border-white/25'
                   }`}
                 >
                   <div className="flex w-full items-center justify-between">
-                    <Space className="h-4 w-4 text-emerald-400" />
-                    <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-bold">
+                    <Space className={`h-4 w-4 ${isLightTheme ? 'text-emerald-700' : 'text-emerald-400'}`} />
+                    <span
+                      className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                        isLightTheme ? 'bg-slate-200 text-slate-800' : 'bg-white/10'
+                      }`}
+                    >
                       {settings.letterSpacing}/2
                     </span>
                   </div>
                   <div className="mt-1.5 sm:mt-2">
                     <div className="text-xs font-bold">Letter Spacing</div>
-                    <div className="text-[10px] sm:text-[11px] text-slate-400">
+                    <div className={`text-[10px] sm:text-[11px] ${isLightTheme ? 'text-slate-700' : 'text-slate-400'}`}>
                       {LETTER_SPACING_LABELS[settings.letterSpacing]}
                     </div>
                   </div>
@@ -491,19 +558,27 @@ export function AccessibilityWidget() {
                   }
                   className={`flex flex-col items-start justify-between rounded-xl border p-2.5 sm:p-3 text-left transition ${
                     settings.lineHeight > 0
-                      ? 'border-emerald-400/60 bg-emerald-500/15 text-white'
+                      ? isLightTheme
+                        ? 'border-emerald-500 bg-emerald-50 text-slate-950'
+                        : 'border-emerald-400/60 bg-emerald-500/15 text-white'
+                      : isLightTheme
+                      ? 'border-slate-200 bg-slate-50/90 text-slate-900 hover:border-slate-300 hover:bg-slate-100'
                       : 'border-white/10 bg-white/[0.03] text-slate-200 hover:border-white/25'
                   }`}
                 >
                   <div className="flex w-full items-center justify-between">
-                    <AlignJustify className="h-4 w-4 text-emerald-400" />
-                    <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-bold">
+                    <AlignJustify className={`h-4 w-4 ${isLightTheme ? 'text-emerald-700' : 'text-emerald-400'}`} />
+                    <span
+                      className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                        isLightTheme ? 'bg-slate-200 text-slate-800' : 'bg-white/10'
+                      }`}
+                    >
                       {settings.lineHeight}/2
                     </span>
                   </div>
                   <div className="mt-1.5 sm:mt-2">
                     <div className="text-xs font-bold">Line Height</div>
-                    <div className="text-[10px] sm:text-[11px] text-slate-400">
+                    <div className={`text-[10px] sm:text-[11px] ${isLightTheme ? 'text-slate-700' : 'text-slate-400'}`}>
                       {LINE_HEIGHT_LABELS[settings.lineHeight]}
                     </div>
                   </div>
@@ -517,6 +592,7 @@ export function AccessibilityWidget() {
                   title="Dyslexia Font"
                   subtitle="Easier letter shapes"
                   active={settings.dyslexiaFont}
+                  isLight={isLightTheme}
                   onClick={() =>
                     setSettings((s) => ({ ...s, dyslexiaFont: !s.dyslexiaFont }))
                   }
@@ -527,6 +603,7 @@ export function AccessibilityWidget() {
                   title="High Contrast"
                   subtitle="Sharper text & borders"
                   active={settings.highContrast}
+                  isLight={isLightTheme}
                   onClick={() =>
                     setSettings((s) => ({ ...s, highContrast: !s.highContrast }))
                   }
@@ -537,6 +614,7 @@ export function AccessibilityWidget() {
                   title="Reading Guide"
                   subtitle="Focus ruler bar"
                   active={settings.readingGuide}
+                  isLight={isLightTheme}
                   onClick={() =>
                     setSettings((s) => ({ ...s, readingGuide: !s.readingGuide }))
                   }
@@ -547,6 +625,7 @@ export function AccessibilityWidget() {
                   title="Stop Animations"
                   subtitle="Pause moving elements"
                   active={settings.stopAnimations}
+                  isLight={isLightTheme}
                   onClick={() =>
                     setSettings((s) => ({ ...s, stopAnimations: !s.stopAnimations }))
                   }
@@ -557,6 +636,7 @@ export function AccessibilityWidget() {
                   title="Highlight Links"
                   subtitle="Outline clickable items"
                   active={settings.highlightLinks}
+                  isLight={isLightTheme}
                   onClick={() =>
                     setSettings((s) => ({ ...s, highlightLinks: !s.highlightLinks }))
                   }
@@ -567,6 +647,7 @@ export function AccessibilityWidget() {
                   title="Big Cursor"
                   subtitle="Larger mouse pointer"
                   active={settings.bigCursor}
+                  isLight={isLightTheme}
                   onClick={() =>
                     setSettings((s) => ({ ...s, bigCursor: !s.bigCursor }))
                   }
@@ -577,6 +658,7 @@ export function AccessibilityWidget() {
                   title="Monochrome"
                   subtitle="Remove color saturation"
                   active={settings.grayscale}
+                  isLight={isLightTheme}
                   onClick={() =>
                     setSettings((s) => ({ ...s, grayscale: !s.grayscale }))
                   }
@@ -586,20 +668,37 @@ export function AccessibilityWidget() {
                   type="button"
                   onClick={resetAll}
                   disabled={activeCount === 0}
-                  className="flex flex-col items-start justify-between rounded-xl border border-white/10 bg-white/[0.02] p-2.5 sm:p-3 text-left text-slate-300 transition hover:border-rose-400/40 hover:bg-rose-500/10 hover:text-rose-200 disabled:opacity-40"
+                  className={`flex flex-col items-start justify-between rounded-xl border p-2.5 sm:p-3 text-left transition disabled:opacity-45 ${
+                    isLightTheme
+                      ? 'border-slate-200 bg-slate-50/90 text-slate-900 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800'
+                      : 'border-white/10 bg-white/[0.02] text-slate-300 hover:border-rose-400/40 hover:bg-rose-500/10 hover:text-rose-200'
+                  }`}
                 >
-                  <RotateCcw className="h-4 w-4 text-rose-400" />
+                  <RotateCcw className={`h-4 w-4 ${isLightTheme ? 'text-rose-600' : 'text-rose-400'}`} />
                   <div className="mt-1.5 sm:mt-2">
                     <div className="text-xs font-bold">Reset All</div>
-                    <div className="text-[10px] sm:text-[11px] text-slate-400">Restore default look</div>
+                    <div className={`text-[10px] sm:text-[11px] ${isLightTheme ? 'text-slate-700' : 'text-slate-400'}`}>
+                      Restore default look
+                    </div>
                   </div>
                 </button>
               </div>
             </div>
 
             {/* Footer */}
-            <footer className="flex items-center justify-between border-t border-white/10 bg-black/30 px-3.5 py-2 sm:px-4 sm:py-2.5 text-[10px] sm:text-[11px] text-slate-400">
-              <span>Shortcut: <strong className="text-slate-200">Alt + A</strong></span>
+            <footer
+              className={`flex items-center justify-between border-t px-3.5 py-2 sm:px-4 sm:py-2.5 text-[10px] sm:text-[11px] ${
+                isLightTheme
+                  ? 'border-slate-200 bg-slate-100 text-slate-700'
+                  : 'border-white/10 bg-black/30 text-slate-400'
+              }`}
+            >
+              <span>
+                Shortcut:{' '}
+                <strong className={isLightTheme ? 'text-slate-950' : 'text-slate-200'}>
+                  Alt + A
+                </strong>
+              </span>
               <span>Settings saved automatically</span>
             </footer>
           </section>
@@ -614,12 +713,14 @@ function ToggleTile({
   title,
   subtitle,
   active,
+  isLight = false,
   onClick,
 }: {
   icon: React.ReactNode;
   title: string;
   subtitle: string;
   active: boolean;
+  isLight?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -629,16 +730,34 @@ function ToggleTile({
       onClick={onClick}
       className={`flex flex-col items-start justify-between rounded-xl border p-2.5 sm:p-3 text-left transition ${
         active
-          ? 'border-emerald-400/70 bg-emerald-500/15 text-white shadow-[0_0_20px_-6px_rgba(16,185,129,0.45)]'
+          ? isLight
+            ? 'border-emerald-500 bg-emerald-50 text-slate-950 shadow-sm'
+            : 'border-emerald-400/70 bg-emerald-500/15 text-white shadow-[0_0_20px_-6px_rgba(16,185,129,0.45)]'
+          : isLight
+          ? 'border-slate-200 bg-slate-50/90 text-slate-900 hover:border-slate-300 hover:bg-slate-100'
           : 'border-white/10 bg-white/[0.03] text-slate-200 hover:border-white/25 hover:bg-white/[0.05]'
       }`}
     >
       <div className="flex w-full items-center justify-between">
-        <span className={active ? 'text-emerald-300' : 'text-emerald-400'}>{icon}</span>
+        <span
+          className={
+            isLight
+              ? active
+                ? 'text-emerald-700'
+                : 'text-emerald-700'
+              : active
+              ? 'text-emerald-300'
+              : 'text-emerald-400'
+          }
+        >
+          {icon}
+        </span>
         <span
           className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] ${
             active
-              ? 'border-emerald-300 bg-emerald-400 text-slate-950'
+              ? 'border-emerald-400 bg-emerald-400 text-slate-950'
+              : isLight
+              ? 'border-slate-300 bg-white text-transparent'
               : 'border-white/15 bg-white/5 text-transparent'
           }`}
         >
@@ -647,7 +766,13 @@ function ToggleTile({
       </div>
       <div className="mt-1.5 sm:mt-2">
         <div className="text-xs font-bold">{title}</div>
-        <div className="text-[10px] sm:text-[11px] text-slate-400 leading-tight mt-0.5">{subtitle}</div>
+        <div
+          className={`text-[10px] sm:text-[11px] leading-tight mt-0.5 ${
+            isLight ? 'text-slate-700' : 'text-slate-400'
+          }`}
+        >
+          {subtitle}
+        </div>
       </div>
     </button>
   );

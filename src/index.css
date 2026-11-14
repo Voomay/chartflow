@@ -546,12 +546,12 @@
 .hub-modern[data-hub-theme="light"] .hub-tone-cyan { --hub-accent:#0369a1;--hub-tint:rgba(2,132,199,.14);--hub-tint-line:rgba(2,132,199,.28);--hub-bg-card:linear-gradient(125deg,#ebf8fc 0%,#ffffff 85%); }
 .hub-modern[data-hub-theme="light"] .hub-tone-rose { --hub-accent:#be123c;--hub-tint:rgba(225,29,72,.13);--hub-tint-line:rgba(225,29,72,.28);--hub-bg-card:linear-gradient(125deg,#fef0f3 0%,#ffffff 85%); }
 .hub-modern[data-hub-theme="light"] .hub-tone-violet { --hub-accent:#6d28d9;--hub-tint:rgba(109,40,217,.13);--hub-tint-line:rgba(109,40,217,.28);--hub-bg-card:linear-gradient(125deg,#f4f0fe 0%,#ffffff 85%); }
-.hub-modern[data-hub-theme="light"] :is(.opacity-40,.opacity-45,.opacity-50,.opacity-55,.opacity-60,.opacity-65,.opacity-70,.opacity-75,.opacity-80) { color:#334155;opacity:.94; }
+.hub-modern[data-hub-theme="light"] :is(.opacity-40,.opacity-45,.opacity-50,.opacity-55,.opacity-60,.opacity-65,.opacity-70,.opacity-75,.opacity-80) { color:#0f172a;opacity:.96; }
 .hub-modern[data-hub-theme="light"] .hub-metric p,
 .hub-modern[data-hub-theme="light"] .hub-metric span:not(.hub-metric-icon),
 .hub-modern[data-hub-theme="light"] .hub-streak p,
-.hub-modern[data-hub-theme="light"] .hub-streak span { color:#334155;opacity:.95;font-weight:500; }
-.hub-modern[data-hub-theme="light"] :is(.text-gray-400,.text-slate-400,.text-\[\#9ca3af\]) { color:#475569; }
+.hub-modern[data-hub-theme="light"] .hub-streak span { color:#0f172a;opacity:1;font-weight:600; }
+.hub-modern[data-hub-theme="light"] :is(.text-gray-300,.text-slate-300,.text-gray-400,.text-slate-400,.text-gray-500,.text-slate-500,.text-gray-600,.text-slate-600,.text-\[\#9ca3af\],.text-\[\#6b7280\],.text-\[\#8b92a5\]):not(.bg-\[\#1a1e26\] *,.bg-slate-900 *,.bg-slate-950 *) { color:#1e293b; }
 .hub-modern[data-hub-theme="light"] .text-emerald-400:not(.bg-\[\#1a1e26\] *,.bg-\[\#1e222a\],.bg-\[\#222731\]) { color:#047857; }
 .hub-modern[data-hub-theme="light"] .text-rose-400:not(.bg-\[\#1a1e26\] *) { color:#be123c; }
 .hub-modern[data-hub-theme="light"] .text-blue-400:not(.bg-\[\#1a1e26\] *) { color:#1d4ed8; }

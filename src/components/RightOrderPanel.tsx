@@ -249,7 +249,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
     }
 
     // Spawn or update Long / Short position tool on the chart
-    if (onAddOrUpdatePositionDrawing) {
+    if (onAddOrUpdatePositionDrawing && Number.isFinite(finalEntry) && finalEntry > 0) {
       const lot = parseFloat(lotSizeInput) || 1.0;
       onAddOrUpdatePositionDrawing(nextSide, finalEntry, nextSL, nextTP, lot);
     }
@@ -258,9 +258,10 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
   const lastHandledReqSeq = useRef<number | null>(null);
   useEffect(() => {
     if (!requestedSide || requestedSide.seq === lastHandledReqSeq.current) return;
+    if (!Number.isFinite(currentMidPrice) || currentMidPrice <= 0) return;
     lastHandledReqSeq.current = requestedSide.seq;
     handleSelectSide(requestedSide.side);
-  }, [requestedSide?.seq, requestedSide?.side]);
+  }, [requestedSide?.seq, requestedSide?.side, currentMidPrice]);
 
   const handleSelectOrderCategory = (cat: 'MARKET' | 'LIMIT' | 'STOP') => {
     setOrderCategory(cat);

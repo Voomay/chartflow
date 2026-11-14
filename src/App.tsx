@@ -1546,6 +1546,15 @@ export function App() {
       const stepSec = TIMEFRAME_CONFIG[timeframe]?.seconds || 900;
       const lastCandle = visibleCandles[visibleCandles.length - 1];
       const baseTime = lastCandle?.time || Math.floor(Date.now() / 1000);
+      const firstCandleTime = visibleCandles[0]?.time ?? baseTime;
+      const resolvedEntry =
+        Number.isFinite(entry) && entry > 0
+          ? entry
+          : lastCandle && Number.isFinite(lastCandle.close) && lastCandle.close > 0
+          ? lastCandle.close
+          : 0;
+      if (!Number.isFinite(resolvedEntry) || resolvedEntry <= 0) return;
+
       const isLong = side === 'LONG';
       const toolType = isLong ? 'long_position' : 'short_position';
 
@@ -1556,10 +1565,23 @@ export function App() {
         );
 
         if (existing) {
+          const isOffScreenOrStale =
+            !Number.isFinite(existing.time1) ||
+            existing.time1 <= 0 ||
+            (existing.time2 ?? existing.time1) < firstCandleTime ||
+            existing.time1 > baseTime + stepSec * 40 ||
+            Math.abs(existing.time1 - baseTime) > stepSec * 40;
           const updated: ChartDrawing = {
             ...existing,
             type: toolType,
-            price1: entry,
+            time1: isOffScreenOrStale ? baseTime : existing.time1,
+            time2: isOffScreenOrStale
+              ? baseTime + stepSec * 18
+              : existing.time2 && existing.time2 > existing.time1
+              ? existing.time2
+              : existing.time1 + stepSec * 18,
+            price1: resolvedEntry,
+            price2: resolvedEntry,
             stopLoss: sl,
             takeProfit: tp,
             lotSize: lot,
@@ -1580,9 +1602,9 @@ export function App() {
           id: `${toolType}-${Date.now()}`,
           type: toolType,
           time1: baseTime,
-          price1: entry,
+          price1: resolvedEntry,
           time2: baseTime + stepSec * 18,
-          price2: entry,
+          price2: resolvedEntry,
           stopLoss: sl,
           takeProfit: tp,
           lotSize: lot,

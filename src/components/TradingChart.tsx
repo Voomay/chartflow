@@ -90,6 +90,7 @@ import {
   Wand2,
   Copy,
   Edit3,
+  EyeOff,
   GripVertical,
   Lock,
   Maximize2,
@@ -986,6 +987,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     onUpdateDrawing,
     onSelectReplayTimestamp,
     onUpdatePositionSLTP,
+    onClosePosition,
     onSelectTool,
   });
 
@@ -1043,6 +1045,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     onUpdateDrawing,
     onSelectReplayTimestamp,
     onUpdatePositionSLTP,
+    onClosePosition,
     onSelectTool,
   };
 
@@ -2469,24 +2472,27 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         ? `SL (BE) ${stopLoss.toFixed(decimals)}`
         : `SL ${stopLoss.toFixed(decimals)}`;
 
-      const levels: Array<{ y: number; text: string; color: string }> = [];
+      const levels: Array<{ y: number; text: string; color: string; kind: 'tp' | 'entry' | 'sl' }> = [];
       if (yTP !== null) {
         levels.push({
           y: yTP,
           text: `TP ${takeProfit.toFixed(decimals)}`,
           color: '#089981',
+          kind: 'tp',
         });
       }
       levels.push({
         y: yEntry,
         text: `${boxMode === 'PENDING' ? 'LIMIT' : 'ENTRY'} ${entryPrice.toFixed(decimals)}`,
         color: entryColor,
+        kind: 'entry',
       });
       if (ySL !== null) {
         levels.push({
           y: ySL,
           text: slTagLabel,
           color: slLineColor,
+          kind: 'sl',
         });
       }
 
@@ -2603,14 +2609,43 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         ctx.setLineDash([]);
 
         ctx.font = '500 9px JetBrains Mono, monospace';
-        const tagW = ctx.measureText(level.text).width + 10;
+        const showCloseBtn = boxMode !== 'DRAWING';
+        const closeBtnW = showCloseBtn ? 14 : 0;
+        const textW = ctx.measureText(level.text).width + 10;
+        const tagW = textW + closeBtnW;
         const tagX = Math.max(0, chartPlotWidth - tagW - 5);
         ctx.fillStyle = currTheme === 'light' ? '#ffffff' : '#131722';
         ctx.beginPath();
         ctx.roundRect(tagX, level.y - 7, tagW, 14, 2);
         ctx.fill();
+        if (showCloseBtn) {
+          ctx.strokeStyle = currTheme === 'light' ? 'rgba(15,23,42,0.14)' : 'rgba(255,255,255,0.14)';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
         ctx.fillStyle = level.color;
         ctx.fillText(level.text, tagX + 5, level.y + 3);
+
+        if (showCloseBtn) {
+          const divX = tagX + textW;
+          ctx.strokeStyle = currTheme === 'light' ? 'rgba(15,23,42,0.15)' : 'rgba(255,255,255,0.16)';
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.moveTo(divX, level.y - 5);
+          ctx.lineTo(divX, level.y + 5);
+          ctx.stroke();
+
+          const cx = divX + closeBtnW / 2;
+          const cy = level.y;
+          ctx.strokeStyle = level.color;
+          ctx.lineWidth = 1.3;
+          ctx.beginPath();
+          ctx.moveTo(cx - 2.6, cy - 2.6);
+          ctx.lineTo(cx + 2.6, cy + 2.6);
+          ctx.moveTo(cx + 2.6, cy - 2.6);
+          ctx.lineTo(cx - 2.6, cy + 2.6);
+          ctx.stroke();
+        }
       }
 
       if (!showDetails) return;
@@ -5023,6 +5058,41 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       }
     };
 
+    const hitTestPositionLevelClose = (
+      mouseX: number,
+      mouseY: number,
+      chartPlotWidth: number,
+      chartPlotHeight: number
+    ): { pos: BacktestPosition; kind: 'tp' | 'entry' | 'sl' } | null => {
+      const currState = stateRef.current;
+      // Close '×' button sits on the right 14px of each level tag (tagX..chartPlotWidth-5)
+      if (mouseX < chartPlotWidth - 21 || mouseX > chartPlotWidth - 3) return null;
+      const visiblePositions = currState.positions.filter(
+        (p) => (p.status === 'OPEN' || p.status === 'PENDING') && !p.hideOnChart
+      );
+      for (let i = visiblePositions.length - 1; i >= 0; i--) {
+        const pos = visiblePositions[i];
+        const yTP = pos.takeProfit > 0 ? priceToY(pos.takeProfit, chart) : null;
+        if (yTP !== null && yTP >= 8 && yTP <= chartPlotHeight - 8 && Math.abs(mouseY - yTP) <= 8) {
+          return { pos, kind: 'tp' };
+        }
+        const ySL = pos.stopLoss > 0 ? priceToY(pos.stopLoss, chart) : null;
+        if (ySL !== null && ySL >= 8 && ySL <= chartPlotHeight - 8 && Math.abs(mouseY - ySL) <= 8) {
+          return { pos, kind: 'sl' };
+        }
+        const yEntry = priceToY(pos.entryPrice, chart);
+        if (
+          yEntry !== null &&
+          yEntry >= 8 &&
+          yEntry <= chartPlotHeight - 8 &&
+          Math.abs(mouseY - yEntry) <= 8
+        ) {
+          return { pos, kind: 'entry' };
+        }
+      }
+      return null;
+    };
+
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       stopKineticScroll();
@@ -5043,6 +5113,29 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         rect.width,
         rect.height
       );
+
+      if (stateRef.current.activeTool === 'cursor') {
+        const levelCloseHit = hitTestPositionLevelClose(
+          mouseX,
+          mouseY,
+          chartPlotWidth,
+          chartPlotHeight
+        );
+        if (levelCloseHit) {
+          e.preventDefault();
+          e.stopPropagation();
+          const { pos, kind } = levelCloseHit;
+          if (kind === 'tp') {
+            stateRef.current.onUpdatePositionSLTP(pos.id, pos.stopLoss, 0);
+          } else if (kind === 'sl') {
+            stateRef.current.onUpdatePositionSLTP(pos.id, 0, pos.takeProfit);
+          } else if (kind === 'entry') {
+            stateRef.current.onClosePosition?.(pos.id);
+          }
+          drawOverlay();
+          return;
+        }
+      }
 
       if (mouseX > chartPlotWidth || mouseY > chartPlotHeight) {
         return;
@@ -5392,6 +5485,21 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       }
 
       if (!dragRef.current) {
+        const { chartPlotWidth, chartPlotHeight } = getCandlePaneMetrics(
+          chart,
+          rect.width,
+          rect.height
+        );
+        const levelCloseHover =
+          currState.activeTool === 'cursor'
+            ? hitTestPositionLevelClose(mouseX, mouseY, chartPlotWidth, chartPlotHeight)
+            : null;
+        if (levelCloseHover) {
+          setHoveredId(levelCloseHover.pos.id);
+          setCursorStyle('cursor-pointer');
+          container.setAttribute('data-chart-cursor', 'cursor-pointer');
+          return;
+        }
         const hoverHit = hitTestHandlesAndShapes(mouseX, mouseY);
         const nextHoverId =
           hoverHit?.kind === 'position_handle'
@@ -7331,13 +7439,13 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       )}
 
       {selectedPosition && (
-        <div role="toolbar" aria-label="Selected trade box" className={`absolute z-40 bottom-20 left-2 right-2 sm:right-auto sm:left-4 flex flex-wrap items-center gap-2 rounded-xl border p-2 shadow-xl ${isLight?'bg-white border-slate-200':'bg-[#161d28] border-white/15'}`} onMouseDown={event=>event.stopPropagation()} onTouchStart={event=>event.stopPropagation()}>
+        <div role="toolbar" aria-label="Selected trade box" className={`absolute z-40 bottom-20 left-2 right-2 sm:right-auto sm:left-4 flex flex-wrap items-center gap-1.5 rounded-xl border px-2 py-1.5 shadow-xl ${isLight?'bg-white border-slate-200':'bg-[#161d28] border-white/15'}`} onMouseDown={event=>event.stopPropagation()} onTouchStart={event=>event.stopPropagation()}>
           <span className="text-[11px] font-bold px-1">{selectedPosition.side==='LONG'?'Long':'Short'} · {selectedPosition.status==='PENDING'?'Pending':'Open'}</span>
           {selectedPosition.status === 'OPEN' && (
             <>
               <button
                 type="button"
-                className="min-h-10 px-3 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 border border-sky-500/30 text-xs font-bold"
+                className="h-7 px-2 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-500 border border-sky-500/30 text-[11px] font-bold"
                 title="Move Stop Loss to Entry Price ($0 Risk)"
                 onClick={() => {
                   onUpdatePositionSLTP(
@@ -7365,8 +7473,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 return (
                   <button
                     type="button"
-                    className="min-h-10 px-3 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs font-bold"
-                    title="Move Stop Loss beyond Entry to lock in 50% of current floating profit"
+                    className="h-7 px-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-500 border border-emerald-500/30 text-[11px] font-bold"
+                    title={`Move Stop Loss beyond Entry to lock in 50% profit (${lock50Price.toFixed(instConfig.decimals)})`}
                     onClick={() => {
                       onUpdatePositionSLTP(
                         selectedPosition.id,
@@ -7375,15 +7483,28 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                       );
                     }}
                   >
-                    Lock +50% Profit ({lock50Price.toFixed(instConfig.decimals)})
+                    Lock +50% Profit
                   </button>
                 );
               })()}
             </>
           )}
-          {onTogglePositionBox && <button className="min-h-10 px-3 rounded-lg bg-slate-500/15 text-xs font-semibold" onClick={()=>{onTogglePositionBox(selectedPosition.id,true);setSelectedId(null);}}>Hide box</button>}
-          {onClosePosition && <button className="min-h-10 px-3 rounded-lg bg-rose-500/15 text-rose-500 text-xs font-semibold" onClick={()=>{onClosePosition(selectedPosition.id);setSelectedId(null);}}>{selectedPosition.status==='PENDING'?'Cancel order':'Close trade'}</button>}
-          <button aria-label="Dismiss trade box actions" className="min-h-10 min-w-10 rounded-lg hover:bg-gray-500/15" onClick={()=>setSelectedId(null)}><X className="w-4 h-4 mx-auto" /></button>
+          {onTogglePositionBox && (
+            <button
+              type="button"
+              aria-label="Hide trade box"
+              title="Hide trade box"
+              className="h-7 w-7 flex items-center justify-center rounded-lg bg-slate-500/15 hover:bg-slate-500/25 transition"
+              onClick={() => {
+                onTogglePositionBox(selectedPosition.id, true);
+                setSelectedId(null);
+              }}
+            >
+              <EyeOff className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onClosePosition && <button className="h-7 px-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-500 text-[11px] font-semibold" onClick={()=>{onClosePosition(selectedPosition.id);setSelectedId(null);}}>{selectedPosition.status==='PENDING'?'Cancel order':'Close trade'}</button>}
+          <button aria-label="Dismiss trade box actions" className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-gray-500/15" onClick={()=>setSelectedId(null)}><X className="w-3.5 h-3.5" /></button>
         </div>
       )}
       {selectedDrawing && containerW<768 && (

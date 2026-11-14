@@ -533,7 +533,7 @@ export const PropEvaluationCalculator: React.FC<PropEvaluationCalculatorProps> =
   const borderCls = isLight ? 'border-slate-200' : 'border-white/10';
   const subtleBg = isLight ? 'bg-slate-50' : 'bg-[#0b141e]/70';
   const pillContainerBg = isLight ? 'bg-slate-100' : 'bg-[#0b141e]';
-  const mutedText = isLight ? 'text-slate-600' : 'text-slate-400';
+  const mutedText = isLight ? 'text-slate-900' : 'text-slate-400';
   const inputCls = isLight
     ? 'bg-white border-slate-300 text-slate-900 focus:border-emerald-500'
     : 'bg-[#081018] border-white/15 text-white focus:border-emerald-400';

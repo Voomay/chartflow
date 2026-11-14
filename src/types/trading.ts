@@ -581,6 +581,7 @@ export type DrawingTool =
   | 'elliott_wave'
   | 'trendline'
   | 'hline'
+  | 'hray'
   | 'vline'
   | 'fib'
   | 'rect_box'
@@ -588,7 +589,10 @@ export type DrawingTool =
   | 'triangle'
   | 'arrow'
   | 'brush'
+  | 'path'
   | 'text'
+  | 'callout'
+  | 'price_label'
   | 'ruler'
   | 'long_position'
   | 'short_position';
@@ -740,6 +744,7 @@ export interface ChartDrawing {
     | 'elliott_wave'
     | 'trendline'
     | 'hline'
+    | 'hray'
     | 'vline'
     | 'fib'
     | 'rect_box'
@@ -747,7 +752,10 @@ export interface ChartDrawing {
     | 'triangle'
     | 'arrow'
     | 'brush'
+    | 'path'
     | 'text'
+    | 'callout'
+    | 'price_label'
     | 'ruler'
     | 'long_position'
     | 'short_position';
@@ -766,10 +774,12 @@ export interface ChartDrawing {
   points?: { time: number; price: number }[];
   label: string;
   color: string;
+  fillColor?: string;
   lineWidth?: number;
   lineStyle?: LineStyleType;
   fillOpacity?: number;
   extendRight?: boolean;
+  hrayDirection?: 'right' | 'left';
   locked?: boolean;
   fontSize?: number;
   labelPosition?: 'top' | 'middle' | 'bottom';

@@ -1,6 +1,10 @@
 import {describe,it,expect} from 'vitest';
 import {
   clipExtendedLine,
+  computeHorizontalRaySpan,
+  resolveShapeFillStyle,
+  computeCalloutGeometry,
+  formatPriceLabelValue,
   formatChartCrosshairTime,
   formatChartXAxisTime,
   PATTERN_LABELS,
@@ -86,5 +90,52 @@ describe('formatChartXAxisTime', () => {
     expect(formatChartXAxisTime(ts, 'HH:mm', 'Africa/Johannesburg')).toBe('12:15');
     expect(formatChartXAxisTime(ts, 'HH:mm:ss', 'Africa/Johannesburg')).toBe('12:15:30');
     expect(formatChartXAxisTime(ts, 'unknown', 'Africa/Johannesburg')).toBeNull();
+  });
+});
+
+describe('horizontal ray and shape fill helpers', () => {
+  it('computes horizontal ray span from anchor to future (right) or past (left)', () => {
+    expect(computeHorizontalRaySpan(120, 500, 'right')).toEqual({ startX: 120, endX: 500 });
+    expect(computeHorizontalRaySpan(-40, 500, 'right')).toEqual({ startX: 0, endX: 500 });
+    expect(computeHorizontalRaySpan(520, 500, 'right')).toBeNull();
+
+    expect(computeHorizontalRaySpan(120, 500, 'left')).toEqual({ startX: 0, endX: 120 });
+    expect(computeHorizontalRaySpan(600, 500, 'left')).toEqual({ startX: 0, endX: 500 });
+    expect(computeHorizontalRaySpan(-10, 500, 'left')).toBeNull();
+  });
+
+  it('resolves shape fill color independently of border and supports 0% transparent fill', () => {
+    expect(resolveShapeFillStyle('#2962ff')).toEqual({
+      color: '#2962ff',
+      opacity: 0.16,
+      isTransparent: false,
+    });
+    expect(resolveShapeFillStyle('#2962ff', '#10b981', 0.4)).toEqual({
+      color: '#10b981',
+      opacity: 0.4,
+      isTransparent: false,
+    });
+    expect(resolveShapeFillStyle('#2962ff', '#10b981', 0)).toEqual({
+      color: '#10b981',
+      opacity: 0,
+      isTransparent: true,
+    });
+  });
+
+  it('formats price label values with thousands separators and fixed decimals', () => {
+    expect(formatPriceLabelValue(4077.455, 3)).toBe('4,077.455');
+    expect(formatPriceLabelValue(1.10234, 5)).toBe('1.10234');
+  });
+
+  it('computes callout box bounds and pointer tail when tip is outside the box', () => {
+    const geom = computeCalloutGeometry(100, 200, 180, 140, 80, 32);
+    expect(geom.left).toBe(140);
+    expect(geom.top).toBe(124);
+    expect(geom.right).toBe(220);
+    expect(geom.bottom).toBe(156);
+    expect(geom.tail).not.toBeNull();
+
+    const inside = computeCalloutGeometry(180, 140, 180, 140, 80, 32);
+    expect(inside.tail).toBeNull();
   });
 });

@@ -96,7 +96,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
   onToggleMagnetMode,
 }) => {
   const [openMenu, setOpenMenu] = useState<
-    'lines' | 'shapes' | 'patterns' | 'positions' | 'style' | null
+    'lines' | 'shapes' | 'patterns' | 'text' | 'positions' | 'style' | null
   >(null);
 
   const isLight = theme === 'light';
@@ -139,6 +139,14 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         </svg>
       );
     }
+    if (activeTool === 'hray') {
+      return (
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="butt">
+          <circle cx="6.5" cy="12" r="2.4" fill="none" />
+          <line x1="8.9" y1="12" x2="21.5" y2="12" />
+        </svg>
+      );
+    }
     if (activeTool === 'vline') {
       return (
         <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="butt">
@@ -170,6 +178,17 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
     if(activeTool==='highlighter')return <Highlighter className="w-4 h-4"/>;
     if(activeTool==='arrow_up')return <ArrowUp className="w-4 h-4"/>;
     if(activeTool==='arrow_down')return <ArrowDown className="w-4 h-4"/>;
+    if (activeTool === 'path') {
+      return (
+        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="3,17 9,9 14,14 20,6" />
+          <polyline points="15.5,6 20,6 20,10.5" />
+          <circle cx="3" cy="17" r="1.6" fill="currentColor" />
+          <circle cx="9" cy="9" r="1.6" fill="currentColor" />
+          <circle cx="14" cy="14" r="1.6" fill="currentColor" />
+        </svg>
+      );
+    }
     if (activeTool === 'brush') {
       return (
         <svg viewBox="0 0 24 24" className="w-[21px] h-[21px]" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round">
@@ -224,17 +243,17 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
       <div className="relative flex items-center shrink-0">
         <button
           onClick={() => {
-            if (!['trendline', 'hline', 'vline', 'arrow', 'ray', 'extended_line'].includes(activeTool)) {
+            if (!['trendline', 'hline', 'hray', 'vline', 'arrow', 'ray', 'extended_line'].includes(activeTool)) {
               onSelectTool('trendline');
             }
             setOpenMenu(openMenu === 'lines' ? null : 'lines');
           }}
           className={`w-8 h-7 rounded-lg flex items-center justify-center transition ${
-            ['trendline', 'hline', 'vline', 'arrow', 'ray', 'extended_line'].includes(activeTool)
+            ['trendline', 'hline', 'hray', 'vline', 'arrow', 'ray', 'extended_line'].includes(activeTool)
               ? btnActive
               : btnIdle
           }`}
-          title="Line Tools — Trend Line, Ray, Extended Line, Horizontal Line, Vertical Line, Arrow"
+          title="Line Tools — Trend Line, Ray, Extended Line, Horizontal Line, Horizontal Ray, Vertical Line, Arrow"
         >
           {renderLineToolbarIcon()}
         </button>
@@ -281,6 +300,19 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
                 <span>Horizontal Line</span>
               </span>
               <span className="text-[10px] opacity-60">1-Click</span>
+            </button>
+            <button
+              onClick={() => selectAndClose('hray')}
+              className={menuItemClass(activeTool === 'hray')}
+            >
+              <span className="flex items-center gap-2.5">
+                <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="butt">
+                  <circle cx="6.5" cy="12" r="2.4" fill="none" />
+                  <line x1="8.9" y1="12" x2="21.5" y2="12" />
+                </svg>
+                <span>Horizontal Ray</span>
+              </span>
+              <span className="text-[10px] opacity-60">From Point →</span>
             </button>
             <button
               onClick={() => selectAndClose('vline')}
@@ -421,17 +453,17 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
       <div className="relative flex items-center shrink-0">
         <button
           onClick={() => {
-            if (!['rect_box', 'circle', 'triangle', 'brush', 'highlighter', 'arrow_up', 'arrow_down', 'arrow'].includes(activeTool)) {
+            if (!['rect_box', 'circle', 'triangle', 'brush', 'path', 'highlighter', 'arrow_up', 'arrow_down', 'arrow'].includes(activeTool)) {
               onSelectTool('rect_box');
             }
             setOpenMenu(openMenu === 'shapes' ? null : 'shapes');
           }}
           className={`w-8 h-7 rounded-lg flex items-center justify-center transition ${
-            ['rect_box', 'circle', 'triangle', 'brush', 'highlighter', 'arrow_up', 'arrow_down'].includes(activeTool)
+            ['rect_box', 'circle', 'triangle', 'brush', 'path', 'highlighter', 'arrow_up', 'arrow_down'].includes(activeTool)
               ? btnActive
               : btnIdle
           }`}
-          title="Shapes & Marks — Rectangle, Circle, Triangle, Brush, Highlighter, Up/Down Arrows"
+          title="Shapes & Marks — Rectangle, Circle, Triangle, Brush, Path, Highlighter, Up/Down Arrows"
         >
           {renderShapeToolbarIcon()}
         </button>
@@ -477,6 +509,22 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
                 <span>Arrow</span>
               </span>
               <span className="text-[10px] opacity-60">Drag</span>
+            </button>
+            <button
+              onClick={() => selectAndClose('path')}
+              className={menuItemClass(activeTool === 'path')}
+            >
+              <span className="flex items-center gap-2.5">
+                <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3,17 9,9 14,14 20,6" />
+                  <polyline points="15.5,6 20,6 20,10.5" />
+                  <circle cx="3" cy="17" r="1.5" fill="currentColor" />
+                  <circle cx="9" cy="9" r="1.5" fill="currentColor" />
+                  <circle cx="14" cy="14" r="1.5" fill="currentColor" />
+                </svg>
+                <span>Path</span>
+              </span>
+              <span className="text-[10px] opacity-60">Multi-Click</span>
             </button>
 
             <div className="px-2.5 py-1 mt-1 text-[10px] font-bold uppercase tracking-wider opacity-60 border-t border-gray-500/20">
@@ -533,16 +581,88 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         </button>
         {openMenu==='patterns'&&<div className={`absolute left-11 top-0 w-64 max-h-[55dvh] overflow-y-auto rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}><div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60">Manual chart patterns</div>{([['elliott_wave','Elliott Wave (1-5)','0 → 1 → 2 → 3 → 4 → 5'],['abc_pattern','ABC correction','0 → A → B → C'],['abcd_pattern','ABCD pattern','A → B → C → D']] as const).map(([tool,label,hint])=><button key={tool} onClick={()=>selectAndClose(tool)} className={menuItemClass(activeTool===tool)}><span>{label}</span><span className="text-[10px] opacity-60">{hint}</span></button>)}<p className="px-3 py-2 text-[10px] opacity-50 leading-4">Click each wave/pivot point on the chart (6 points for Elliott Wave, 4 for ABC/ABCD). Escape cancels.</p></div>}
       </div>
-      {/* 6. Text Annotation (T) */}
-      <button
-        onClick={() => selectAndClose(activeTool === 'text' ? 'cursor' : 'text')}
-        className={`w-8 h-7 rounded-lg flex items-center justify-center shrink-0 transition ${
-          activeTool === 'text' ? btnActive : btnIdle
-        }`}
-        title="Add & Lock Text Note on Chart"
-      >
-        <Type className="w-4 h-4" strokeWidth={1.65} />
-      </button>
+      {/* 6. Text, Callout Bubble & Price Label Flyout */}
+      <div className="relative flex items-center shrink-0">
+        <button
+          onClick={() => {
+            if (!['text', 'callout', 'price_label'].includes(activeTool)) {
+              onSelectTool('text');
+            }
+            setOpenMenu(openMenu === 'text' ? null : 'text');
+          }}
+          className={`w-8 h-7 rounded-lg flex items-center justify-center transition ${
+            ['text', 'callout', 'price_label'].includes(activeTool)
+              ? btnActive
+              : btnIdle
+          }`}
+          title="Annotation Tools — Text, Callout Bubble, Price Label"
+        >
+          {activeTool === 'callout' ? (
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-6 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
+            </svg>
+          ) : activeTool === 'price_label' ? (
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 6h12a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-5 4 2-4H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+              <line x1="9" y1="10.5" x2="17" y2="10.5" />
+            </svg>
+          ) : (
+            <Type className="w-4 h-4" strokeWidth={1.65} />
+          )}
+        </button>
+        <button
+          onClick={() => setOpenMenu(openMenu === 'text' ? null : 'text')}
+          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-6 flex items-center justify-center opacity-70 hover:opacity-100"
+          title="More Annotation Tools (Text, Callout, Price Label)"
+        >
+          <ChevronRight className="w-3 h-3" />
+        </button>
+
+        {openMenu === 'text' && (
+          <div
+            className={`absolute left-11 top-0 w-64 max-h-[55dvh] overflow-y-auto rounded-lg border p-1.5 z-50 text-xs ${flyoutBg}`}
+          >
+            <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider opacity-60">
+              Text & Labels
+            </div>
+            <button
+              onClick={() => selectAndClose('text')}
+              className={menuItemClass(activeTool === 'text')}
+            >
+              <span className="flex items-center gap-2.5">
+                <Type className="w-4 h-4 shrink-0" strokeWidth={1.65} />
+                <span>Text</span>
+              </span>
+              <span className="text-[10px] opacity-60">1-Click</span>
+            </button>
+            <button
+              onClick={() => selectAndClose('callout')}
+              className={menuItemClass(activeTool === 'callout')}
+            >
+              <span className="flex items-center gap-2.5">
+                <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-6 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
+                </svg>
+                <span>Callout</span>
+              </span>
+              <span className="text-[10px] opacity-60">Bubble</span>
+            </button>
+            <button
+              onClick={() => selectAndClose('price_label')}
+              className={menuItemClass(activeTool === 'price_label')}
+            >
+              <span className="flex items-center gap-2.5">
+                <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M7 6h12a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-5 4 2-4H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+                  <line x1="9" y1="10.5" x2="17" y2="10.5" />
+                </svg>
+                <span>Price Label</span>
+              </span>
+              <span className="text-[10px] opacity-60">1-Click</span>
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* 7. Measure Ruler */}
       <button

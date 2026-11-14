@@ -6,6 +6,10 @@ import {computeCRTOverlay} from '../services/crtOverlayIndicator';
 import {interpolateRevealedCandle,revealedHistorySamplesMatch} from '../services/replayPresentation';
 import {
   clipExtendedLine,
+  computeHorizontalRaySpan,
+  resolveShapeFillStyle,
+  computeCalloutGeometry,
+  formatPriceLabelValue,
   isPatternTool,
   PATTERN_LABELS,
   formatChartCrosshairTime,
@@ -722,7 +726,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const [cursorStyle, setCursorStyle] = useState<string>('cursor-crosshair');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [textEditor, setTextEditor] = useState<TextNoteEditorState | null>(null);
-  const [activeBarPopover, setActiveBarPopover] = useState<'color' | 'rr' | 'style' | null>(null);
+  const [activeBarPopover, setActiveBarPopover] = useState<'color' | 'fill' | 'rr' | 'style' | null>(null);
   const [customRRInput, setCustomRRInput] = useState<string>('2');
   const [floatingBarPos, setFloatingBarPos] = useState<{ x: number; y: number }>({
     x: 14,
@@ -1160,6 +1164,32 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         setDraftDrawing(null);
         dragRef.current = null;
         chartRef.current?.setScrollEnabled(true);
+      } else if (
+        e.key === 'Enter' &&
+        patternDraftRef.current?.tool === 'path' &&
+        patternDraftRef.current.points.length >= 2
+      ) {
+        const pts = patternDraftRef.current.points;
+        const completed: ChartDrawing = {
+          id: `path-${Date.now()}`,
+          type: 'path',
+          time1: pts[0].time,
+          price1: pts[0].price,
+          time2: pts[pts.length - 1].time,
+          price2: pts[pts.length - 1].price,
+          points: pts,
+          label: '',
+          color: stateRef.current.drawingColor,
+          lineWidth: stateRef.current.drawingLineWidth,
+          lineStyle: stateRef.current.drawingLineStyle,
+        };
+        onAddDrawing(completed);
+        setSelectedId(completed.id);
+        patternDraftRef.current = null;
+        setDraftDrawing(null);
+        if (!stateRef.current.stayInDrawingMode) {
+          onSelectTool('cursor');
+        }
       } else if (
         (e.key === 'Delete' || e.key === 'Backspace') &&
         stateRef.current.selectedId &&
@@ -2711,6 +2741,182 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         d.points.forEach((point,index)=>{const x=resolveTimeToX(point.time,currCandles,chart),y=priceToY(point.price,chart);if(x===null||y===null)return;if(index===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.stroke();ctx.setLineDash([]);
         ctx.font='bold 11px Inter, sans-serif';ctx.textAlign='center';
         d.points.forEach((point,index)=>{const x=resolveTimeToX(point.time,currCandles,chart),y=priceToY(point.price,chart);if(x===null||y===null)return;ctx.fillStyle=currTheme==='light'?'#ffffff':'#0b0e14';ctx.beginPath();ctx.arc(x,y,8,0,Math.PI*2);ctx.fill();ctx.fillStyle=d.color;ctx.fillText(PATTERN_LABELS[d.type]?.[index]??'',x,y+4);if(showDetails)drawSmallDot(ctx,x,y+(index%2===0?13:-13));});
+      } else if (d.type === 'path' && d.points?.length) {
+        const pts = d.points
+          .map((pt) => ({
+            x: resolveTimeToX(pt.time, currCandles, chart),
+            y: priceToY(pt.price, chart),
+          }))
+          .filter((p): p is { x: number; y: number } => p.x !== null && p.y !== null);
+        if (pts.length > 0) {
+          ctx.strokeStyle = d.color;
+          ctx.lineWidth = lw;
+          applyCanvasLineStyle(ctx, d.lineStyle, isPreview);
+          ctx.beginPath();
+          pts.forEach((p, idx) => {
+            if (idx === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          });
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Arrowhead at the final segment
+          if (pts.length >= 2) {
+            const prev = pts[pts.length - 2];
+            const tip = pts[pts.length - 1];
+            const angle = Math.atan2(tip.y - prev.y, tip.x - prev.x);
+            const headLen = Math.max(10, lw * 4.5);
+            ctx.beginPath();
+            ctx.moveTo(tip.x, tip.y);
+            ctx.lineTo(
+              tip.x - headLen * Math.cos(angle - Math.PI / 7),
+              tip.y - headLen * Math.sin(angle - Math.PI / 7)
+            );
+            ctx.moveTo(tip.x, tip.y);
+            ctx.lineTo(
+              tip.x - headLen * Math.cos(angle + Math.PI / 7),
+              tip.y - headLen * Math.sin(angle + Math.PI / 7)
+            );
+            ctx.stroke();
+          }
+
+          // Vertex circles
+          const nodeBg = currTheme === 'light' ? '#ffffff' : '#0b0e14';
+          pts.forEach((p) => {
+            ctx.fillStyle = nodeBg;
+            ctx.strokeStyle = d.color;
+            ctx.lineWidth = Math.max(1.5, lw);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, showDetails ? 4.5 : 3.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          });
+        }
+      } else if (d.type === 'callout' && x1 !== null && y1 !== null && x2 !== null && y2 !== null) {
+        const fontSize = d.fontSize ?? 13;
+        const textFont = `600 ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, sans-serif`;
+        const lines = (d.label || 'Callout').split('\n');
+        ctx.save();
+        ctx.font = textFont;
+        const maxLineW = Math.max(...lines.map((l) => ctx.measureText(l).width), 28);
+        ctx.restore();
+
+        const padX = 14;
+        const padY = 8;
+        const lineH = fontSize * 1.3;
+        const boxW = Math.max(56, maxLineW + padX * 2);
+        const boxH = Math.max(28, lines.length * lineH + padY * 2);
+        const geom = computeCalloutGeometry(x1, y1, x2, y2, boxW, boxH);
+        const fillSpec = resolveShapeFillStyle(
+          d.color,
+          d.fillColor,
+          d.fillOpacity ?? 0.88
+        );
+
+        if (geom.tail && !fillSpec.isTransparent) {
+          ctx.fillStyle = hexToRgba(fillSpec.color, fillSpec.opacity);
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(geom.tail.base1.x, geom.tail.base1.y);
+          ctx.lineTo(geom.tail.base2.x, geom.tail.base2.y);
+          ctx.closePath();
+          ctx.fill();
+        }
+        if (geom.tail) {
+          ctx.strokeStyle = d.color;
+          ctx.lineWidth = lw;
+          ctx.beginPath();
+          ctx.moveTo(geom.tail.base1.x, geom.tail.base1.y);
+          ctx.lineTo(x1, y1);
+          ctx.lineTo(geom.tail.base2.x, geom.tail.base2.y);
+          ctx.stroke();
+        }
+
+        ctx.beginPath();
+        ctx.roundRect(geom.left, geom.top, boxW, boxH, 7);
+        if (!fillSpec.isTransparent) {
+          ctx.fillStyle = hexToRgba(fillSpec.color, fillSpec.opacity);
+          ctx.fill();
+        }
+        ctx.strokeStyle = d.color;
+        ctx.lineWidth = lw;
+        ctx.stroke();
+
+        ctx.save();
+        ctx.font = textFont;
+        ctx.fillStyle = d.textColor || '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const firstLineY = geom.top + boxH / 2 - ((lines.length - 1) * lineH) / 2;
+        lines.forEach((line, idx) => {
+          ctx.fillText(line, x2, firstLineY + idx * lineH);
+        });
+        ctx.restore();
+
+        if (showDetails) {
+          drawSmallDot(ctx, x1, y1);
+          drawSmallDot(ctx, x2, y2);
+        }
+      } else if (d.type === 'price_label' && x1 !== null && y1 !== null) {
+        const pillX = x2 !== null ? x2 : x1 + 42;
+        const pillY = y2 !== null ? y2 : y1 - 28;
+        const priceText = formatPriceLabelValue(d.price1, decimals);
+        const fontSize = d.fontSize ?? 12;
+        const textFont = `700 ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, sans-serif`;
+
+        ctx.save();
+        ctx.font = textFont;
+        const tw = ctx.measureText(priceText).width;
+        ctx.restore();
+
+        const boxW = Math.max(64, tw + 22);
+        const boxH = Math.max(24, fontSize + 12);
+        const geom = computeCalloutGeometry(x1, y1, pillX, pillY, boxW, boxH);
+        const fillSpec = resolveShapeFillStyle(
+          d.color,
+          d.fillColor,
+          d.fillOpacity ?? 0.95
+        );
+
+        if (geom.tail && !fillSpec.isTransparent) {
+          ctx.fillStyle = hexToRgba(fillSpec.color, fillSpec.opacity);
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(geom.tail.base1.x, geom.tail.base1.y);
+          ctx.lineTo(geom.tail.base2.x, geom.tail.base2.y);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        ctx.beginPath();
+        ctx.roundRect(geom.left, geom.top, boxW, boxH, 6);
+        if (!fillSpec.isTransparent) {
+          ctx.fillStyle = hexToRgba(fillSpec.color, fillSpec.opacity);
+          ctx.fill();
+        }
+        ctx.strokeStyle = d.color;
+        ctx.lineWidth = lw;
+        ctx.stroke();
+
+        ctx.save();
+        ctx.font = textFont;
+        ctx.fillStyle = d.textColor || '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(priceText, pillX, pillY);
+        ctx.restore();
+
+        // Anchor dot at price point
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = d.color;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(x1, y1, showDetails ? 4 : 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        if (showDetails) {
+          drawSmallDot(ctx, pillX, pillY);
+        }
       } else if (d.type === 'hline' && y1 !== null) {
         const customText = d.label && d.label !== 'LEVEL' ? d.label.trim() : '';
         const pos = d.labelPosition ?? 'middle';
@@ -2786,6 +2992,87 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
         if (showDetails) {
           drawSmallDot(ctx, handleX, y1);
+        }
+      } else if (d.type === 'hray' && x1 !== null && y1 !== null) {
+        const dir = d.hrayDirection ?? 'right';
+        const span = computeHorizontalRaySpan(x1, chartPlotWidth, dir);
+        if (span) {
+          const customText = d.label && d.label !== 'LEVEL' ? d.label.trim() : '';
+          const pos = d.labelPosition ?? 'middle';
+          const align = d.labelAlign ?? (pos === 'middle' ? 'center' : 'left');
+          const fontSize = d.fontSize ?? 13;
+          const textFont = `600 ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, sans-serif`;
+
+          ctx.save();
+          ctx.font = textFont;
+          const tw = customText ? ctx.measureText(customText).width : 0;
+          ctx.restore();
+
+          const spanWidth = span.endX - span.startX;
+          const midSpanX = (span.startX + span.endX) / 2;
+          const anchorX = customText
+            ? align === 'left'
+              ? Math.min(span.endX - tw / 2 - 12, span.startX + tw / 2 + 16)
+              : align === 'right'
+              ? Math.max(span.startX + tw / 2 + 12, span.endX - tw / 2 - 20)
+              : midSpanX
+            : midSpanX;
+
+          ctx.strokeStyle = d.color;
+          ctx.lineWidth = lw;
+          applyCanvasLineStyle(ctx, d.lineStyle, isPreview);
+          ctx.beginPath();
+          if (customText && pos === 'middle' && spanWidth > tw + 24) {
+            const gapHalf = tw / 2 + 8;
+            const gStart = Math.max(span.startX, anchorX - gapHalf);
+            const gEnd = Math.min(span.endX, anchorX + gapHalf);
+            if (gStart > span.startX) {
+              ctx.moveTo(span.startX, y1);
+              ctx.lineTo(gStart, y1);
+            }
+            if (gEnd < span.endX) {
+              ctx.moveTo(gEnd, y1);
+              ctx.lineTo(span.endX, y1);
+            }
+          } else {
+            ctx.moveTo(span.startX, y1);
+            ctx.lineTo(span.endX, y1);
+          }
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          if (customText) {
+            ctx.save();
+            ctx.font = textFont;
+            ctx.fillStyle = d.textColor || '#0d7a68';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const textY =
+              pos === 'middle'
+                ? y1
+                : pos === 'top'
+                ? y1 - (lw / 2 + 10)
+                : y1 + (lw / 2 + 11);
+            ctx.fillText(customText, anchorX, textY);
+            ctx.restore();
+          } else if (showDetails) {
+            const priceLabel = d.price1.toFixed(decimals);
+            ctx.save();
+            ctx.font = '600 10px JetBrains Mono, monospace';
+            ctx.fillStyle = d.color;
+            ctx.textAlign = dir === 'left' ? 'left' : 'right';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(
+              priceLabel,
+              dir === 'left' ? span.startX + 8 : span.endX - 8,
+              y1 - 4
+            );
+            ctx.restore();
+          }
+        }
+
+        if (showDetails && x1 >= 0 && x1 <= chartPlotWidth) {
+          drawSmallDot(ctx, x1, y1);
         }
       } else if (d.type === 'vline' && x1 !== null) {
         const customText = d.label && d.label !== 'TIME' ? d.label.trim() : '';
@@ -3015,8 +3302,11 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         const boxW = Math.max(4, right - left);
         const boxH = Math.max(4, bottom - top);
 
-        ctx.fillStyle = hexToRgba(d.color, fillAlpha);
-        ctx.fillRect(left, top, boxW, boxH);
+        const fillSpec = resolveShapeFillStyle(d.color, d.fillColor, fillAlpha);
+        if (!fillSpec.isTransparent) {
+          ctx.fillStyle = hexToRgba(fillSpec.color, fillSpec.opacity);
+          ctx.fillRect(left, top, boxW, boxH);
+        }
 
         ctx.strokeStyle = d.color;
         ctx.lineWidth = lw;
@@ -3171,13 +3461,16 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         const rx = Math.max(5, (right - left) / 2);
         const ry = Math.max(5, (bottom - top) / 2);
 
-        ctx.fillStyle = hexToRgba(d.color, fillAlpha);
+        const fillSpec = resolveShapeFillStyle(d.color, d.fillColor, fillAlpha);
         ctx.strokeStyle = d.color;
         ctx.lineWidth = lw;
         applyCanvasLineStyle(ctx, d.lineStyle, isPreview);
         ctx.beginPath();
         ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-        ctx.fill();
+        if (!fillSpec.isTransparent) {
+          ctx.fillStyle = hexToRgba(fillSpec.color, fillSpec.opacity);
+          ctx.fill();
+        }
         ctx.stroke();
         ctx.setLineDash([]);
 
@@ -3197,7 +3490,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         const bottom = Math.max(y1, y2);
         const midX = (left + right) / 2;
 
-        ctx.fillStyle = hexToRgba(d.color, fillAlpha);
+        const fillSpec = resolveShapeFillStyle(d.color, d.fillColor, fillAlpha);
         ctx.strokeStyle = d.color;
         ctx.lineWidth = lw;
         applyCanvasLineStyle(ctx, d.lineStyle, isPreview);
@@ -3206,7 +3499,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         ctx.lineTo(left, bottom);
         ctx.lineTo(right, bottom);
         ctx.closePath();
-        ctx.fill();
+        if (!fillSpec.isTransparent) {
+          ctx.fillStyle = hexToRgba(fillSpec.color, fillSpec.opacity);
+          ctx.fill();
+        }
         ctx.stroke();
         ctx.setLineDash([]);
 
@@ -3812,13 +4108,57 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           } else if ((d.type==='arrow_up'||d.type==='arrow_down')&&x1!==null&&y1!==null) {
             const direction=d.type==='arrow_up'?1:-1;
             if(Math.abs(mouseX-x1)<=14&&mouseY>=Math.min(y1,y1+direction*32)-5&&mouseY<=Math.max(y1,y1+direction*32)+5)return {...baseDrawHit,handle:'p1'};
-          } else if (isPatternTool(d.type)&&d.points?.length) {
+          } else if ((isPatternTool(d.type) || d.type === 'path') && d.points?.length) {
             const pixels=d.points.map(point=>({x:resolveTimeToX(point.time,currCandles,chart),y:priceToY(point.price,chart)}));
             for(let k=0;k<pixels.length;k++){const point=pixels[k];if(point.x!==null&&point.y!==null&&Math.hypot(mouseX-point.x,mouseY-point.y)<=dotR+4)return {...baseDrawHit,handle:`node_${k}`};}
             for(let k=1;k<pixels.length;k++){const a=pixels[k-1],b=pixels[k];if(a.x!==null&&a.y!==null&&b.x!==null&&b.y!==null&&distToSegment(mouseX,mouseY,a.x,a.y,b.x,b.y)<=lineR)return {...baseDrawHit,handle:'body'};}
+          } else if (d.type === 'callout' && x1 !== null && y1 !== null && x2 !== null && y2 !== null) {
+            if (Math.hypot(mouseX - x1, mouseY - y1) <= dotR) {
+              return { ...baseDrawHit, handle: 'p1' };
+            }
+            const fontSize = d.fontSize ?? 13;
+            const lines = (d.label || 'Callout').split('\n');
+            const maxChars = Math.max(...lines.map((l) => l.length), 6);
+            const approxW = Math.max(56, maxChars * (fontSize * 0.62) + 28);
+            const approxH = Math.max(28, lines.length * (fontSize * 1.3) + 16);
+            if (
+              mouseX >= x2 - approxW / 2 - 4 &&
+              mouseX <= x2 + approxW / 2 + 4 &&
+              mouseY >= y2 - approxH / 2 - 4 &&
+              mouseY <= y2 + approxH / 2 + 4
+            ) {
+              return { ...baseDrawHit, handle: 'body' };
+            }
+          } else if (d.type === 'price_label' && x1 !== null && y1 !== null) {
+            const pillX = x2 !== null ? x2 : x1 + 42;
+            const pillY = y2 !== null ? y2 : y1 - 28;
+            if (Math.hypot(mouseX - x1, mouseY - y1) <= dotR) {
+              return { ...baseDrawHit, handle: 'p1' };
+            }
+            if (
+              mouseX >= pillX - 48 &&
+              mouseX <= pillX + 48 &&
+              mouseY >= pillY - 16 &&
+              mouseY <= pillY + 16
+            ) {
+              return { ...baseDrawHit, handle: 'body' };
+            }
           } else if (d.type === 'hline' && y1 !== null) {
             if (Math.abs(mouseY - y1) <= lineR) {
               return { ...baseDrawHit, handle: 'p1' };
+            }
+          } else if (d.type === 'hray' && x1 !== null && y1 !== null) {
+            if (Math.hypot(mouseX - x1, mouseY - y1) <= dotR) {
+              return { ...baseDrawHit, handle: 'p1' };
+            }
+            const span = computeHorizontalRaySpan(x1, chartPlotWidth, d.hrayDirection ?? 'right');
+            if (
+              span &&
+              mouseX >= span.startX - 4 &&
+              mouseX <= span.endX + 4 &&
+              Math.abs(mouseY - y1) <= lineR
+            ) {
+              return { ...baseDrawHit, handle: 'body' };
             }
           } else if (d.type === 'vline' && x1 !== null) {
             if (Math.abs(mouseX - x1) <= lineR) {
@@ -4603,6 +4943,38 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     };
 
     const handleDoubleClick = (e: MouseEvent) => {
+      const currState = stateRef.current;
+      if (
+        currState.activeTool === 'path' &&
+        patternDraftRef.current?.tool === 'path' &&
+        patternDraftRef.current.points.length >= 2
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        const pts = patternDraftRef.current.points;
+        const completed: ChartDrawing = {
+          id: `path-${Date.now()}`,
+          type: 'path',
+          time1: pts[0].time,
+          price1: pts[0].price,
+          time2: pts[pts.length - 1].time,
+          price2: pts[pts.length - 1].price,
+          points: pts,
+          label: '',
+          color: currState.drawingColor,
+          lineWidth: currState.drawingLineWidth,
+          lineStyle: currState.drawingLineStyle,
+        };
+        currState.onAddDrawing(completed);
+        setSelectedId(completed.id);
+        patternDraftRef.current = null;
+        setDraftDrawing(null);
+        if (!currState.stayInDrawingMode) {
+          currState.onSelectTool('cursor');
+        }
+        drawOverlay();
+        return;
+      }
       const rect = container.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
@@ -4610,13 +4982,13 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       if (
         hit &&
         hit.kind === 'drawing_handle' &&
-        ['text', 'hline', 'vline', 'trendline', 'ray', 'extended_line', 'arrow'].includes(
+        ['text', 'callout', 'hline', 'hray', 'vline', 'trendline', 'ray', 'extended_line', 'arrow'].includes(
           hit.origDrawing.type
         )
       ) {
         const d = hit.origDrawing;
         const existingLabel =
-          d.type === 'text'
+          d.type === 'text' || d.type === 'callout'
             ? d.label || ''
             : d.label && d.label !== 'LEVEL' && d.label !== 'TIME'
             ? d.label
@@ -4630,7 +5002,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           time: d.time1,
           price: d.price1,
           text: existingLabel,
-          color: d.type === 'text' ? d.color : d.textColor || '#0d7a68',
+          color:
+            d.type === 'text'
+              ? d.color
+              : d.type === 'callout'
+              ? d.textColor || '#ffffff'
+              : d.textColor || '#0d7a68',
           locked: d.type === 'text' ? (d.locked ?? true) : (d.locked ?? false),
         });
         return;
@@ -4700,6 +5077,67 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         return;
       }
 
+      if (currState.activeTool === 'path') {
+        e.preventDefault();
+        e.stopPropagation();
+        const previous =
+          patternDraftRef.current?.tool === 'path'
+            ? patternDraftRef.current.points
+            : [];
+        const lastPt = previous[previous.length - 1];
+        const lastX = lastPt ? resolveTimeToX(lastPt.time, currCandles, chart) : null;
+        const lastY = lastPt ? priceToY(lastPt.price, chart) : null;
+        const clickedSamePt =
+          previous.length >= 2 &&
+          lastX !== null &&
+          lastY !== null &&
+          Math.hypot(mouseX - lastX, mouseY - lastY) <= 8;
+
+        if (clickedSamePt) {
+          const completed: ChartDrawing = {
+            id: `path-${Date.now()}`,
+            type: 'path',
+            time1: previous[0].time,
+            price1: previous[0].price,
+            time2: previous[previous.length - 1].time,
+            price2: previous[previous.length - 1].price,
+            points: previous,
+            label: '',
+            color: currState.drawingColor,
+            lineWidth: currState.drawingLineWidth,
+            lineStyle: currState.drawingLineStyle,
+          };
+          currState.onAddDrawing(completed);
+          setSelectedId(completed.id);
+          patternDraftRef.current = null;
+          setDraftDrawing(null);
+          if (!currState.stayInDrawingMode) {
+            currState.onSelectTool('cursor');
+          }
+          drawOverlay();
+          return;
+        }
+
+        const points = [...previous, { time: clickedTime, price: clickedPrice }];
+        const drawing: ChartDrawing = {
+          id: 'draft',
+          type: 'path',
+          time1: points[0].time,
+          price1: points[0].price,
+          time2: clickedTime,
+          price2: clickedPrice,
+          points,
+          label: '',
+          color: currState.drawingColor,
+          lineWidth: currState.drawingLineWidth,
+          lineStyle: currState.drawingLineStyle,
+        };
+        patternDraftRef.current = { tool: 'path', points };
+        setDraftDrawing(drawing);
+        drawOverlay();
+        return;
+      }
+
       if(isPatternTool(currState.activeTool)){
         e.preventDefault();e.stopPropagation();
         const type=currState.activeTool as ChartDrawing['type'];
@@ -4747,17 +5185,48 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       }
 
       // 3. Single-Click Tools on Empty Space
-      if (currState.activeTool === 'hline' || currState.activeTool === 'vline'||currState.activeTool==='arrow_up'||currState.activeTool==='arrow_down') {
+      if (currState.activeTool === 'hline' || currState.activeTool === 'hray' || currState.activeTool === 'vline'||currState.activeTool==='arrow_up'||currState.activeTool==='arrow_down') {
         e.stopPropagation();
         const newD: ChartDrawing = {
           id: `${currState.activeTool}-${Date.now()}`,
           type: currState.activeTool,
           time1: clickedTime,
           price1: clickedPrice,
-          label: currState.activeTool === 'hline' ? 'LEVEL' : currState.activeTool==='vline'?'TIME':'',
+          label: currState.activeTool === 'hline' || currState.activeTool === 'hray' ? 'LEVEL' : currState.activeTool==='vline'?'TIME':'',
           color: currState.drawingColor,
           lineWidth: currState.drawingLineWidth,
           lineStyle: currState.drawingLineStyle,
+          ...(currState.activeTool === 'hray' ? { hrayDirection: 'right' as const } : {}),
+        };
+        currState.onAddDrawing(newD);
+        setSelectedId(newD.id);
+        if (!currState.stayInDrawingMode) {
+          currState.onSelectTool('cursor');
+        }
+        return;
+      }
+
+      if (currState.activeTool === 'price_label') {
+        e.stopPropagation();
+        const offsetTime = resolveXToTime(mouseX + 42, currCandles, chart);
+        const offsetPriceRaw = yToPrice(mouseY - 28, chart);
+        const offsetPrice =
+          offsetPriceRaw !== null
+            ? Number(Number(offsetPriceRaw).toFixed(decimals))
+            : clickedPrice;
+        const newD: ChartDrawing = {
+          id: `price_label-${Date.now()}`,
+          type: 'price_label',
+          time1: clickedTime,
+          price1: clickedPrice,
+          time2: offsetTime,
+          price2: offsetPrice,
+          label: '',
+          color: currState.drawingColor,
+          lineWidth: currState.drawingLineWidth,
+          lineStyle: currState.drawingLineStyle,
+          fillOpacity: 0.95,
+          textColor: '#ffffff',
         };
         currState.onAddDrawing(newD);
         setSelectedId(newD.id);
@@ -4847,6 +5316,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           'circle',
           'triangle',
           'arrow',
+          'callout',
           'ruler',
           'brush',
         ].includes(currState.activeTool)
@@ -4872,11 +5342,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           time2: clickedTime,
           price2: clickedPrice,
           points: [{ time: clickedTime, price: clickedPrice }],
-          label: '',
+          label: currState.activeTool === 'callout' ? 'Callout' : '',
           color: currState.drawingColor,
           lineWidth: currState.drawingLineWidth,
           lineStyle: currState.drawingLineStyle,
-          fillOpacity: 0.16,
+          fillOpacity: currState.activeTool === 'callout' ? 0.88 : 0.16,
+          textColor: currState.activeTool === 'callout' ? '#ffffff' : undefined,
           fibSettings: clonedFibSettings,
         });
         return;
@@ -5005,7 +5476,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       }
 
       const pendingPattern=patternDraftRef.current;
-      if(pendingPattern&&isPatternTool(currState.activeTool)&&currCandles.length){
+      if(pendingPattern&&(isPatternTool(currState.activeTool)||currState.activeTool==='path')&&currCandles.length){
         const time=resolveXToTime(mouseX,currCandles,chart),price=yToPrice(mouseY,chart);
         if(price!==null){const points=[...pendingPattern.points,{time,price:Number(price.toFixed(decimals))}];setDraftDrawing({id:'draft',type:pendingPattern.tool,time1:points[0].time,price1:points[0].price,time2:time,price2:price,points,label:'',color:currState.drawingColor,lineWidth:currState.drawingLineWidth,lineStyle:currState.drawingLineStyle});}
       }
@@ -5346,15 +5817,38 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         const finalized: ChartDrawing = {
           ...d,
           id: `${d.type}-${Date.now()}`,
-          time2: isTinyClick ? d.time1 + stepSec * 14 : d.time2,
+          time2: isTinyClick
+            ? d.time1 + stepSec * (d.type === 'callout' ? 8 : 14)
+            : d.time2,
           price2: isTinyClick
-            ? Number((d.price1 - atr * 1.1).toFixed(decimals))
+            ? Number(
+                (
+                  d.price1 +
+                  (d.type === 'callout' ? atr * 0.9 : -atr * 1.1)
+                ).toFixed(decimals)
+              )
             : d.price2,
         };
 
         currState.onAddDrawing(finalized);
         setSelectedId(finalized.id);
         setDraftDrawing(null);
+        if (finalized.type === 'callout') {
+          const boxX = resolveTimeToX(finalized.time2 ?? finalized.time1, currState.candles, chart) ?? 180;
+          const boxY = priceToY(finalized.price2 ?? finalized.price1, chart) ?? 180;
+          const rect = container.getBoundingClientRect();
+          setTextEditor({
+            mode: 'edit',
+            drawingId: finalized.id,
+            x: Math.max(16, Math.min(rect.width - 280, boxX)),
+            y: Math.max(56, Math.min(rect.height - 160, boxY)),
+            time: finalized.time1,
+            price: finalized.price1,
+            text: finalized.label || '',
+            color: finalized.textColor || '#ffffff',
+            locked: false,
+          });
+        }
         if (!currState.stayInDrawingMode) {
           currState.onSelectTool('cursor');
         }
@@ -6958,6 +7452,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 ? 'SHORT'
                 : selectedDrawing.type === 'rect_box'
                 ? 'ZONE'
+                : selectedDrawing.type === 'hray'
+                ? 'H-RAY'
                 : selectedDrawing.type.replace('_', ' ')}
             </span>
           </div>
@@ -7047,6 +7543,159 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             )}
           </div>
 
+          {/* 1b. Inner Fill Color & Opacity (Fade / Transparent) for Shapes & Labels */}
+          {['rect_box', 'circle', 'triangle', 'callout', 'price_label'].includes(selectedDrawing.type) && (
+            <div className="relative flex items-center">
+              <button
+                onClick={() =>
+                  setActiveBarPopover((p) => (p === 'fill' ? null : 'fill'))
+                }
+                className="flex items-center gap-1 px-1.5 py-1 rounded-lg border border-gray-500/25 hover:bg-blue-500/10 text-[10px] font-semibold transition"
+                title="Inner Fill Color & Opacity (Fade or Transparent)"
+              >
+                <span
+                  className="w-3.5 h-3.5 rounded border border-gray-400/50 shadow-sm"
+                  style={{
+                    backgroundColor:
+                      (selectedDrawing.fillOpacity ?? 0.16) <= 0
+                        ? 'transparent'
+                        : selectedDrawing.fillColor || selectedDrawing.color,
+                    opacity:
+                      (selectedDrawing.fillOpacity ?? 0.16) <= 0
+                        ? 1
+                        : Math.max(0.25, selectedDrawing.fillOpacity ?? 0.16),
+                  }}
+                />
+                <span className="font-mono">
+                  {(selectedDrawing.fillOpacity ?? 0.16) <= 0
+                    ? '0%'
+                    : `${Math.round((selectedDrawing.fillOpacity ?? 0.16) * 100)}%`}
+                </span>
+                <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+              </button>
+
+              {activeBarPopover === 'fill' && (
+                <div
+                  className={`absolute left-0 top-9 w-56 rounded-xl border p-2.5 shadow-2xl z-50 space-y-2.5 ${
+                    isLight
+                      ? 'bg-white border-[#e0e3eb] text-[#131722]'
+                      : 'bg-[#1e222d] border-[#2a2e39] text-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">
+                      Inner Fill Color
+                    </span>
+                    {selectedDrawing.fillColor && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateDrawing({
+                            ...selectedDrawing,
+                            fillColor: undefined,
+                          })
+                        }
+                        className="text-[10px] text-[#2962ff] font-semibold hover:underline"
+                      >
+                        Match Border
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {DRAWING_COLORS.map((c) => {
+                      const activeFill =
+                        (selectedDrawing.fillColor || selectedDrawing.color).toLowerCase() ===
+                        c.hex.toLowerCase();
+                      return (
+                        <button
+                          key={c.hex}
+                          onClick={() => {
+                            onUpdateDrawing({
+                              ...selectedDrawing,
+                              fillColor: c.hex,
+                              fillOpacity:
+                                (selectedDrawing.fillOpacity ?? 0.16) <= 0
+                                  ? 0.16
+                                  : selectedDrawing.fillOpacity,
+                            });
+                          }}
+                          className={`h-6 rounded-md border transition ${
+                            activeFill
+                              ? 'ring-2 ring-[#2962ff] border-white scale-105'
+                              : 'border-black/20 opacity-85 hover:opacity-100'
+                          }`}
+                          style={{ backgroundColor: c.hex }}
+                          title={c.name}
+                        />
+                      );
+                    })}
+                  </div>
+                  <label className="flex items-center justify-between px-2 py-1 rounded border border-gray-500/25 cursor-pointer hover:bg-blue-500/5 text-[10px]">
+                    <span className="font-medium">Custom Inner Color</span>
+                    <input
+                      type="color"
+                      value={selectedDrawing.fillColor || selectedDrawing.color}
+                      onChange={(e) => {
+                        onUpdateDrawing({
+                          ...selectedDrawing,
+                          fillColor: e.target.value,
+                          fillOpacity:
+                            (selectedDrawing.fillOpacity ?? 0.16) <= 0
+                              ? 0.16
+                              : selectedDrawing.fillOpacity,
+                        });
+                      }}
+                      className="w-5 h-4 rounded cursor-pointer bg-transparent border-0"
+                    />
+                  </label>
+                  <div className="pt-1 border-t border-gray-500/20 space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="font-bold uppercase opacity-70">
+                        Inner Fade / Opacity
+                      </span>
+                      <span className="font-mono font-bold text-[#2962ff]">
+                        {Math.round((selectedDrawing.fillOpacity ?? 0.16) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.02"
+                      value={selectedDrawing.fillOpacity ?? 0.16}
+                      onChange={(e) =>
+                        onUpdateDrawing({
+                          ...selectedDrawing,
+                          fillOpacity: parseFloat(e.target.value),
+                        })
+                      }
+                      className="w-full accent-[#2962ff] cursor-pointer"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateDrawing({
+                          ...selectedDrawing,
+                          fillOpacity:
+                            (selectedDrawing.fillOpacity ?? 0.16) <= 0 ? 0.16 : 0,
+                        })
+                      }
+                      className={`w-full py-1 rounded text-[10px] font-semibold border transition ${
+                        (selectedDrawing.fillOpacity ?? 0.16) <= 0
+                          ? 'bg-[#2962ff] text-white border-[#2962ff]'
+                          : 'border-gray-500/30 hover:bg-blue-500/10'
+                      }`}
+                    >
+                      {(selectedDrawing.fillOpacity ?? 0.16) <= 0
+                        ? '✓ Transparent (Border Only)'
+                        : 'Make Inner Transparent (0%)'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 2. Compact Width & Style Button -> Pops up Line Width & Style (for non-position tools) */}
           {selectedDrawing.type !== 'long_position' &&
             selectedDrawing.type !== 'short_position' &&
@@ -7096,11 +7745,13 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     {[
                       'trendline',
                       'hline',
+                      'hray',
                       'vline',
                       'rect_box',
                       'circle',
                       'triangle',
                       'arrow',
+                      'path',
                       'fib',
                     ].includes(selectedDrawing.type) && (
                       <div>
@@ -7133,7 +7784,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             )}
 
           {/* 3. Text / Line Note Quick Edit Button */}
-          {['text', 'hline', 'vline', 'trendline', 'ray', 'extended_line', 'arrow'].includes(selectedDrawing.type) && (
+          {['text', 'callout', 'hline', 'hray', 'vline', 'trendline', 'ray', 'extended_line', 'arrow'].includes(selectedDrawing.type) && (
             <button
               onClick={() => {
                 const chart = chartRef.current;
@@ -7144,7 +7795,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 const yCoord =
                   (chart ? priceToY(selectedDrawing.price1, chart) : null) ?? 180;
                 const existingLabel =
-                  selectedDrawing.type === 'text'
+                  selectedDrawing.type === 'text' || selectedDrawing.type === 'callout'
                     ? selectedDrawing.label || ''
                     : selectedDrawing.label && selectedDrawing.label !== 'LEVEL' && selectedDrawing.label !== 'TIME'
                     ? selectedDrawing.label
@@ -7160,6 +7811,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   color:
                     selectedDrawing.type === 'text'
                       ? selectedDrawing.color
+                      : selectedDrawing.type === 'callout'
+                      ? selectedDrawing.textColor || '#ffffff'
                       : selectedDrawing.textColor || '#0d7a68',
                   locked:
                     selectedDrawing.type === 'text'
@@ -7181,8 +7834,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             </button>
           )}
 
-          {/* Line Text Position & Alignment Selector for hline, vline, trendline, ray, extended_line, arrow */}
-          {['hline', 'vline', 'trendline', 'ray', 'extended_line', 'arrow'].includes(selectedDrawing.type) && (
+          {/* Line Text Position & Alignment Selector for hline, hray, vline, trendline, ray, extended_line, arrow */}
+          {['hline', 'hray', 'vline', 'trendline', 'ray', 'extended_line', 'arrow'].includes(selectedDrawing.type) && (
             <>
               <div className="flex items-center gap-0.5 border-l border-gray-400/25 pl-1.5 text-[10px] font-bold">
                 <span className="opacity-60 text-[9px] mr-1">Pos:</span>
@@ -7485,6 +8138,56 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 </>
               );
             })()}
+
+          {selectedDrawing.type === 'hline' && (
+            <button
+              onClick={() =>
+                onUpdateDrawing({
+                  ...selectedDrawing,
+                  type: 'hray',
+                  hrayDirection: 'right',
+                })
+              }
+              className="px-2 py-1 rounded-lg bg-blue-500/15 text-[#2962ff] font-semibold text-[10px] whitespace-nowrap"
+              title="Unextend: start from anchor point and go to future side"
+            >
+              Ray →
+            </button>
+          )}
+
+          {selectedDrawing.type === 'hray' && (
+            <>
+              <button
+                onClick={() =>
+                  onUpdateDrawing({
+                    ...selectedDrawing,
+                    hrayDirection:
+                      (selectedDrawing.hrayDirection ?? 'right') === 'left'
+                        ? 'right'
+                        : 'left',
+                  })
+                }
+                className="px-2 py-1 rounded-lg bg-blue-500/15 text-[#2962ff] font-semibold text-[10px] whitespace-nowrap"
+                title="Flip ray direction (Future → vs ← Past)"
+              >
+                {(selectedDrawing.hrayDirection ?? 'right') === 'left'
+                  ? '← Past'
+                  : 'Future →'}
+              </button>
+              <button
+                onClick={() =>
+                  onUpdateDrawing({
+                    ...selectedDrawing,
+                    type: 'hline',
+                  })
+                }
+                className="px-2 py-1 rounded-lg border border-gray-500/25 hover:bg-blue-500/10 font-semibold text-[10px] whitespace-nowrap"
+                title="Extend across full chart width"
+              >
+                Full Line
+              </button>
+            </>
+          )}
 
           {(selectedDrawing.type === 'rect_box' ||
             selectedDrawing.type === 'trendline' ||
@@ -7832,7 +8535,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 )}
 
               {/* Line Style (Solid / Dashed / Dotted) */}
-              {['trendline', 'hline', 'vline', 'rect_box', 'circle', 'triangle', 'arrow'].includes(
+              {['trendline', 'hline', 'hray', 'vline', 'rect_box', 'circle', 'triangle', 'arrow', 'path'].includes(
                 contextDrawing.type
               ) && (
                 <div className="space-y-1 pt-1 border-t border-gray-500/20">
@@ -7905,8 +8608,78 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 </div>
               </div>
 
+              {/* Inner Fill Color + Opacity (Fade / Transparent) for Shapes & Labels */}
+              {['rect_box', 'circle', 'triangle', 'callout', 'price_label'].includes(contextDrawing.type) && (
+                <div className="space-y-1.5 pt-1 border-t border-gray-500/20">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] opacity-70 font-semibold uppercase">
+                      Inner Fill Color
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {contextDrawing.fillColor && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateDrawing({
+                              ...contextDrawing,
+                              fillColor: undefined,
+                            })
+                          }
+                          className="text-[10px] text-[#2962ff] font-semibold hover:underline"
+                        >
+                          Match Border
+                        </button>
+                      )}
+                      <label className="flex items-center gap-1 cursor-pointer text-[10px] text-[#2962ff] font-semibold">
+                        <span>Custom</span>
+                        <input
+                          type="color"
+                          value={contextDrawing.fillColor || contextDrawing.color}
+                          onChange={(e) =>
+                            onUpdateDrawing({
+                              ...contextDrawing,
+                              fillColor: e.target.value,
+                              fillOpacity:
+                                (contextDrawing.fillOpacity ?? 0.16) <= 0
+                                  ? 0.16
+                                  : contextDrawing.fillOpacity,
+                            })
+                          }
+                          className="w-4 h-4 rounded cursor-pointer bg-transparent border-0"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {DRAWING_COLORS.map((c) => (
+                      <button
+                        key={c.hex}
+                        onClick={() =>
+                          onUpdateDrawing({
+                            ...contextDrawing,
+                            fillColor: c.hex,
+                            fillOpacity:
+                              (contextDrawing.fillOpacity ?? 0.16) <= 0
+                                ? 0.16
+                                : contextDrawing.fillOpacity,
+                          })
+                        }
+                        className={`h-5 rounded border transition ${
+                          (contextDrawing.fillColor || contextDrawing.color).toLowerCase() ===
+                          c.hex.toLowerCase()
+                            ? 'ring-2 ring-[#2962ff] border-white scale-105'
+                            : 'border-black/20 opacity-85 hover:opacity-100'
+                        }`}
+                        style={{ backgroundColor: c.hex }}
+                        title={c.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Fill Opacity Slider for Shapes */}
-              {['rect_box', 'circle', 'triangle', 'fib'].includes(contextDrawing.type) && (
+              {['rect_box', 'circle', 'triangle', 'callout', 'price_label', 'fib'].includes(contextDrawing.type) && (
                 <div className="space-y-1 pt-1 border-t border-gray-500/20">
                   <div className="flex items-center justify-between text-[10px]">
                     <span className="opacity-70 font-semibold uppercase">
@@ -7919,7 +8692,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                   <input
                     type="range"
                     min="0"
-                    max="0.6"
+                    max="1"
                     step="0.02"
                     value={contextDrawing.fillOpacity ?? 0.16}
                     onChange={(e) =>
@@ -7930,6 +8703,27 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     }
                     className="w-full accent-[#2962ff] cursor-pointer"
                   />
+                  {['rect_box', 'circle', 'triangle', 'callout', 'price_label'].includes(contextDrawing.type) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateDrawing({
+                          ...contextDrawing,
+                          fillOpacity:
+                            (contextDrawing.fillOpacity ?? 0.16) <= 0 ? 0.16 : 0,
+                        })
+                      }
+                      className={`w-full py-1 rounded border text-[10px] font-semibold transition ${
+                        (contextDrawing.fillOpacity ?? 0.16) <= 0
+                          ? 'bg-[#2962ff] text-white border-[#2962ff]'
+                          : 'border-gray-500/30 hover:bg-blue-500/10'
+                      }`}
+                    >
+                      {(contextDrawing.fillOpacity ?? 0.16) <= 0
+                        ? '✓ Inner Transparent (Border Only)'
+                        : 'Make Inner Transparent (0%)'}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -7947,6 +8741,51 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                     className="flex-1 px-2 py-1 rounded border border-gray-500/30 bg-transparent text-[11px] outline-none"
                   />
                 </div>
+                {contextDrawing.type === 'hline' && (
+                  <button
+                    onClick={() =>
+                      onUpdateDrawing({
+                        ...contextDrawing,
+                        type: 'hray',
+                        hrayDirection: 'right',
+                      })
+                    }
+                    className="w-full py-1 rounded border border-gray-500/30 hover:bg-blue-500/10 text-[11px] font-medium"
+                  >
+                    Unextend to Horizontal Ray →
+                  </button>
+                )}
+                {contextDrawing.type === 'hray' && (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      onClick={() =>
+                        onUpdateDrawing({
+                          ...contextDrawing,
+                          hrayDirection:
+                            (contextDrawing.hrayDirection ?? 'right') === 'left'
+                              ? 'right'
+                              : 'left',
+                        })
+                      }
+                      className="py-1 rounded border border-gray-500/30 hover:bg-blue-500/10 text-[11px] font-medium"
+                    >
+                      {(contextDrawing.hrayDirection ?? 'right') === 'left'
+                        ? '← Past Side'
+                        : 'Future Side →'}
+                    </button>
+                    <button
+                      onClick={() =>
+                        onUpdateDrawing({
+                          ...contextDrawing,
+                          type: 'hline',
+                        })
+                      }
+                      className="py-1 rounded border border-gray-500/30 hover:bg-blue-500/10 text-[11px] font-medium"
+                    >
+                      Extend Full Line
+                    </button>
+                  </div>
+                )}
                 {['rect_box', 'trendline', 'fib'].includes(contextDrawing.type) && (
                   <button
                     onClick={() =>
@@ -8481,6 +9320,46 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       )}
 
       {isPatternTool(activeTool)&&<div className="pointer-events-none absolute top-32 left-3 z-20 rounded-lg border border-blue-400/20 bg-[#111827]/90 px-3 py-2 text-[11px] text-blue-200">{activeTool==='abc_pattern'?'ABC correction: click 0 → A → B → C':'ABCD pattern: click A → B → C → D'} · Escape cancels</div>}
+      {activeTool === 'path' && (
+        <div className="absolute top-32 left-3 z-20 flex items-center gap-2 rounded-lg border border-blue-400/25 bg-[#111827]/90 px-3 py-1.5 text-[11px] text-blue-200 shadow-lg">
+          <span className="pointer-events-none">
+            Path: click points on chart · Double-click or Enter to finish · Esc cancels
+          </span>
+          {patternDraftRef.current?.tool === 'path' &&
+            patternDraftRef.current.points.length >= 2 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const pts = patternDraftRef.current?.points;
+                  if (!pts || pts.length < 2) return;
+                  const completed: ChartDrawing = {
+                    id: `path-${Date.now()}`,
+                    type: 'path',
+                    time1: pts[0].time,
+                    price1: pts[0].price,
+                    time2: pts[pts.length - 1].time,
+                    price2: pts[pts.length - 1].price,
+                    points: pts,
+                    label: '',
+                    color: drawingColor,
+                    lineWidth: drawingLineWidth,
+                    lineStyle: drawingLineStyle,
+                  };
+                  onAddDrawing(completed);
+                  setSelectedId(completed.id);
+                  patternDraftRef.current = null;
+                  setDraftDrawing(null);
+                  if (!stayInDrawingMode) {
+                    onSelectTool('cursor');
+                  }
+                }}
+                className="px-2 py-0.5 rounded bg-[#2962ff] text-white font-semibold hover:bg-[#1e53e5] transition"
+              >
+                Finish Path
+              </button>
+            )}
+        </div>
+      )}
 
       {/* Bottom-Left Reset & Auto-Fit Button */}
       <div className="absolute bottom-12 left-2 sm:left-3 z-20 flex items-center gap-1 sm:gap-1.5">

@@ -19,6 +19,115 @@ export function clipExtendedLine(a:PixelPoint,b:PixelPoint,width:number,height:n
   }
   return [{x:a.x+low*dx,y:a.y+low*dy},{x:a.x+high*dx,y:a.y+high*dy}];
 }
+
+/** Compute the visible horizontal span for an unextended horizontal ray starting at anchorX. */
+export function computeHorizontalRaySpan(
+  anchorX: number,
+  plotWidth: number,
+  direction: 'right' | 'left' = 'right'
+): { startX: number; endX: number } | null {
+  if (!Number.isFinite(anchorX) || !Number.isFinite(plotWidth) || plotWidth <= 0) {
+    return null;
+  }
+  if (direction === 'left') {
+    if (anchorX <= 0) return null;
+    const endX = Math.min(plotWidth, anchorX);
+    return endX > 0 ? { startX: 0, endX } : null;
+  }
+  if (anchorX >= plotWidth) return null;
+  const startX = Math.max(0, anchorX);
+  return plotWidth > startX ? { startX, endX: plotWidth } : null;
+}
+
+/** Resolve inner fill color and opacity for shape drawings (supports separate fill color & 0% transparent fill). */
+export function resolveShapeFillStyle(
+  borderColor: string,
+  fillColor?: string,
+  fillOpacity?: number
+): { color: string; opacity: number; isTransparent: boolean } {
+  const rawOpacity = fillOpacity ?? 0.16;
+  const opacity = Number.isFinite(rawOpacity) ? Math.max(0, Math.min(1, rawOpacity)) : 0.16;
+  return {
+    color: fillColor || borderColor,
+    opacity,
+    isTransparent: opacity <= 0,
+  };
+}
+
+/** Format a price value for the Price Label pill (e.g. 4,077.455). */
+export function formatPriceLabelValue(price: number, decimals: number): string {
+  if (!Number.isFinite(price)) return '0';
+  const safeDecimals = Math.max(0, Math.min(8, Math.floor(decimals)));
+  return price.toLocaleString('en-US', {
+    minimumFractionDigits: safeDecimals,
+    maximumFractionDigits: safeDecimals,
+  });
+}
+
+/** Compute callout/price-label box bounds and triangular pointer tail base points. */
+export function computeCalloutGeometry(
+  tipX: number,
+  tipY: number,
+  centerX: number,
+  centerY: number,
+  boxW: number,
+  boxH: number
+): {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  tail: { base1: PixelPoint; base2: PixelPoint } | null;
+} {
+  const halfW = boxW / 2;
+  const halfH = boxH / 2;
+  const left = centerX - halfW;
+  const top = centerY - halfH;
+  const right = centerX + halfW;
+  const bottom = centerY + halfH;
+
+  const dx = tipX - centerX;
+  const dy = tipY - centerY;
+  const dist = Math.hypot(dx, dy);
+  const insideBox =
+    tipX >= left && tipX <= right && tipY >= top && tipY <= bottom;
+  if (insideBox || dist < 1e-3) {
+    return { left, top, right, bottom, tail: null };
+  }
+
+  // Ray from box center toward tip intersects box perimeter at tEdge
+  const tx = Math.abs(dx) > 1e-6 ? halfW / Math.abs(dx) : Infinity;
+  const ty = Math.abs(dy) > 1e-6 ? halfH / Math.abs(dy) : Infinity;
+  const tEdge = Math.min(tx, ty);
+  const edgeX = centerX + dx * tEdge;
+  const edgeY = centerY + dy * tEdge;
+
+  // Perpendicular unit vector for tail width
+  const ux = -dy / dist;
+  const uy = dx / dist;
+  const tailHalfBase = Math.min(7, Math.max(4, Math.min(boxW, boxH) * 0.16));
+
+  // Clamp base points slightly inward so they stay on the flat box edge
+  const clampX = (v: number) => Math.max(left + 4, Math.min(right - 4, v));
+  const clampY = (v: number) => Math.max(top + 4, Math.min(bottom - 4, v));
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    tail: {
+      base1: {
+        x: clampX(edgeX + ux * tailHalfBase),
+        y: clampY(edgeY + uy * tailHalfBase),
+      },
+      base2: {
+        x: clampX(edgeX - ux * tailHalfBase),
+        y: clampY(edgeY - uy * tailHalfBase),
+      },
+    },
+  };
+}
 export const PATTERN_LABELS:Record<string,string[]>={abc_pattern:['0','A','B','C'],abcd_pattern:['A','B','C','D'],elliott_wave:['0','1','2','3','4','5']};
 export const isPatternTool=(tool:string)=>tool==='abc_pattern'||tool==='abcd_pattern'||tool==='elliott_wave';
 export function formatChartCrosshairTime(timestampMs:number,timezone:string):string {

@@ -9,6 +9,7 @@ import {
   isPatternTool,
   PATTERN_LABELS,
   formatChartCrosshairTime,
+  formatChartXAxisTime,
   computeFibLevelPrice,
   formatFibLevelLabel,
   getEffectiveFibSettings,
@@ -81,7 +82,6 @@ import {
   Camera,
   Check,
   ChevronDown,
-  Clock,
   Activity,
   Wand2,
   Copy,
@@ -396,7 +396,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   onSelectDrawingLineStyle,
   onSelectReplayTimestamp,
   marketPrice,
-  onGoToPresent,
   onReturnToReplay,
   feedLabel,
   feedStatus,
@@ -708,7 +707,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   );
 
   const [hoveredCandle, setHoveredCandle] = useState<Candle | null>(null);
-  const [hoverCoord, setHoverCoord] = useState<{
+  const hoverCoordRef = useRef<{
     x: number;
     y: number;
     time: number;
@@ -948,7 +947,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     drawingColor,
     drawingLineWidth,
     drawingLineStyle,
-    hoverCoord,
     drawings,
     draftDrawing,
     selectedId,
@@ -1006,7 +1004,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     drawingColor,
     drawingLineWidth,
     drawingLineStyle,
-    hoverCoord,
     drawings,
     draftDrawing,
     selectedId,
@@ -1360,7 +1357,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       keyResistance: currResistance,
       positions: currPositions,
       activeTool: currTool,
-      hoverCoord: currHover,
       drawings: currDrawings,
       draftDrawing: currDraft,
       selectedId: currSelectedId,
@@ -1442,11 +1438,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     ctx.beginPath();
     ctx.rect(0, 0, chartPlotWidth, chartPlotHeight);
     ctx.clip();
-
-    ctx.save();ctx.strokeStyle=currTheme==='light'?'rgba(100,116,139,0.12)':'rgba(148,163,184,0.075)';ctx.lineWidth=1;ctx.setLineDash([]);ctx.beginPath();
-    for(let x=80;x<chartPlotWidth;x+=80){ctx.moveTo(x+0.5,0);ctx.lineTo(x+0.5,chartPlotHeight);}
-    for(let y=80;y<chartPlotHeight;y+=80){ctx.moveTo(0,y+0.5);ctx.lineTo(chartPlotWidth,y+0.5);}
-    ctx.stroke();ctx.restore();
 
     // 0. Render Customizable EMA / SMA / WMA / VWAP Overlay Curves inside Main Candle Pane
     const visRange = typeof chart.getVisibleRange === 'function' ? chart.getVisibleRange() : null;
@@ -3511,6 +3502,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     }
 
     // 5. Bar Replay Scissor Cut-Line
+    const currHover = hoverCoordRef.current;
     if (currTool === 'replay_cut' && currHover && currHover.x < chartPlotWidth) {
       ctx.fillStyle = 'rgba(11, 14, 20, 0.5)';
       ctx.fillRect(currHover.x, 0, chartPlotWidth - currHover.x, chartPlotHeight);
@@ -3561,6 +3553,15 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
     ctx.restore();
   }, [getCandlePaneMetrics, priceToY, resolveTimeToX]);
+
+  const overlayRafRef = useRef<number>(0);
+  const scheduleOverlayDraw = useCallback(() => {
+    if (overlayRafRef.current) return;
+    overlayRafRef.current = requestAnimationFrame(() => {
+      overlayRafRef.current = 0;
+      drawOverlay();
+    });
+  }, [drawOverlay]);
 
   // Hit-testing for Position Handles & Drawing Handles (including 8-handle support for Rectangle, Circle, and Triangle!)
   const hitTestHandlesAndShapes = useCallback(
@@ -4058,10 +4059,19 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
     const chart = init(container, {
       timezone: stateRef.current.displayTimezone,
-      formatter:{formatDate:({dateTimeFormat,timestamp,template,type})=>type==='crosshair'?formatChartCrosshairTime(timestamp,dateTimeFormat.resolvedOptions().timeZone):utils.formatDate(dateTimeFormat,timestamp,template)},
+      formatter: {
+        formatDate: ({ dateTimeFormat, timestamp, template, type }) => {
+          const tz = dateTimeFormat.resolvedOptions().timeZone;
+          if (type === 'crosshair') return formatChartCrosshairTime(timestamp, tz);
+          if (type === 'xAxis') {
+            return formatChartXAxisTime(timestamp, template, tz) ?? utils.formatDate(dateTimeFormat, timestamp, template);
+          }
+          return utils.formatDate(dateTimeFormat, timestamp, template);
+        },
+      },
       locale: 'en-US',
       layout: {
-        barSpaceLimit: { min: 1.5, max: 50 },
+        barSpaceLimit: { min: 1.5, max: 65 },
         yAxis: {
           position: 'right',
           scrollZoomEnabled: true,
@@ -4070,17 +4080,17 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       },
       styles: {
         grid: {
-          show: false,
+          show: true,
           horizontal: {
             show: true,
             size: 1,
-            color: '#f0f3fa',
+            color: '#ebedf4',
             style: 'solid' as LineType,
           },
           vertical: {
             show: true,
             size: 1,
-            color: '#f0f3fa',
+            color: '#ebedf4',
             style: 'solid' as LineType,
           },
         },
@@ -4229,6 +4239,140 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
     chart.setBarSpace(7.5);
     chart.setOffsetRightDistance(75);
+    chart.overrideXAxis({
+      createTicks: ({ bounding, defaultTicks }) => {
+        if (bounding.width <= 0 || defaultTicks.length < 2) return defaultTicks;
+        const tz = stateRef.current.displayTimezone;
+        const targetPx = 68;
+        const result: { coord: number; value: number | string; text: string }[] = [];
+        let lastLabelX = -Infinity;
+
+        const pushTick = (coord: number, ts: number, label?: string) => {
+          if (coord < 0 || coord > bounding.width) return;
+          const text =
+            label ??
+            formatChartXAxisTime(ts, 'HH:mm', tz) ??
+            new Date(ts).toLocaleTimeString('en-US', {
+              timeZone: tz,
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            });
+          const showText = coord - lastLabelX >= 46;
+          if (showText) lastLabelX = coord;
+          result.push({
+            coord,
+            value: ts,
+            text: showText ? text : '',
+          });
+        };
+
+        const first = defaultTicks[0];
+        const second = defaultTicks[1];
+        const firstGap = second.coord - first.coord;
+        const firstDt = Number(second.value) - Number(first.value);
+        if (firstGap > 0 && Number.isFinite(firstDt) && firstDt > 0) {
+          const subCount = Math.max(1, Math.round(firstGap / targetPx));
+          const subPx = firstGap / subCount;
+          const subDt = firstDt / subCount;
+          if (first.coord > subPx * 0.85) {
+            const stepsLeft = Math.floor(first.coord / subPx);
+            for (let s = stepsLeft; s >= 1; s--) {
+              pushTick(first.coord - s * subPx, Math.round(Number(first.value) - s * subDt));
+            }
+          }
+        }
+
+        for (let i = 0; i < defaultTicks.length; i++) {
+          const curr = defaultTicks[i];
+          pushTick(curr.coord, Number(curr.value), curr.text);
+          if (i < defaultTicks.length - 1) {
+            const next = defaultTicks[i + 1];
+            const gap = next.coord - curr.coord;
+            const dt = Number(next.value) - Number(curr.value);
+            if (gap > targetPx * 1.45 && Number.isFinite(dt) && dt > 0) {
+              const subCount = Math.max(2, Math.round(gap / targetPx));
+              for (let j = 1; j < subCount; j++) {
+                const ratio = j / subCount;
+                pushTick(curr.coord + gap * ratio, Math.round(Number(curr.value) + dt * ratio));
+              }
+            }
+          }
+        }
+
+        const last = defaultTicks[defaultTicks.length - 1];
+        const prev = defaultTicks[defaultTicks.length - 2];
+        const lastGap = last.coord - prev.coord;
+        const lastDt = Number(last.value) - Number(prev.value);
+        if (lastGap > 0 && Number.isFinite(lastDt) && lastDt > 0) {
+          const subCount = Math.max(1, Math.round(lastGap / targetPx));
+          const subPx = lastGap / subCount;
+          const subDt = lastDt / subCount;
+          const stepsRight = Math.floor((bounding.width - last.coord) / subPx);
+          for (let s = 1; s <= stepsRight; s++) {
+            pushTick(last.coord + s * subPx, Math.round(Number(last.value) + s * subDt));
+          }
+        }
+
+        return result.length >= 2 ? result : defaultTicks;
+      },
+    });
+    chart.overrideYAxis({
+      paneId: 'candle_pane',
+      createTicks: ({ range, bounding, defaultTicks }) => {
+        if (bounding.height <= 0 || defaultTicks.length < 2) return defaultTicks;
+        const v0 = Number(defaultTicks[0].value);
+        const v1 = Number(defaultTicks[1].value);
+        const spanV = v1 - v0;
+        if (!Number.isFinite(spanV) || spanV === 0) return defaultTicks;
+        const slope = (defaultTicks[1].coord - defaultTicks[0].coord) / spanV;
+        if (!Number.isFinite(slope) || slope === 0) return defaultTicks;
+
+        const targetPx = 48;
+        const rawStep =
+          Math.abs(range.displayRange) /
+          Math.max(4, Math.round(bounding.height / targetPx));
+        if (!Number.isFinite(rawStep) || rawStep <= 0) return defaultTicks;
+
+        const pow10 = Math.pow(10, Math.floor(Math.log10(rawStep)));
+        const candidates = [1, 2, 2.5, 5, 10].map((m) => m * pow10);
+        let bestStep = candidates[0];
+        let bestDiff = Infinity;
+        for (const c of candidates) {
+          const px = Math.abs(c * slope);
+          if (px < 26) continue;
+          const diff = Math.abs(px - targetPx);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestStep = c;
+          }
+        }
+        if (Math.abs(bestStep * slope) < 26) return defaultTicks;
+
+        const stepStr = bestStep.toString();
+        const stepDecimals = stepStr.includes('e-')
+          ? Number(stepStr.split('e-')[1])
+          : stepStr.includes('.')
+          ? stepStr.split('.')[1].length
+          : 0;
+        const decimals = Math.max(stateRef.current.instConfig.decimals, stepDecimals);
+
+        const minVal = Math.min(range.displayFrom, range.displayTo);
+        const maxVal = Math.max(range.displayFrom, range.displayTo);
+        const firstTick = Math.ceil(minVal / bestStep) * bestStep;
+        const ticks: { coord: number; value: string; text: string }[] = [];
+        for (let i = 0; i < 100; i++) {
+          const val = Number((firstTick + i * bestStep).toFixed(decimals + 2));
+          if (val > maxVal + bestStep * 0.001) break;
+          const coord = defaultTicks[0].coord + (val - v0) * slope;
+          if (coord > 10 && coord < bounding.height - 10) {
+            const valStr = val.toFixed(decimals);
+            ticks.push({ coord, value: valStr, text: valStr });
+          }
+        }
+        return ticks.length >= 2 ? ticks : defaultTicks;
+      },
+    });
     chart.setSymbol({
       ticker: stateRef.current.symbol,
       pricePrecision: stateRef.current.instConfig.decimals,
@@ -4255,7 +4399,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     });
 
     chart.subscribeAction('onVisibleRangeChange', () => {
-      drawOverlay();
+      scheduleOverlayDraw();
       const state=stateRef.current;
       const before=state.candles[0]?.time;
       const boundary=`${state.symbol}:${state.timeframe}:${before}`;
@@ -4267,21 +4411,25 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       }
     });
     chart.subscribeAction('onScroll', () => {
-      drawOverlay();
+      scheduleOverlayDraw();
     });
     chart.subscribeAction('onZoom', () => {
-      drawOverlay();
+      scheduleOverlayDraw();
     });
     chart.subscribeAction('onPaneDrag', () => {
-      drawOverlay();
+      scheduleOverlayDraw();
     });
 
     chart.subscribeAction('onCrosshairChange', (data) => {
       const cr = data as Crosshair | undefined;
       if (!cr || typeof cr.x !== 'number' || typeof cr.y !== 'number') {
-        setHoveredCandle(null);
-        setHoverCoord(null);
-        drawOverlay();
+        setHoveredCandle((prev) => (prev === null ? prev : null));
+        if (hoverCoordRef.current !== null) {
+          hoverCoordRef.current = null;
+          if (stateRef.current.activeTool === 'replay_cut') {
+            scheduleOverlayDraw();
+          }
+        }
         return;
       }
 
@@ -4293,17 +4441,19 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           ? Math.floor(cr.timestamp / 1000)
           : resolveXToTime(cr.x, currCandles, chart) || lastBarTime;
       const found = findExactCandleByTime(currCandles, timeSec) || null;
-      setHoveredCandle(found);
+      setHoveredCandle((prev) => (prev?.time === found?.time ? prev : found));
 
       const priceAtCursor = yToPrice(cr.y, chart);
-      setHoverCoord({
+      hoverCoordRef.current = {
         x: cr.x,
         y: cr.y,
         time: timeSec,
         price: priceAtCursor !== null ? Number(priceAtCursor) : found?.close ?? 0,
-      });
+      };
 
-      drawOverlay();
+      if (stateRef.current.activeTool === 'replay_cut') {
+        scheduleOverlayDraw();
+      }
     });
 
     let syncRafId = 0;
@@ -4357,6 +4507,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
     return () => {
       cancelAnimationFrame(syncRafId);
+      if (overlayRafRef.current) {
+        cancelAnimationFrame(overlayRafRef.current);
+        overlayRafRef.current = 0;
+      }
       resizeObserver.disconnect();
       subscribeBarCallbackRef.current = null;
       chartRef.current = null;
@@ -4370,6 +4524,20 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     const container = containerRef.current;
     const chart = chartRef.current;
     if (!container || !chart) return;
+
+    let panActive = false;
+    let panLastX = 0;
+    let panLastTime = 0;
+    let panVx = 0;
+    let kineticRafId = 0;
+    const stopKineticScroll = () => {
+      if (kineticRafId) {
+        cancelAnimationFrame(kineticRafId);
+        kineticRafId = 0;
+      }
+      panActive = false;
+      panVx = 0;
+    };
 
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
@@ -4480,6 +4648,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
+      stopKineticScroll();
       setContextMenu(null);
       setActiveBarPopover(null);
 
@@ -4721,9 +4890,25 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       if (yAxis && typeof yAxis.setAutoCalcTickFlag === 'function') {
         yAxis.setAutoCalcTickFlag(false);
       }
+      if (currState.activeTool === 'cursor' || (currState.activeTool as string) === 'crosshair') {
+        panActive = true;
+        panLastX = e.clientX;
+        panLastTime = performance.now();
+        panVx = 0;
+      }
     };
 
     const handleMouseMove = (e: MouseEvent) => {
+      if (panActive && !dragRef.current && (e.buttons & 1)) {
+        const now = performance.now();
+        const dt = Math.max(4, now - panLastTime);
+        const dx = e.clientX - panLastX;
+        const instantVx = (dx / dt) * 16.67;
+        panVx = panVx * 0.45 + instantVx * 0.55;
+        panLastX = e.clientX;
+        panLastTime = now;
+        return;
+      }
       const rect = container.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
@@ -5119,7 +5304,28 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
     const handleMouseUp = () => {
       const activeDrag = dragRef.current;
-      if (!activeDrag) return;
+      if (!activeDrag) {
+        if (panActive) {
+          const elapsed = performance.now() - panLastTime;
+          let velocity = Math.max(-48, Math.min(48, panVx));
+          panActive = false;
+          panVx = 0;
+          if (elapsed < 70 && Math.abs(velocity) > 2) {
+            const stepKinetic = () => {
+              if (Math.abs(velocity) < 0.35) {
+                kineticRafId = 0;
+                return;
+              }
+              chart.scrollByDistance(velocity);
+              scheduleOverlayDraw();
+              velocity *= 0.91;
+              kineticRafId = requestAnimationFrame(stepKinetic);
+            };
+            kineticRafId = requestAnimationFrame(stepKinetic);
+          }
+        }
+        return;
+      }
 
       chart.setScrollEnabled(true);
 
@@ -5159,7 +5365,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     };
 
     const handleWheel = () => {
-      drawOverlay();
+      stopKineticScroll();
+      scheduleOverlayDraw();
     };
 
     container.addEventListener('contextmenu', handleContextMenu);
@@ -5249,6 +5456,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       container.removeEventListener('touchend', handleTouchEnd, { capture: true });
       container.removeEventListener('touchcancel', handleTouchEnd, { capture: true });
       if (rafId) cancelAnimationFrame(rafId);
+      stopKineticScroll();
       container.removeEventListener('contextmenu', handleContextMenu);
       container.removeEventListener('mousedown', handleMouseDown, { capture: true });
       container.removeEventListener('dblclick', handleDoubleClick);
@@ -5259,6 +5467,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   }, [
     commitTextEditor,
     drawOverlay,
+    scheduleOverlayDraw,
     getCandlePaneMetrics,
     hitTestHandlesAndShapes,
     hitTestIndicatorCurves,
@@ -5291,15 +5500,15 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       }
     }
 
-    const gridColor = isLight ? '#f0f3fa' : 'rgba(42, 46, 57, 0.45)';
+    const gridColor = isLight ? '#ebedf4' : 'rgba(42, 46, 57, 0.45)';
     const borderColor = isLight ? '#e0e3eb' : '#2a2e39';
     const textColor = isLight ? '#131722' : '#9ca3af';
 
     chart.setStyles({
       grid: {
-        show: false,
-        horizontal: { color: gridColor },
-        vertical: { color: gridColor },
+        show: true,
+        horizontal: { show: true, size: 1, color: gridColor, style: 'solid' as LineType },
+        vertical: { show: true, size: 1, color: gridColor, style: 'solid' as LineType },
       },
       candle: {
         bar: {
@@ -5869,8 +6078,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       <div title={[feedLabel,dataMessage].filter(Boolean).join(' · ')} className="absolute bottom-0 inset-x-0 h-5 z-20 bg-inherit px-2 text-[9px] flex items-center gap-2 whitespace-nowrap overflow-hidden pointer-events-none">
         <strong className="shrink-0">{isReplayMode ? 'REPLAY' : 'LIVE PAPER'} · {displayTimezone === 'Africa/Johannesburg' ? 'South Africa' : displayTimezone} · {symbol}</strong>
         {!isReplayMode && feedStatus && <span className="shrink-0">{feedStatus}</span>}
-        {onLoadOlderHistory && candles.length>0 && <button type="button" aria-label="Load older chart history" title="Load earlier history; scrolling to the left edge also loads older bars" disabled={manualHistoryBusy} onClick={async()=>{setManualHistoryBusy(true);try{await onLoadOlderHistory(timeframe,candles[0].time);}finally{setManualHistoryBusy(false);}}} className="pointer-events-auto shrink-0 rounded px-1 text-slate-400 hover:bg-white/10 hover:text-emerald-400 disabled:opacity-40">‹</button>}
-        {candles.length>0 && <span aria-label="Loaded chart history" className="shrink-0 text-slate-400">{formatTimestampInTimezone(candles[0].time,displayTimezone).slice(0,10)} → {formatTimestampInTimezone(candles[candles.length-1].time,displayTimezone).slice(0,10)}</span>}
+        {onLoadOlderHistory && candles.length>0 && <button type="button" aria-label="Load older chart history" title="Load earlier history; scrolling to the left edge also loads older bars" disabled={manualHistoryBusy} onClick={async()=>{setManualHistoryBusy(true);try{await onLoadOlderHistory(timeframe,candles[0].time);}finally{setManualHistoryBusy(false);}}} className={`pointer-events-auto shrink-0 rounded px-1 disabled:opacity-40 ${isLight ? 'text-slate-600 hover:bg-slate-200/70 hover:text-emerald-700' : 'text-slate-400 hover:bg-white/10 hover:text-emerald-400'}`}>‹</button>}
+        {candles.length>0 && <span aria-label="Loaded chart history" className={`shrink-0 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>{formatTimestampInTimezone(candles[0].time,displayTimezone).slice(0,10)} → {formatTimestampInTimezone(candles[candles.length-1].time,displayTimezone).slice(0,10)}</span>}
         <span className="truncate">{dataMessage || feedLabel}{candles.length > 0 ? ' · Candle opens ' + formatTimestampInTimezone(candles[candles.length - 1].time,displayTimezone,true) + ' ' + (displayTimezone === 'Africa/Johannesburg' ? 'South Africa' : displayTimezone) : ''}</span>
         {dataMessage && onGoToNextAvailableBar && <button type="button" onClick={onGoToNextAvailableBar} className="pointer-events-auto shrink-0 text-amber-400 hover:underline">Next available bar</button>}
       </div>
@@ -8287,22 +8496,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           <RotateCcw className="w-3 h-3 text-[#2962ff]" />
           <span>Auto Fit</span>
           <span className="hidden sm:inline">Chart</span>
-        </button>
-        <button
-          onClick={() => {
-            onGoToPresent?.();
-            handleResetView();
-          }}
-          className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded border text-[10px] sm:text-[11px] shadow-sm transition ${
-            isLight
-              ? 'bg-white hover:bg-[#f0f3fa] border-[#e0e3eb] text-[#131722]'
-              : 'bg-[#1e222d]/90 hover:bg-[#262b38] border-[#2a2e39] text-gray-300'
-          }`}
-          title="Show today’s latest provider candles and refresh every 5 seconds in the selected chart time zone"
-        >
-          <Clock className="w-3 h-3 text-emerald-500" />
-          <span>Present</span>
-          <span className="hidden sm:inline">Time</span>
         </button>
         <button
           onClick={handleTakeChartScreenshot}

@@ -26,6 +26,37 @@ export function formatChartCrosshairTime(timestampMs:number,timezone:string):str
   return timezone==='Africa/Johannesburg'?formatted.replace(/\s+(?:GMT\+2|SAST|UTC\+2)$/i,' South Africa'):formatted;
 }
 
+const xAxisFormatterCache = new Map<string, Intl.DateTimeFormat>();
+function getXAxisFormatter(key: string, locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  let fmt = xAxisFormatterCache.get(key);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(locale, options);
+    xAxisFormatterCache.set(key, fmt);
+  }
+  return fmt;
+}
+
+/** Format x-axis ticks like TradingView (year -> short month -> day+month -> HH:mm -> HH:mm:ss). */
+export function formatChartXAxisTime(timestampMs: number, template: string, timezone: string): string | null {
+  const date = new Date(timestampMs);
+  if (template === 'YYYY') {
+    return getXAxisFormatter(`y:${timezone}`, 'en-US', { timeZone: timezone, year: 'numeric' }).format(date);
+  }
+  if (template === 'YYYY-MM') {
+    return getXAxisFormatter(`m:${timezone}`, 'en-US', { timeZone: timezone, month: 'short' }).format(date);
+  }
+  if (template === 'MM-DD' || template === 'YYYY-MM-DD') {
+    return getXAxisFormatter(`d:${timezone}`, 'en-GB', { timeZone: timezone, day: 'numeric', month: 'short' }).format(date);
+  }
+  if (template === 'HH:mm' || template === 'YYYY-MM-DD HH:mm') {
+    return getXAxisFormatter(`hm:${timezone}`, 'en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+  }
+  if (template === 'HH:mm:ss') {
+    return getXAxisFormatter(`hms:${timezone}`, 'en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(date);
+  }
+  return null;
+}
+
 export const CUSTOM_PRO_FIB_LEVELS: FibLevelConfig[] = [
   { level: -0.618, color: '#089981', enabled: false },
   { level: -0.27, color: '#131722', enabled: true },

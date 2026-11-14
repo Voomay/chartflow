@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { calculateEvaluationScenario } from '../../components/PropEvaluationCalculator';
+import {
+  calculateAlternativeScenarios,
+  calculateEvaluationScenario,
+  calculateWorstPassingScenario,
+} from '../../components/PropEvaluationCalculator';
 
 describe('calculateEvaluationScenario', () => {
   it('matches the default Step 1 example (5K, 1% risk, 1:2 RR, 7 wins, 6 losses)', () => {
@@ -88,5 +92,84 @@ describe('calculateEvaluationScenario', () => {
     expect(res.winsNeededWithZeroLosses).toBe(3);
     expect(res.minWinsForCurrentLosses).toBe(4);
     expect(res.breakEvenWinRatePct).toBeCloseTo(28.57, 1);
+  });
+
+  it('supports custom profit target percentages', () => {
+    const res = calculateEvaluationScenario({
+      accountSize: 10000,
+      step: 'STEP_1',
+      targetPct: 12,
+      riskPct: 1,
+      riskReward: 2,
+      winningTrades: 8,
+      losingTrades: 4,
+    });
+
+    expect(res.targetAmount).toBe(1200);
+    expect(res.netProfit).toBe(1200);
+    expect(res.targetReached).toBe(true);
+  });
+});
+
+describe('calculateWorstPassingScenario', () => {
+  it('computes max survivable consecutive losses and recovery wins on 1% risk', () => {
+    const worst = calculateWorstPassingScenario({
+      accountSize: 5000,
+      step: 'STEP_1',
+      targetPct: 8,
+      riskPct: 1,
+      riskReward: 2,
+    });
+
+    expect(worst.canSurviveAnyLoss).toBe(true);
+    expect(worst.maxSurvivableLosses).toBe(9);
+    expect(worst.worstDrawdownAmount).toBe(450);
+    expect(worst.lowestBalance).toBe(4550);
+    expect(worst.winsToRecoverAndPass).toBe(9);
+    expect(worst.totalTrades).toBe(18);
+    expect(worst.requiredWinRatePct).toBe(50);
+    expect(worst.netProfit).toBe(450);
+    expect(worst.finalBalance).toBe(5450);
+  });
+
+  it('flags when risk >= 10% cannot survive a single loss', () => {
+    const worst = calculateWorstPassingScenario({
+      accountSize: 10000,
+      step: 'STEP_1',
+      targetPct: 8,
+      riskPct: 10,
+      riskReward: 2,
+    });
+
+    expect(worst.canSurviveAnyLoss).toBe(false);
+    expect(worst.maxSurvivableLosses).toBe(0);
+  });
+});
+
+describe('calculateAlternativeScenarios', () => {
+  it('generates lower-risk, higher-RR, and faster-risk alternatives to reach target', () => {
+    const alts = calculateAlternativeScenarios({
+      accountSize: 10000,
+      targetPct: 8,
+      riskPct: 1,
+      riskReward: 2,
+      winRatePct: 50,
+    });
+
+    expect(alts).toHaveLength(3);
+    const [lowerRisk, higherRR, fasterRisk] = alts;
+
+    expect(lowerRisk.riskPct).toBe(0.5);
+    expect(lowerRisk.reachableAtWinRate).toBe(true);
+    expect(lowerRisk.maxConsecutiveLosses).toBe(19);
+    expect(lowerRisk.netProfit).toBeGreaterThanOrEqual(800);
+
+    expect(higherRR.riskReward).toBe(3);
+    expect(higherRR.reachableAtWinRate).toBe(true);
+    expect(higherRR.netProfit).toBeGreaterThanOrEqual(800);
+
+    expect(fasterRisk.riskPct).toBe(1.5);
+    expect(fasterRisk.reachableAtWinRate).toBe(true);
+    expect(fasterRisk.netProfit).toBeGreaterThanOrEqual(800);
   });
 });

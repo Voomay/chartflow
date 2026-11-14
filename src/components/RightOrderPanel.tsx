@@ -720,7 +720,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
     <aside
       data-tour="order-ticket"
       data-theme={theme}
-      className={`execution-ticket w-80 flex flex-col h-full shrink-0 select-none overflow-y-auto custom-scrollbar ${panelBg}`}
+      className={`execution-ticket w-80 flex flex-col h-full shrink-0 select-none overflow-y-auto custom-scrollbar scroll-smooth ${panelBg}`}
     >
       {/* Top Section: Order Ticket Header */}
       <div
@@ -750,7 +750,7 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
             </h2>
             <p
               className={`text-[10px] font-mono truncate ${
-                isLight ? 'text-slate-500' : 'text-slate-400'
+                isLight ? 'text-slate-700 font-medium' : 'text-slate-400'
               }`}
             >
               {symbol} · {spec.contractSize.toLocaleString()}{' '}
@@ -776,10 +776,18 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                 : 'bg-amber-500/10 border-amber-400/25 text-amber-300'
             }`}
           >
-            <div className="text-[8px] uppercase tracking-wider opacity-70 font-sans font-bold">
+            <div
+              className={`text-[8px] uppercase tracking-wider font-sans font-bold ${
+                isLight ? 'text-amber-800' : 'opacity-70'
+              }`}
+            >
               Spread
             </div>
-            <div className="text-[10px] font-extrabold text-amber-400">
+            <div
+              className={`text-[10px] font-extrabold ${
+                isLight ? 'text-amber-700' : 'text-amber-400'
+              }`}
+            >
               {spreadPips} {estimates.unitLabel}
             </div>
           </div>
@@ -904,10 +912,14 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
             <div className="text-base font-mono font-black tracking-tight mt-1">
               {bid.toFixed(spec.decimals)}
             </div>
-            <div className="text-[9px] font-mono opacity-80 flex items-center gap-1 mt-0.5">
+            <div
+              className={`text-[9px] font-mono flex items-center gap-1 mt-0.5 ${
+                isLight && side !== 'SHORT' ? 'text-rose-800 font-medium' : 'opacity-80'
+              }`}
+            >
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  side === 'SHORT' ? 'bg-white' : 'bg-rose-400'
+                  side === 'SHORT' ? 'bg-white' : isLight ? 'bg-rose-600' : 'bg-rose-400'
                 }`}
               />
               <span>Bid Price</span>
@@ -943,10 +955,14 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
             <div className="text-base font-mono font-black tracking-tight mt-1">
               {ask.toFixed(spec.decimals)}
             </div>
-            <div className="text-[9px] font-mono opacity-80 flex items-center gap-1 mt-0.5">
+            <div
+              className={`text-[9px] font-mono flex items-center gap-1 mt-0.5 ${
+                isLight && side !== 'LONG' ? 'text-emerald-800 font-medium' : 'opacity-80'
+              }`}
+            >
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  side === 'LONG' ? 'bg-white' : 'bg-emerald-400'
+                  side === 'LONG' ? 'bg-white' : isLight ? 'bg-emerald-600' : 'bg-emerald-400'
                 }`}
               />
               <span>Ask Price</span>
@@ -993,7 +1009,11 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
               <span className="font-bold opacity-85">
                 {resolvedOrderSubType.replace('_', ' ')} Entry Price
               </span>
-              <span className="font-mono text-[10px] text-emerald-400 font-semibold">
+              <span
+                className={`font-mono text-[10px] font-semibold ${
+                  isLight ? 'text-emerald-700' : 'text-emerald-400'
+                }`}
+              >
                 {orderCategory === 'LIMIT'
                   ? side === 'LONG'
                     ? 'Must be < Ask'
@@ -1083,7 +1103,11 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                   );
                 })}
               </div>
-              <div className="text-[9px] opacity-60 font-mono flex justify-between px-0.5">
+              <div
+                className={`text-[9px] font-mono flex justify-between px-0.5 ${
+                  isLight ? 'text-slate-700 font-medium' : 'opacity-60'
+                }`}
+              >
                 <span>Min: {spec.minQuantity} lot</span>
                 <span>Step: {spec.quantityIncrement} lot</span>
               </div>
@@ -1120,7 +1144,9 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                   }}
                   className={`flex-1 min-w-0 h-6 rounded-lg border px-1 text-[10px] font-semibold transition ${
                     customRisk
-                      ? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-300'
+                      ? isLight
+                        ? 'border-cyan-600/50 bg-cyan-500/15 text-cyan-800'
+                        : 'border-cyan-400/60 bg-cyan-400/15 text-cyan-300'
                       : `${cardBg} opacity-75 hover:opacity-100`
                   }`}
                 >
@@ -1129,7 +1155,12 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
               </div>
               {customRisk && (
                 <div className="flex items-center gap-2">
-                  <label htmlFor="ticket-custom-risk" className="text-[10px] opacity-60">
+                  <label
+                    htmlFor="ticket-custom-risk"
+                    className={`text-[10px] ${
+                      isLight ? 'text-slate-700 font-medium' : 'opacity-60'
+                    }`}
+                  >
                     Custom risk
                   </label>
                   <input
@@ -1143,10 +1174,18 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                     onChange={(event) => setRiskPctInput(event.target.value)}
                     className={`min-w-0 flex-1 rounded-xl border px-2 py-1 text-xs font-mono outline-none ${inputBg}`}
                   />
-                  <span className="text-xs opacity-50">%</span>
+                  <span
+                    className={`text-xs ${isLight ? 'text-slate-700' : 'opacity-50'}`}
+                  >
+                    %
+                  </span>
                 </div>
               )}
-              <div className="text-[10px] text-emerald-400 font-mono font-bold">
+              <div
+                className={`text-[10px] font-mono font-bold ${
+                  isLight ? 'text-emerald-700' : 'text-emerald-400'
+                }`}
+              >
                 Auto-Sized: {effectiveLotSize.toFixed(2)} lots
               </div>
             </div>
@@ -1163,10 +1202,20 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
             }`}
           >
             <div className="flex items-center justify-between text-[11px]">
-              <span className="font-bold text-rose-400 flex items-center gap-1 whitespace-nowrap">
+              <span
+                className={`font-bold flex items-center gap-1 whitespace-nowrap ${
+                  isLight ? 'text-rose-700' : 'text-rose-400'
+                }`}
+              >
                 Stop Loss
                 {mandatorySL && (
-                  <span className="text-[9px] px-1 rounded bg-rose-500/20 text-rose-300 font-mono">
+                  <span
+                    className={`text-[9px] px-1 rounded font-mono ${
+                      isLight
+                        ? 'bg-rose-100 text-rose-700'
+                        : 'bg-rose-500/20 text-rose-300'
+                    }`}
+                  >
                     REQ
                   </span>
                 )}
@@ -1177,7 +1226,11 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                   onClick={() => {
                     setStopLossInput('0');
                   }}
-                  className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-300 opacity-75 hover:opacity-100 transition"
+                  className={`text-[9px] px-1.5 py-0.5 rounded transition ${
+                    isLight
+                      ? 'bg-rose-100 text-rose-700 hover:bg-rose-200 font-semibold'
+                      : 'bg-rose-500/10 text-rose-300 opacity-75 hover:opacity-100'
+                  }`}
                 >
                   Clear
                 </button>
@@ -1196,11 +1249,17 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
               className={`w-full px-2 py-1 rounded-xl border text-xs font-mono font-bold outline-none border-rose-500/30 focus:border-rose-400 ${inputBg}`}
             />
             {estimates.slDistance && (
-              <div className="text-[9.5px] font-mono text-rose-400/90 flex justify-between px-0.5">
+              <div
+                className={`text-[9.5px] font-mono flex justify-between px-0.5 ${
+                  isLight ? 'text-rose-700 font-semibold' : 'text-rose-400/90'
+                }`}
+              >
                 <span>
                   {estimates.slDistance.pips} {estimates.unitLabel}
                 </span>
-                <span className="opacity-70">{estimates.slDistance.points} pts</span>
+                <span className={isLight ? 'text-rose-700' : 'opacity-70'}>
+                  {estimates.slDistance.points} pts
+                </span>
               </div>
             )}
           </div>
@@ -1213,7 +1272,11 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
             }`}
           >
             <div className="flex items-center justify-between gap-1 text-[11px]">
-              <span className="font-bold text-emerald-400 whitespace-nowrap">
+              <span
+                className={`font-bold whitespace-nowrap ${
+                  isLight ? 'text-emerald-700' : 'text-emerald-400'
+                }`}
+              >
                 Take Profit
               </span>
               <div
@@ -1233,6 +1296,8 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                       className={`px-1 py-0.5 rounded border font-extrabold transition ${
                         matchesRR
                           ? pillActive
+                          : isLight
+                          ? 'bg-emerald-500/15 text-emerald-800 border-emerald-600/35 hover:bg-emerald-500/25'
                           : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30'
                       }`}
                     >
@@ -1255,11 +1320,17 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
               className={`w-full px-2 py-1 rounded-xl border text-xs font-mono font-bold outline-none border-emerald-500/30 focus:border-emerald-400 ${inputBg}`}
             />
             {estimates.tpDistance && (
-              <div className="text-[9.5px] font-mono text-emerald-400/90 flex justify-between px-0.5">
+              <div
+                className={`text-[9.5px] font-mono flex justify-between px-0.5 ${
+                  isLight ? 'text-emerald-700 font-semibold' : 'text-emerald-400/90'
+                }`}
+              >
                 <span>
                   {estimates.tpDistance.pips} {estimates.unitLabel}
                 </span>
-                <span className="opacity-70">{estimates.tpDistance.points} pts</span>
+                <span className={isLight ? 'text-emerald-700' : 'opacity-70'}>
+                  {estimates.tpDistance.points} pts
+                </span>
               </div>
             )}
           </div>
@@ -1275,7 +1346,11 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
           }`}
         >
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400/90">
+            <span
+              className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                isLight ? 'text-emerald-800' : 'text-emerald-400/90'
+              }`}
+            >
               Setup Summary
             </span>
             <output
@@ -1300,13 +1375,27 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                   : 'bg-[#09121c]/75 border-rose-500/20'
               }`}
             >
-              <p className="text-[9.5px] opacity-60 font-medium">Risk at stop</p>
-              <p className="mt-0.5 text-xs font-mono font-bold text-rose-400">
+              <p
+                className={`text-[9.5px] ${
+                  isLight ? 'text-slate-700 font-semibold' : 'opacity-60 font-medium'
+                }`}
+              >
+                Risk at stop
+              </p>
+              <p
+                className={`mt-0.5 text-xs font-mono font-bold ${
+                  isLight ? 'text-rose-700' : 'text-rose-400'
+                }`}
+              >
                 {parsedSL > 0
                   ? `−${formatMoney(estimates.estimatedRiskMoney, currency)}`
                   : 'No stop'}
               </p>
-              <p className="mt-0.5 text-[9px] opacity-55 leading-tight">
+              <p
+                className={`mt-0.5 text-[9px] leading-tight ${
+                  isLight ? 'text-slate-700 font-medium' : 'opacity-55'
+                }`}
+              >
                 {estimates.riskPctOfBalance}% of balance
                 {estimates.slDistance
                   ? ` · ${estimates.slDistance.pips} ${estimates.unitLabel}`
@@ -1320,13 +1409,27 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
                   : 'bg-[#09121c]/75 border-emerald-500/20'
               }`}
             >
-              <p className="text-[9.5px] opacity-60 font-medium">Reward at target</p>
-              <p className="mt-0.5 text-xs font-mono font-bold text-emerald-400">
+              <p
+                className={`text-[9.5px] ${
+                  isLight ? 'text-slate-700 font-semibold' : 'opacity-60 font-medium'
+                }`}
+              >
+                Reward at target
+              </p>
+              <p
+                className={`mt-0.5 text-xs font-mono font-bold ${
+                  isLight ? 'text-emerald-700' : 'text-emerald-400'
+                }`}
+              >
                 {parsedTP > 0
                   ? `+${formatMoney(estimates.estimatedRewardMoney, currency)}`
                   : 'No target'}
               </p>
-              <p className="mt-0.5 text-[9px] opacity-55 leading-tight">
+              <p
+                className={`mt-0.5 text-[9px] leading-tight ${
+                  isLight ? 'text-slate-700 font-medium' : 'opacity-55'
+                }`}
+              >
                 {effectiveLotSize.toFixed(2)} lots
                 {estimates.tpDistance
                   ? ` · ${estimates.tpDistance.pips} ${estimates.unitLabel}`
@@ -1336,8 +1439,10 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
           </div>
 
           <div
-            className={`mt-2 border-t pt-1.5 space-y-0.5 text-[9.5px] opacity-75 ${
-              isLight ? 'border-emerald-500/15' : 'border-white/10'
+            className={`mt-2 border-t pt-1.5 space-y-0.5 text-[9.5px] ${
+              isLight
+                ? 'border-emerald-600/20 text-slate-800 font-medium'
+                : 'border-white/10 opacity-75'
             }`}
           >
             <div className="flex justify-between">
@@ -1364,7 +1469,11 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
             </div>
           </div>
           {activePositionDrawing && orderCategory === 'MARKET' && (
-            <p className="mt-1.5 text-[9.5px] leading-4 opacity-55">
+            <p
+              className={`mt-1.5 text-[9.5px] leading-4 ${
+                isLight ? 'text-slate-700' : 'opacity-55'
+              }`}
+            >
               Preview uses tool entry {effectiveEntryPrice.toFixed(spec.decimals)}.
               Market execution uses the current bid/ask.
             </p>
@@ -1376,7 +1485,11 @@ export const RightOrderPanel: React.FC<RightOrderPanelProps> = ({
           <div
             className={`p-2 rounded-xl border text-[11px] flex items-start gap-2 ${
               orderFeedback.type === 'error'
-                ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                ? isLight
+                  ? 'bg-rose-50 border-rose-300 text-rose-800'
+                  : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                : isLight
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                 : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
             }`}
           >

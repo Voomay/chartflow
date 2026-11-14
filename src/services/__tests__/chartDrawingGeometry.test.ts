@@ -2,6 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {
   clipExtendedLine,
   formatChartCrosshairTime,
+  formatChartXAxisTime,
   PATTERN_LABELS,
   computeFibLevelPrice,
   formatFibLevelLabel,
@@ -74,4 +75,16 @@ describe('Customizable Moving Averages (EMA / SMA / WMA)',()=>{
    const wma3 = computeMovingAverageSeries(sampleCandles, { method: 'WMA', period: 3, source: 'close' });
    expect(wma3[0].value).toBeCloseTo((10 * 1 + 12 * 2 + 14 * 3) / 6, 5);
  });
+});
+
+describe('formatChartXAxisTime', () => {
+  const ts = Date.UTC(2026, 10, 16, 10, 15, 30); // 2026-11-16 10:15:30 UTC -> 12:15:30 SAST
+  it('formats year, month, day, hour/minute, and second templates like TradingView', () => {
+    expect(formatChartXAxisTime(ts, 'YYYY', 'Africa/Johannesburg')).toBe('2026');
+    expect(formatChartXAxisTime(ts, 'YYYY-MM', 'Africa/Johannesburg')).toBe('Nov');
+    expect(formatChartXAxisTime(ts, 'MM-DD', 'Africa/Johannesburg')).toBe('16 Nov');
+    expect(formatChartXAxisTime(ts, 'HH:mm', 'Africa/Johannesburg')).toBe('12:15');
+    expect(formatChartXAxisTime(ts, 'HH:mm:ss', 'Africa/Johannesburg')).toBe('12:15:30');
+    expect(formatChartXAxisTime(ts, 'unknown', 'Africa/Johannesburg')).toBeNull();
+  });
 });

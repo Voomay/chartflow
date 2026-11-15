@@ -1682,7 +1682,9 @@ export function computeAnalyticsReport(
         ? 'FAILED'
         : primarySession.challengeState?.status === 'PASSED' ||
           primarySession.status === 'PASSED' ||
-          (p1TargetAmount > 0 && p1NetPnl >= p1TargetAmount)
+          (p1TargetAmount > 0 &&
+            p1NetPnl >= p1TargetAmount &&
+            (primarySession.challengeState?.tradedDays?.length ?? 0) >= minDays)
         ? 'PASSED'
         : 'ACTIVE';
 
@@ -1706,7 +1708,9 @@ export function computeAnalyticsReport(
         ? 'FAILED'
         : primarySession.challengeState?.status === 'PASSED' ||
           primarySession.status === 'PASSED' ||
-          (p2TargetAmount > 0 && p2NetPnl >= p2TargetAmount)
+          (p2TargetAmount > 0 &&
+            p2NetPnl >= p2TargetAmount &&
+            (primarySession.challengeState?.tradedDays?.length ?? 0) >= minDays)
         ? 'PASSED'
         : 'ACTIVE';
 

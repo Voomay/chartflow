@@ -1943,13 +1943,14 @@ export function evaluateChallengeRulesAtStep(
   const equityProfitForTarget = Number((currentEquity - startingBalance).toFixed(2));
   const netProfitForTarget = realizedProfitForTarget;
   const minDaysRequired =
-    rules.minTradingDaysEnabled !== false ? rules.minTradingDays : 0;
-  const tradingDaysCompleted = Math.max(1, cs.tradedDays.length);
+    rules.minTradingDaysEnabled !== false ? Math.max(0, rules.minTradingDays || 0) : 0;
+  const tradingDaysCompleted = cs.tradedDays.length;
 
   if (
     profitTargetAmount > 0 &&
     realizedProfitForTarget >= profitTargetAmount &&
-    equityProfitForTarget >= profitTargetAmount
+    equityProfitForTarget >= profitTargetAmount &&
+    tradingDaysCompleted >= minDaysRequired
   ) {
     const startTs =
       session.startTimestamp || Math.floor(Date.parse(`${session.startDate}T00:00:00Z`) / 1000);
@@ -2049,6 +2050,8 @@ export function evaluateChallengeRulesAtStep(
           archivedPhase1Attempt,
           ...(session.previousAttempts ?? []),
         ],
+        startTimestamp: timestampSec,
+        replayTimestamp: timestampSec,
         realizedPnL: 0,
         positions: [],
         orders: [],
@@ -2329,7 +2332,6 @@ export function evaluateSessionAt1mTimestamp(
         sym,
         session
       );
-      worstIntrabarUnrealizedPnl += worstFloating;
 
       // Conservative policy: if both SL and TP are touched on the same 1m bar, evaluate SL first and flag as ambiguous
       if (touchedSL) {
@@ -2342,6 +2344,7 @@ export function evaluateSessionAt1mTimestamp(
           sym,
           session
         );
+        worstIntrabarUnrealizedPnl += Math.min(0, worstFloating - closeLegPnl);
         nextRealizedPnL = Number((nextRealizedPnL + closeLegPnl).toFixed(2));
         const totalNetPnl = Number(
           ((activePos.bankedPartialPnl ?? 0) + closeLegPnl - (activePos.commissionPaid ?? 0)).toFixed(2)
@@ -2415,6 +2418,7 @@ export function evaluateSessionAt1mTimestamp(
           sym,
           session
         );
+        worstIntrabarUnrealizedPnl += Math.min(0, worstFloating - closeLegPnl);
         nextRealizedPnL = Number((nextRealizedPnL + closeLegPnl).toFixed(2));
         const totalNetPnl = Number(
           ((activePos.bankedPartialPnl ?? 0) + closeLegPnl - (activePos.commissionPaid ?? 0)).toFixed(2)
@@ -2456,6 +2460,7 @@ export function evaluateSessionAt1mTimestamp(
       }
 
       // Mark-to-market open LONG position at markBidClose
+      worstIntrabarUnrealizedPnl += worstFloating;
       const openFloatingPnl = calculatePositionPnl(
         'LONG',
         activePos.entryPrice,
@@ -2509,7 +2514,6 @@ export function evaluateSessionAt1mTimestamp(
         sym,
         session
       );
-      worstIntrabarUnrealizedPnl += worstFloating;
 
       if (touchedSL) {
         const exitPrice = activePos.stopLoss;
@@ -2521,6 +2525,7 @@ export function evaluateSessionAt1mTimestamp(
           sym,
           session
         );
+        worstIntrabarUnrealizedPnl += Math.min(0, worstFloating - closeLegPnl);
         nextRealizedPnL = Number((nextRealizedPnL + closeLegPnl).toFixed(2));
         const totalNetPnl = Number(
           ((activePos.bankedPartialPnl ?? 0) + closeLegPnl - (activePos.commissionPaid ?? 0)).toFixed(2)
@@ -2594,6 +2599,7 @@ export function evaluateSessionAt1mTimestamp(
           sym,
           session
         );
+        worstIntrabarUnrealizedPnl += Math.min(0, worstFloating - closeLegPnl);
         nextRealizedPnL = Number((nextRealizedPnL + closeLegPnl).toFixed(2));
         const totalNetPnl = Number(
           ((activePos.bankedPartialPnl ?? 0) + closeLegPnl - (activePos.commissionPaid ?? 0)).toFixed(2)
@@ -2634,6 +2640,7 @@ export function evaluateSessionAt1mTimestamp(
         return closedPos;
       }
 
+      worstIntrabarUnrealizedPnl += worstFloating;
       const openFloatingPnl = calculatePositionPnl(
         'SHORT',
         activePos.entryPrice,
@@ -4122,13 +4129,7 @@ export function startNewChallengeAttempt(
   const startingBalance = frozen?.startingBalance || session.startingBalance;
 
   const nextPhase = targetPhase || prevPhase;
-  const passedPhase1Attempt = (session.previousAttempts ?? []).find(
-    (a) => a.phaseId === 'PHASE_1' && a.status === 'PASSED'
-  );
-  const phaseStartTs =
-    nextPhase === 'PHASE_2' && passedPhase1Attempt?.passedEvent?.timestamp
-      ? passedPhase1Attempt.passedEvent.timestamp
-      : startTs;
+  const phaseStartTs = session.replayTimestamp || startTs;
   const storedP1Target =
     baseRules.phase1ProfitTargetPct ??
     (prevPhase === 'PHASE_1'
@@ -4170,6 +4171,7 @@ export function startNewChallengeAttempt(
     passedAt: undefined,
     attemptNumber: currentAttemptNum + 1,
     previousAttempts: [archivedAttempt, ...(session.previousAttempts ?? [])],
+    startTimestamp: phaseStartTs,
     replayTimestamp: phaseStartTs,
     realizedPnL: 0,
     positions: [],

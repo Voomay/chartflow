@@ -1139,15 +1139,22 @@ export function App() {
     breachEvent?: BreachEventRecord;
   } | null>(null);
   const [confettiBurstKey, setConfettiBurstKey] = useState<number>(0);
-  const triggerConfetti = useCallback(() => {
-    setConfettiBurstKey((k) => k + 1);
-  }, []);
 
   useEffect(() => {
     if (challengeAlertModal?.status === 'PASSED') {
       setConfettiBurstKey((k) => k + 1);
     }
   }, [challengeAlertModal]);
+
+  useEffect(() => {
+    if (!confettiBurstKey) return;
+    const timer = window.setTimeout(() => setConfettiBurstKey(0), 4500);
+    return () => window.clearTimeout(timer);
+  }, [confettiBurstKey]);
+
+  useEffect(() => {
+    setConfettiBurstKey(0);
+  }, [activeView]);
 
   const showToast = useCallback(
     (text: string, tone: 'up' | 'down' | 'info' = 'info') => {
@@ -2380,6 +2387,8 @@ export function App() {
   const handleStartNewChallengeAttempt = useCallback(
     (targetSessionId?: string, targetPhase?: 'PHASE_1' | 'PHASE_2') => {
       const sessId = targetSessionId || activeSession.id;
+      setIsPlaying(false);
+      replayStepBusy.current = false;
       setTradingSessions((prevList) =>
         prevList.map((s) =>
           s.id === sessId ? startNewChallengeAttempt(s, targetPhase) : s
@@ -3105,9 +3114,6 @@ export function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (challengeAlertModal.status === 'PASSED') {
-                      triggerConfetti();
-                    }
                     setChallengeAlertModal(null);
                     setHubInitialSection('analytics');
                     setActiveView('analytics_page');
@@ -3122,7 +3128,6 @@ export function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      triggerConfetti();
                       setChallengeAlertModal(null);
                       showToast('Phase 2 is now active.', 'up');
                     }}
@@ -3135,7 +3140,6 @@ export function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      triggerConfetti();
                       setChallengeAlertModal(null);
                       showToast('Challenge passed and saved to Analytics.', 'up');
                     }}

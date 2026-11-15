@@ -436,7 +436,8 @@ describe('Original historical replay archives',()=>{
   expect(redoneP2.status).toBe('ACTIVE');
   expect(redoneP2.propFirmRules.challengePhase).toBe('PHASE_2');
   expect(redoneP2.propFirmRules.profitTargetPct).toBe(5);
-  expect(redoneP2.replayTimestamp).toBe(p1PassTs);
+  expect(redoneP2.replayTimestamp).toBe(sessionInPhase2.replayTimestamp);
+  expect(redoneP2.startTimestamp).toBe(sessionInPhase2.replayTimestamp);
   expect(redoneP2.previousAttempts?.some(a=>a.phaseId==='PHASE_1'&&a.status==='PASSED')).toBe(true);
  });
 

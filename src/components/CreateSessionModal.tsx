@@ -1901,6 +1901,92 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                                 ))}
                               </div>
 
+                              <div
+                                className={`rounded-xl border p-3 flex flex-wrap items-center justify-between gap-3 ${
+                                  isLight ? 'bg-white border-slate-200' : 'bg-[#0c1422] border-white/10'
+                                }`}
+                              >
+                                <div>
+                                  <div className={`text-xs font-bold ${headingText}`}>
+                                    Minimum trading days
+                                  </div>
+                                  <div className={`text-[11px] ${mutedText}`}>
+                                    {propFirmRules.minTradingDaysEnabled !== false
+                                      ? `Requires ${Math.max(1, propFirmRules.minTradingDays || 1)} distinct trading ${
+                                          (propFirmRules.minTradingDays || 1) === 1 ? 'day' : 'days'
+                                        } with filled trades to pass.`
+                                      : 'Off — pass as soon as profit target is reached (great for quick testing).'}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  {propFirmRules.minTradingDaysEnabled !== false && (
+                                    <div
+                                      className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1 ${
+                                        isLight ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-[#0a111c]'
+                                      }`}
+                                    >
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        max={365}
+                                        step={1}
+                                        aria-label="Minimum trading days"
+                                        value={propFirmRules.minTradingDays}
+                                        onChange={(e) => {
+                                          const days = Math.min(
+                                            365,
+                                            Math.max(1, parseInt(e.target.value, 10) || 1)
+                                          );
+                                          setPropFirmRules((prev) => ({
+                                            ...prev,
+                                            presetId: 'CUSTOM',
+                                            minTradingDays: days,
+                                          }));
+                                        }}
+                                        className={`w-12 bg-transparent text-sm font-extrabold font-mono text-center focus:outline-none ${headingText}`}
+                                      />
+                                      <span className={`text-[11px] font-semibold ${mutedText}`}>
+                                        days
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  <div
+                                    className={`inline-flex rounded-xl border p-0.5 ${
+                                      isLight ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-[#0a111c]'
+                                    }`}
+                                  >
+                                    {([true, false] as const).map((enabled) => {
+                                      const isSelected =
+                                        (propFirmRules.minTradingDaysEnabled !== false) === enabled;
+                                      return (
+                                        <button
+                                          key={String(enabled)}
+                                          type="button"
+                                          onClick={() =>
+                                            setPropFirmRules((prev) => ({
+                                              ...prev,
+                                              presetId: 'CUSTOM',
+                                              minTradingDaysEnabled: enabled,
+                                              minTradingDays:
+                                                enabled && (!prev.minTradingDays || prev.minTradingDays < 1)
+                                                  ? 2
+                                                  : prev.minTradingDays,
+                                            }))
+                                          }
+                                          className={`px-3 py-1 rounded-lg text-[11px] font-bold transition ${
+                                            isSelected ? 'bg-[#00f2c3] text-[#032221]' : mutedText
+                                          }`}
+                                        >
+                                          {enabled ? 'On' : 'Off'}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+
                               <p className={`text-[11px] ${mutedText}`}>
                                 {propFirmRules.drawdownType === 'TRAILING'
                                   ? 'Trailing: your max drawdown floor moves up with your highest equity, and the daily loss resets each trading day.'

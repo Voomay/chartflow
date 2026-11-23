@@ -509,10 +509,17 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
   const simulatorRules =
     selectedAnalyticsSession.frozenConfig?.propFirmRules ||
     selectedAnalyticsSession.propFirmRules;
-  const simulatorIsProp = selectedAnalyticsSession.mode === 'PROP_FIRM' && !!simulatorRules;
+  const simulatorIsProp =
+    filters.mode !== 'BACKTESTING' &&
+    selectedAnalyticsSession.mode === 'PROP_FIRM' &&
+    !!simulatorRules;
+  const simulatorTargetPct =
+    filters.challengePhaseFilter === 'PHASE_2' && report.propChallengeSummary
+      ? report.propChallengeSummary.phase2.targetPct
+      : simulatorRules?.profitTargetPct ?? 0;
   const simulatorTargetLine =
     simulatorIsProp && simulatorRules
-      ? report.startingBalance * (1 + simulatorRules.profitTargetPct / 100)
+      ? report.startingBalance * (1 + simulatorTargetPct / 100)
       : null;
   const simulatorFloorLine =
     simulatorIsProp && simulatorRules

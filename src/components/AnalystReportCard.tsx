@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, ArrowDownRight, CheckCircle2, Sparkles, TrendingUp, X } from 'lucide-react';
+import { AlertTriangle, ArrowDownRight, CheckCircle2, TrendingUp, X } from 'lucide-react';
 import { AnalystInsight, AnalystReport } from '../services/analystReport';
 import { AccountCurrency } from '../types/trading';
 import { formatMoney } from '../services/simulationEngine';
@@ -48,7 +48,7 @@ export const AnalystReportSection: React.FC<AnalystReportSectionProps> = ({
       {/* Coach Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-11 h-11 shrink-0 rounded-xl bg-emerald-500/10 border border-emerald-500/25 p-1 flex items-center justify-center">
+          <div className="w-11 h-11 shrink-0 rounded-xl bg-emerald-500/10 border border-emerald-500/25 p-1 flex items-center justify-center [&>.coach-face]:w-full [&>.coach-face]:h-full">
             <CoachFace mood={analystReport.mood} />
           </div>
           <div className="min-w-0">
@@ -57,7 +57,6 @@ export const AnalystReportSection: React.FC<AnalystReportSectionProps> = ({
                 Coach Analyst Report
               </h3>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/25">
-                <Sparkles className="w-2.5 h-2.5" />
                 Data-driven · No AI guesswork
               </span>
             </div>
@@ -254,14 +253,14 @@ export const AnalystCoachPopup: React.FC<AnalystCoachPopupProps> = ({
     <aside
       role="status"
       aria-live="polite"
-      className={`fixed bottom-5 right-5 z-40 w-[340px] max-w-[calc(100vw-2rem)] rounded-2xl border p-3.5 shadow-2xl backdrop-blur-md transition-all ${
+      className={`fixed bottom-24 right-4 sm:right-6 z-40 w-[340px] max-w-[calc(100vw-2rem)] rounded-2xl border p-3.5 shadow-2xl backdrop-blur-md transition-all ${
         isLight
           ? 'bg-white/95 border-slate-200 text-slate-900'
           : 'bg-[#0f172a]/95 border-emerald-500/35 text-slate-100'
       }`}
     >
       <div className="flex items-start gap-3">
-        <div className="w-11 h-11 shrink-0 rounded-xl bg-emerald-500/10 border border-emerald-500/25 p-1">
+        <div className="w-11 h-11 shrink-0 rounded-xl bg-emerald-500/10 border border-emerald-500/25 p-1 flex items-center justify-center [&>.coach-face]:w-full [&>.coach-face]:h-full">
           <CoachFace mood={analystReport.mood} />
         </div>
         <div className="min-w-0 flex-1">

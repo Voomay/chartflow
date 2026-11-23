@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, Info, Layers, RefreshCw, Sparkles } from 'lucide-react';
+import { BarChart3, Info, Layers, RefreshCw } from 'lucide-react';
 import { AccountCurrency } from '../../types/trading';
 import { formatMoney } from '../../services/simulationEngine';
 import type { ComputedAnalyticsReport } from '../../services/storageAndAnalytics';
@@ -170,7 +170,7 @@ function runSimulation(
   const maxDrawdowns: number[] = [];
   const lowestEquities: number[] = [];
   const samplePaths: number[][] = [];
-  const ruinThreshold = start * 0.5;
+  const ruinThreshold = start > 0 ? start * 0.5 : 0;
   let reachedTargetCount = 0;
   let reachedFloorCount = 0;
   let ruinedCount = 0;
@@ -245,7 +245,7 @@ function runSimulation(
       label,
       finalEquity,
       returnPct: start > 0 ? (finalEquity / start - 1) * 100 : 0,
-      maxDDPct: quantile(sortedDD, level / 100),
+      maxDDPct: quantile(sortedDD, (100 - level) / 100),
       lowestEquity: quantile(sortedLowest, level / 100),
     };
   });
@@ -377,7 +377,13 @@ export const TradeSimulator: React.FC<TradeSimulatorProps> = ({
   const [showSamplePaths, setShowSamplePaths] = useState<boolean>(false);
   const [hover, setHover] = useState<number | null>(null);
 
+  useEffect(() => {
+    setTradesPerDay(derivedTradesPerDay);
+  }, [derivedTradesPerDay]);
+
   const trades = Math.max(1, Math.min(MAX_TRADES, Math.round(tradeCount) || 1));
+  const safeTradesPerDay =
+    Number.isFinite(tradesPerDay) && tradesPerDay >= 0.1 ? tradesPerDay : derivedTradesPerDay;
   const runCount = Math.max(50, Math.min(MAX_RUNS, runs));
 
   const simulation = useMemo(
@@ -531,15 +537,6 @@ export const TradeSimulator: React.FC<TradeSimulatorProps> = ({
       <div className="relative flex items-start justify-between flex-wrap gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span
-              className={`inline-flex h-7 w-7 items-center justify-center rounded-lg border ${
-                isLight
-                  ? 'border-violet-200 bg-violet-50 text-violet-600'
-                  : 'border-violet-400/25 bg-violet-500/15 text-violet-300'
-              }`}
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-            </span>
             <h3 className="text-xs font-extrabold uppercase tracking-wider bg-gradient-to-r from-violet-400 via-indigo-400 to-cyan-300 bg-clip-text text-transparent">
               Trade Simulator · Monte Carlo Equity Projection
             </h3>
@@ -695,7 +692,11 @@ export const TradeSimulator: React.FC<TradeSimulatorProps> = ({
             <StatCard
               label="Median outcome"
               value={formatMoney(simulation.finalP50, currency)}
-              sub={`${((simulation.finalP50 / startBalance - 1) * 100).toFixed(2)}% vs now`}
+              sub={
+                startBalance > 0
+                  ? `${((simulation.finalP50 / startBalance - 1) * 100).toFixed(2)}% vs now`
+                  : `${formatMoney(simulation.finalP50 - startBalance, currency, true)} vs now`
+              }
               tone="indigo"
               isLight={isLight}
             />
@@ -831,7 +832,7 @@ export const TradeSimulator: React.FC<TradeSimulatorProps> = ({
                         fill={axisText}
                         opacity={0.75}
                       >
-                        {projectDate(baseMs, p.trade, tradesPerDay)}
+                        {projectDate(baseMs, p.trade, safeTradesPerDay)}
                       </text>
                     </g>
                   );
@@ -988,7 +989,7 @@ export const TradeSimulator: React.FC<TradeSimulatorProps> = ({
                   <div className="mb-1 flex items-center justify-between gap-3 border-b border-gray-500/20 pb-1">
                     <span className="font-extrabold">Trade #{hovered.trade}</span>
                     <span className="opacity-60">
-                      {projectDate(baseMs, hovered.trade, tradesPerDay)}
+                      {projectDate(baseMs, hovered.trade, safeTradesPerDay)}
                     </span>
                   </div>
                   {series.map((s) => (
@@ -1116,7 +1117,7 @@ export const TradeSimulator: React.FC<TradeSimulatorProps> = ({
                       {[25, 50, 75, 100][idx]}% · T{p.trade}
                     </td>
                     <td className="py-1.5 opacity-65">
-                      {projectDate(baseMs, p.trade, tradesPerDay)}
+                      {projectDate(baseMs, p.trade, safeTradesPerDay)}
                     </td>
                     <td className="py-1.5 text-right" style={{ color: series[4].color }}>
                       {formatMoney(p.p5, currency)}

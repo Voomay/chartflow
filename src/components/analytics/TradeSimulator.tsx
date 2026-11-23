@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BarChart3, Info, Layers, RefreshCw } from 'lucide-react';
 import { AccountCurrency } from '../../types/trading';
 import { formatMoney } from '../../services/simulationEngine';
@@ -271,10 +271,12 @@ function runSimulation(
 }
 
 function useElementWidth<T extends HTMLElement>(fallback = 720) {
-  const ref = useRef<T | null>(null);
+  const [el, setEl] = useState<T | null>(null);
   const [width, setWidth] = useState(fallback);
+  const ref = useCallback((node: T | null) => {
+    setEl(node);
+  }, []);
   useEffect(() => {
-    const el = ref.current;
     if (!el) return;
     const update = () => {
       const w = el.getBoundingClientRect().width;
@@ -288,7 +290,7 @@ function useElementWidth<T extends HTMLElement>(fallback = 720) {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [el]);
   return [ref, width] as const;
 }
 

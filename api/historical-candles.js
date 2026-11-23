@@ -235,10 +235,17 @@ export function deriveLowerBarsFromArchive(all,refClock,end,limit=45000,symbol='
   }
   if(startIdx>=rawParent.length)continue;
   const existingChild=all[childTf]||[];
+  const hasExisting=existingChild.length>0;
+  const earliestExisting=hasExisting?existingChild[0][0]:Infinity;
+  const latestExisting=hasExisting?existingChild[existingChild.length-1][0]:-Infinity;
+  // Never fabricate synthetic bars when real archive bars already cover the requested window
+  // (e.g., when existingChild was simply capped by maxForTf or has a real market-close gap).
+  if(hasExisting&&earliestExisting<=refClock&&latestExisting>=refClock-86400&&existingChild.length>=maxRows*0.5)continue;
   const generated=[];
   for(let i=startIdx;i<rawParent.length;i++){
    const bar=rawParent[i];
    if(bar[0]>end)break;
+   if(hasExisting&&bar[0]>=earliestExisting&&bar[0]<=latestExisting)continue;
    if(hasBarInRange(existingChild,bar[0],bar[0]+parentSec))continue;
    const subBars=subdivideBar(bar,K,childSec,decimals);
    for(const sub of subBars){
@@ -327,7 +334,7 @@ export async function loadHistoricalWindow(symbol,clock,limit=20000){
      }
     }
    }
-   const maxForTf=tf==='1m'?limit:tf==='5m'?4500:tf==='15m'?3000:tf==='30m'?2500:2000;
+   const maxForTf=tf==='1m'?limit:tf==='5m'?11000:tf==='15m'?4000:tf==='30m'?2500:2000;
    const arr=[...merged.values()];
    if(needsSort)arr.sort((a,b)=>a[0]-b[0]);
    all[tf]=arr.length>maxForTf?arr.slice(-maxForTf):arr;

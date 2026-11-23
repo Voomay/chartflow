@@ -496,6 +496,9 @@ export interface TradingSession {
   previousAttempts?: ChallengeAttemptSummary[];
   drawingsBySymbol?: Partial<Record<InstrumentSymbol, ChartDrawing[]>>;
   skipToSettings?: SkipToSettings;
+  chartTheme?: ThemeMode;
+  candleStyle?: CandleColorStyle;
+  customCandleColors?: CustomCandleColors;
   mindsetNote?: {
     text: string;
     pinned: boolean;
@@ -716,6 +719,21 @@ export interface CRTOverlayIndicatorConfig {
   showFvg50: boolean;
 }
 
+export interface CandleSRIndicatorConfig {
+  timezone: DisplayTimezone | string;
+  targetHour: number;
+  targetMinute: number;
+  candleDurationMinutes: number;
+  breakoutMode: 'CLOSE' | 'WICK';
+  breakoutRule: 'CROSS' | 'FIRST_ONLY' | 'ALL_BEYOND';
+  resistanceColor: string;
+  supportColor: string;
+  resistanceBreakColor: string;
+  supportBreakColor: string;
+  lineWidth: number;
+  showLabels: boolean;
+}
+
 export interface ChartIndicatorConfigs {
   maConfigs: Record<string, MovingAverageIndicatorConfig>;
   customMAs: MovingAverageIndicatorConfig[];
@@ -729,6 +747,7 @@ export interface ChartIndicatorConfigs {
   forecast: { lookback: number; horizon: number; primaryColor: string; secondaryColor: string };
   orderFlow: OrderFlowIndicatorConfig;
   crtOverlay: CRTOverlayIndicatorConfig;
+  candleSR?: CandleSRIndicatorConfig;
 }
 
 export interface ChartDrawing {

@@ -134,6 +134,8 @@ export const IndicatorSettingsModal: React.FC<IndicatorSettingsModalProps> = ({
         return 'Historical Order Flow (VP · OB/FVG · Delta)';
       case 'showCRTOverlay':
         return 'CRT overlay Pro+';
+      case 'showCandleSR':
+        return 'Candle S/R Breakout';
       case 'showMomentum':
         return 'Momentum Pullback';
       case 'showForecast':
@@ -175,7 +177,8 @@ export const IndicatorSettingsModal: React.FC<IndicatorSettingsModalProps> = ({
     { id: 'showMACD', label: 'MACD', color: configs.macd.macdColor },
     { id: 'showVOL', label: 'VOL', color: configs.vol.maColor },
     { id: 'showCRTOverlay', label: 'CRT PRO+', color: configs.crtOverlay?.purgeColor || '#3b82f6' },
-    { id: 'showOrderFlow', label: 'ORDER FLOW', color: configs.orderFlow?.pocColor || '#f59e0b' },
+    { id: 'showCandleSR', label: 'CANDLE S/R', color: configs.candleSR?.resistanceColor || '#f59e0b' },
+    { label: 'ORDER FLOW', id: 'showOrderFlow', color: configs.orderFlow?.pocColor || '#f59e0b' },
   ];
 
   const activeAccentColor =
@@ -1194,6 +1197,257 @@ export const IndicatorSettingsModal: React.FC<IndicatorSettingsModalProps> = ({
                         type="checkbox"
                         checked={crt.showFvg50}
                         onChange={(e) => updateCRT({ showFvg50: e.target.checked })}
+                        className="accent-blue-600 w-4 h-4 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {indicatorId === 'showCandleSR' && (() => {
+            const csr = configs.candleSR ?? DEFAULT_INDICATOR_CONFIGS.candleSR!;
+            const updateCSR = (patch: Partial<typeof csr>) =>
+              onUpdateConfigs((prev) => ({
+                ...prev,
+                candleSR: {
+                  ...(prev.candleSR || DEFAULT_INDICATOR_CONFIGS.candleSR!),
+                  ...patch,
+                },
+              }));
+
+            const timeValue = `${String(csr.targetHour).padStart(2, '0')}:${String(csr.targetMinute).padStart(2, '0')}`;
+            const durationPresets = [
+              { label: '5m', mins: 5 },
+              { label: '15m', mins: 15 },
+              { label: '30m', mins: 30 },
+              { label: '1H', mins: 60 },
+              { label: '4H', mins: 240 },
+            ];
+            const timePresets = [
+              { label: '09:15', h: 9, m: 15 },
+              { label: '09:30', h: 9, m: 30 },
+              { label: '09:00', h: 9, m: 0 },
+              { label: '08:00', h: 8, m: 0 },
+              { label: '14:00', h: 14, m: 0 },
+            ];
+
+            return (
+              <div className="space-y-3.5">
+                {/* TARGET CANDLE */}
+                <div className={`p-3.5 rounded-xl border space-y-3 ${sectionCardSurface}`}>
+                  <div className={`text-[10px] font-extrabold uppercase tracking-wider ${mutedText}`}>
+                    Target Completed Candle
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold">Timezone</span>
+                    <select
+                      value={csr.timezone}
+                      onChange={(e) => updateCSR({ timezone: e.target.value })}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold border outline-none ${inputSurface}`}
+                    >
+                      <option value="America/New_York">America/New_York (NY)</option>
+                      <option value="Europe/London">Europe/London</option>
+                      <option value="UTC">UTC</option>
+                      <option value="Africa/Johannesburg">Africa/Johannesburg</option>
+                      <option value="Europe/Prague">Europe/Prague</option>
+                      <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                      <option value="Asia/Tokyo">Asia/Tokyo</option>
+                      <option value="Australia/Sydney">Australia/Sydney</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold">Candle Start Time</span>
+                    <input
+                      type="time"
+                      value={timeValue}
+                      onChange={(e) => {
+                        const [hhStr, mmStr] = e.target.value.split(':');
+                        const hh = Number(hhStr);
+                        const mm = Number(mmStr);
+                        if (!Number.isNaN(hh) && !Number.isNaN(mm)) {
+                          updateCSR({
+                            targetHour: Math.max(0, Math.min(23, hh)),
+                            targetMinute: Math.max(0, Math.min(59, mm)),
+                          });
+                        }
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold border outline-none ${inputSurface}`}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {timePresets.map((p) => {
+                      const active = csr.targetHour === p.h && csr.targetMinute === p.m;
+                      return (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => updateCSR({ targetHour: p.h, targetMinute: p.m })}
+                          className={`px-2 py-1 rounded-lg text-[11px] font-mono font-bold border transition ${
+                            active
+                              ? 'bg-blue-600 text-white border-blue-500'
+                              : `${recessedTrackSurface} opacity-80 hover:opacity-100`
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold">Candle Size (Duration)</span>
+                      <span className={`text-[11px] font-mono font-bold ${mutedText}`}>
+                        {csr.candleDurationMinutes >= 60 && csr.candleDurationMinutes % 60 === 0
+                          ? `${csr.candleDurationMinutes / 60} Hour`
+                          : `${csr.candleDurationMinutes} Min`}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {durationPresets.map((d) => {
+                        const active = csr.candleDurationMinutes === d.mins;
+                        return (
+                          <button
+                            key={d.label}
+                            type="button"
+                            onClick={() => updateCSR({ candleDurationMinutes: d.mins })}
+                            className={`py-1.5 rounded-lg text-xs font-mono font-bold border transition ${
+                              active
+                                ? 'bg-blue-600 text-white border-blue-500'
+                                : `${recessedTrackSurface} opacity-80 hover:opacity-100`
+                            }`}
+                          >
+                            {d.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* BREAKOUT DETECTION */}
+                <div className={`p-3.5 rounded-xl border space-y-3 ${sectionCardSurface}`}>
+                  <div className={`text-[10px] font-extrabold uppercase tracking-wider ${mutedText}`}>
+                    Breakout &amp; Candle Highlight
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <span className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${labelText}`}>
+                        Break Trigger
+                      </span>
+                      <select
+                        value={csr.breakoutMode}
+                        onChange={(e) =>
+                          updateCSR({ breakoutMode: e.target.value as 'CLOSE' | 'WICK' })
+                        }
+                        className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-semibold border outline-none ${inputSurface}`}
+                      >
+                        <option value="CLOSE">Candle Close</option>
+                        <option value="WICK">Wick / High-Low</option>
+                      </select>
+                    </div>
+                    <div>
+                      <span className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${labelText}`}>
+                        Highlight Rule
+                      </span>
+                      <select
+                        value={csr.breakoutRule}
+                        onChange={(e) =>
+                          updateCSR({
+                            breakoutRule: e.target.value as 'CROSS' | 'FIRST_ONLY' | 'ALL_BEYOND',
+                          })
+                        }
+                        className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-semibold border outline-none ${inputSurface}`}
+                      >
+                        <option value="CROSS">Each Fresh Break</option>
+                        <option value="FIRST_ONLY">First Break Only</option>
+                        <option value="ALL_BEYOND">All Candles Beyond</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* LINE & HIGHLIGHT COLORS */}
+                <div className={`p-3.5 rounded-xl border space-y-3 ${sectionCardSurface}`}>
+                  <div className={`text-[10px] font-extrabold uppercase tracking-wider ${mutedText}`}>
+                    Lines &amp; Colors
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label
+                      className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}
+                    >
+                      <span>Resistance Line</span>
+                      <input
+                        type="color"
+                        value={csr.resistanceColor}
+                        onChange={(e) => updateCSR({ resistanceColor: e.target.value })}
+                        className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                      />
+                    </label>
+                    <label
+                      className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}
+                    >
+                      <span>Support Line</span>
+                      <input
+                        type="color"
+                        value={csr.supportColor}
+                        onChange={(e) => updateCSR({ supportColor: e.target.value })}
+                        className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                      />
+                    </label>
+                    <label
+                      className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}
+                    >
+                      <span>Break Up Highlight</span>
+                      <input
+                        type="color"
+                        value={csr.resistanceBreakColor}
+                        onChange={(e) => updateCSR({ resistanceBreakColor: e.target.value })}
+                        className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                      />
+                    </label>
+                    <label
+                      className={`flex items-center justify-between text-xs font-semibold p-2.5 rounded-xl border ${recessedTrackSurface}`}
+                    >
+                      <span>Break Down Highlight</span>
+                      <input
+                        type="color"
+                        value={csr.supportBreakColor}
+                        onChange={(e) => updateCSR({ supportBreakColor: e.target.value })}
+                        className="w-7 h-6 rounded cursor-pointer bg-transparent"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5 pt-1">
+                    <div
+                      className={`flex items-center justify-between px-2.5 py-2 rounded-xl border ${recessedTrackSurface}`}
+                    >
+                      <span className="text-xs font-semibold">Line Width</span>
+                      <select
+                        value={csr.lineWidth}
+                        onChange={(e) => updateCSR({ lineWidth: Number(e.target.value) || 1 })}
+                        className={`px-2 py-1 rounded-lg text-xs font-mono font-bold border outline-none ${inputSurface}`}
+                      >
+                        <option value={0.75}>0.75px (Hairline)</option>
+                        <option value={1}>1px (Thin)</option>
+                        <option value={1.5}>1.5px</option>
+                        <option value={2}>2px</option>
+                      </select>
+                    </div>
+                    <label
+                      className={`flex items-center justify-between px-2.5 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${recessedTrackSurface}`}
+                    >
+                      <span>Show R/S Labels</span>
+                      <input
+                        type="checkbox"
+                        checked={csr.showLabels}
+                        onChange={(e) => updateCSR({ showLabels: e.target.checked })}
                         className="accent-blue-600 w-4 h-4 cursor-pointer"
                       />
                     </label>

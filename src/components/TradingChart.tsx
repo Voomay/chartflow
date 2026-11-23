@@ -3,6 +3,7 @@ import {computeMomentumPullback,MOMENTUM_DEFAULTS,MomentumOptions} from '../serv
 import {computeEngulfingVolumeMomentum,EngulfingFilter} from '../services/engulfingVolumeMomentum';
 import {computeHistoricalOrderFlow,OrderFlowSignalFilter} from '../services/orderFlowIndicator';
 import {computeCRTOverlay} from '../services/crtOverlayIndicator';
+import {computeCandleSR} from '../services/candleSRIndicator';
 import {interpolateRevealedCandle,revealedHistorySamplesMatch} from '../services/replayPresentation';
 import {
   clipExtendedLine,
@@ -490,6 +491,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const [localOrderFlow, setLocalOrderFlow] = useState<boolean>(false);
   const [orderFlowFilter, setOrderFlowFilter] = useState<OrderFlowSignalFilter>('ALL');
   const [localCRTOverlay, setLocalCRTOverlay] = useState<boolean>(false);
+  const [localCandleSR, setLocalCandleSR] = useState<boolean>(false);
   const [localBOLL, setLocalBOLL] = useState(false);
   const [localVOL, setLocalVOL] = useState(false);
   const [localMACD, setLocalMACD] = useState(false);
@@ -558,6 +560,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     indicators && indicators.showCRTOverlay !== undefined
       ? indicators.showCRTOverlay
       : localCRTOverlay;
+  const showCandleSR =
+    indicators && indicators.showCandleSR !== undefined
+      ? indicators.showCandleSR
+      : localCandleSR;
 
   const handleHideOrRemoveIndicator = useCallback(
     (indId: string) => {
@@ -615,6 +621,9 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         case 'showCRTOverlay':
           setLocalCRTOverlay(false);
           break;
+        case 'showCandleSR':
+          setLocalCandleSR(false);
+          break;
       }
     },
     [handleUpdateIndicatorConfigs, indicators, onToggleIndicator]
@@ -639,6 +648,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const closeCRTOverlay = () => {
     if (onToggleIndicator && showCRTOverlay) onToggleIndicator('showCRTOverlay');
     else setLocalCRTOverlay(false);
+  };
+  const closeCandleSR = () => {
+    if (onToggleIndicator && showCandleSR) onToggleIndicator('showCandleSR');
+    else setLocalCandleSR(false);
   };
 
   const momentum = useMemo(() => showMomentum ? computeMomentumPullback(candles, TIMEFRAME_CONFIG[timeframe]?.seconds || 900, momentumOptions) : null, [showMomentum, candles, timeframe, momentumOptions]);
@@ -691,6 +704,30 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       effectiveIndicatorConfigs.crtOverlay?.fvgFinder,
       effectiveIndicatorConfigs.crtOverlay?.removeOldFvg,
       effectiveIndicatorConfigs.crtOverlay?.showFvg50,
+    ]
+  );
+  const candleSRStudy = useMemo(
+    () =>
+      showCandleSR
+        ? computeCandleSR(candles, {
+            timezone: effectiveIndicatorConfigs.candleSR?.timezone ?? 'America/New_York',
+            targetHour: effectiveIndicatorConfigs.candleSR?.targetHour ?? 9,
+            targetMinute: effectiveIndicatorConfigs.candleSR?.targetMinute ?? 15,
+            candleDurationMinutes:
+              effectiveIndicatorConfigs.candleSR?.candleDurationMinutes ?? 15,
+            breakoutMode: effectiveIndicatorConfigs.candleSR?.breakoutMode ?? 'CLOSE',
+            breakoutRule: effectiveIndicatorConfigs.candleSR?.breakoutRule ?? 'CROSS',
+          })
+        : null,
+    [
+      showCandleSR,
+      candles,
+      effectiveIndicatorConfigs.candleSR?.timezone,
+      effectiveIndicatorConfigs.candleSR?.targetHour,
+      effectiveIndicatorConfigs.candleSR?.targetMinute,
+      effectiveIndicatorConfigs.candleSR?.candleDurationMinutes,
+      effectiveIndicatorConfigs.candleSR?.breakoutMode,
+      effectiveIndicatorConfigs.candleSR?.breakoutRule,
     ]
   );
   // Forecaster: uses only revealed candles (the replay-sliced candles prop), deterministic per input
@@ -982,6 +1019,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     engulfingStudy,
     orderFlowStudy,
     crtStudy,
+    candleSRStudy,
     forecast,
     onAddDrawing,
     onUpdateDrawing,
@@ -1040,6 +1078,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     engulfingStudy,
     orderFlowStudy,
     crtStudy,
+    candleSRStudy,
     forecast,
     onAddDrawing,
     onUpdateDrawing,
@@ -1410,6 +1449,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       engulfingStudy: currEngulfing,
       orderFlowStudy: currOrderFlow,
       crtStudy: currCRT,
+      candleSRStudy: currCandleSR,
       forecast: currForecast,
     } = stateRef.current;
 
@@ -2255,6 +2295,156 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             ctx.restore();
           }
         }
+      }
+    }
+
+    // 0a-4. Candle S/R Breakout (Default 09:15 Completed Candle Thin Wick S/R + Breakout Highlighter)
+    if (currCandleSR && currCandles.length > 1) {
+      const csrCfg = currIndicatorConfigs.candleSR || {
+        timezone: 'America/New_York',
+        targetHour: 9,
+        targetMinute: 15,
+        candleDurationMinutes: 15,
+        breakoutMode: 'CLOSE' as const,
+        breakoutRule: 'CROSS' as const,
+        resistanceColor: '#f59e0b',
+        supportColor: '#38bdf8',
+        resistanceBreakColor: '#10b981',
+        supportBreakColor: '#f43f5e',
+        lineWidth: 1,
+        showLabels: true,
+      };
+
+      const resCol = csrCfg.resistanceColor || '#f59e0b';
+      const supCol = csrCfg.supportColor || '#38bdf8';
+      const resBreakCol = csrCfg.resistanceBreakColor || '#10b981';
+      const supBreakCol = csrCfg.supportBreakColor || '#f43f5e';
+      const thinWidth = Math.max(0.5, Math.min(3, csrCfg.lineWidth ?? 1));
+
+      const xSample0 = resolveTimeToX(currCandles[currCandles.length - 2].time, currCandles, chart);
+      const xSample1 = resolveTimeToX(currCandles[currCandles.length - 1].time, currCandles, chart);
+      const barSpacing =
+        xSample0 !== null && xSample1 !== null
+          ? Math.max(3, Math.min(28, Math.abs(xSample1 - xSample0)))
+          : 7.5;
+      const halfCandleW = Math.max(2.5, barSpacing * 0.42);
+
+      // 1) Draw thin Resistance (top of upper wick) & Support (bottom of lower wick) lines
+      for (const lvl of currCandleSR.levels) {
+        const xStart = resolveTimeToX(lvl.targetStartTime, currCandles, chart);
+        const xEnd = resolveTimeToX(lvl.lineEndTime, currCandles, chart);
+        const yRes = priceToY(lvl.resistance, chart);
+        const ySup = priceToY(lvl.support, chart);
+        if (yRes === null || ySup === null) continue;
+        if (xStart === null && xEnd === null) continue;
+
+        const lx1 = Math.max(0, (xStart ?? 0) - halfCandleW);
+        const lx2 = Math.min(chartPlotWidth - 4, Math.max(lx1 + 16, (xEnd ?? chartPlotWidth - 4) + halfCandleW));
+        if (lx2 < 0 || lx1 > chartPlotWidth) continue;
+
+        ctx.save();
+
+        // Subtle marker on the target completed candle
+        if (xStart !== null && xStart >= -20 && xStart <= chartPlotWidth + 20) {
+          const topY = Math.min(yRes, ySup);
+          const boxH = Math.max(4, Math.abs(ySup - yRes));
+          ctx.fillStyle = hexToRgba(resCol, currTheme === 'light' ? 0.08 : 0.07);
+          ctx.fillRect(xStart - halfCandleW, topY, halfCandleW * 2, boxH);
+        }
+
+        // Thin Resistance line (top of upper wick)
+        ctx.strokeStyle = resCol;
+        ctx.lineWidth = thinWidth;
+        ctx.beginPath();
+        ctx.moveTo(lx1, yRes);
+        ctx.lineTo(lx2, yRes);
+        ctx.stroke();
+
+        // Thin Support line (bottom of lower wick)
+        ctx.strokeStyle = supCol;
+        ctx.lineWidth = thinWidth;
+        ctx.beginPath();
+        ctx.moveTo(lx1, ySup);
+        ctx.lineTo(lx2, ySup);
+        ctx.stroke();
+
+        if (csrCfg.showLabels) {
+          ctx.font = 'bold 8.5px JetBrains Mono, monospace';
+          ctx.textAlign = 'right';
+          const labelX = Math.min(chartPlotWidth - 8, lx2);
+          ctx.fillStyle = resCol;
+          ctx.fillText(
+            `${lvl.label} R ${lvl.resistance.toFixed(decimals)}`,
+            labelX,
+            Math.max(11, yRes - 3)
+          );
+          ctx.fillStyle = supCol;
+          ctx.fillText(
+            `${lvl.label} S ${lvl.support.toFixed(decimals)}`,
+            labelX,
+            Math.min(chartPlotHeight - 4, ySup + 10)
+          );
+        }
+
+        ctx.restore();
+      }
+
+      // 2) Highlight candles that break Support or Resistance
+      for (const sig of currCandleSR.breakouts) {
+        const x = resolveTimeToX(sig.time, currCandles, chart);
+        if (x === null || x < -20 || x > chartPlotWidth + 20) continue;
+
+        const yOpen = priceToY(sig.open, chart);
+        const yClose = priceToY(sig.close, chart);
+        const yHigh = priceToY(sig.high, chart);
+        const yLow = priceToY(sig.low, chart);
+        if (yOpen === null || yClose === null || yHigh === null || yLow === null) continue;
+
+        const isResBreak = sig.direction === 'RESISTANCE_BREAK';
+        const col = isResBreak ? resBreakCol : supBreakCol;
+        const bodyTop = Math.min(yOpen, yClose);
+        const bodyHeight = Math.max(3, Math.abs(yClose - yOpen));
+        const wickTop = Math.min(yHigh, yLow);
+        const wickBottom = Math.max(yHigh, yLow);
+
+        ctx.save();
+
+        // Vertical highlight column around the breakout candle
+        const auraPad = Math.max(3, halfCandleW + 2.5);
+        ctx.fillStyle = hexToRgba(col, currTheme === 'light' ? 0.22 : 0.19);
+        ctx.beginPath();
+        ctx.roundRect(
+          x - auraPad,
+          wickTop - 4,
+          auraPad * 2,
+          Math.max(8, wickBottom - wickTop + 8),
+          4
+        );
+        ctx.fill();
+
+        // Glowing frame around the breakout candle body
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1.8;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 7;
+        ctx.strokeRect(
+          x - halfCandleW - 1,
+          bodyTop - 1,
+          halfCandleW * 2 + 2,
+          bodyHeight + 2
+        );
+        ctx.shadowBlur = 0;
+
+        // Directional breakout arrow
+        ctx.fillStyle = col;
+        ctx.font = 'bold 9.5px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        const arrowY = isResBreak
+          ? Math.max(12, wickTop - 6)
+          : Math.min(chartPlotHeight - 5, wickBottom + 12);
+        ctx.fillText(isResBreak ? '▲' : '▼', x, arrowY);
+
+        ctx.restore();
       }
     }
 
@@ -6338,14 +6528,16 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       const { chartPlotHeight } = getCandlePaneMetrics(chart, cw, ch);
       if (chartPlotHeight <= 80) return;
 
+      const topSafeMargin = Math.min(90, Math.max(56, chartPlotHeight * 0.22));
+      const bottomSafeMargin = Math.min(72, Math.max(44, chartPlotHeight * 0.18));
       const closeY = priceToY(lastCandle.close, chart);
       const needsCustomCenterRange =
         closeY === null ||
-        closeY < 8 ||
-        closeY > chartPlotHeight - 8;
+        closeY < topSafeMargin ||
+        closeY > chartPlotHeight - bottomSafeMargin;
 
       if (needsCustomCenterRange && yAxis && typeof yAxis.setRange === 'function') {
-        const focusBars = candles.slice(-80);
+        const focusBars = candles.slice(-50);
         let focusHigh = lastCandle.high;
         let focusLow = lastCandle.low;
         for (let i = 0; i < focusBars.length; i++) {
@@ -6356,10 +6548,14 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           (instConfig.minMove || 0.0001) * 30,
           instConfig.volatility1m * 10
         );
-        const rawSpan = Math.max(focusHigh - focusLow, minSpan);
-        const pad = rawSpan * 0.35;
-        const from = focusLow - pad;
-        const to = focusHigh + pad;
+        const halfSpan =
+          Math.max(
+            focusHigh - lastCandle.close,
+            lastCandle.close - focusLow,
+            minSpan * 0.5
+          ) * 1.25;
+        const from = lastCandle.close - halfSpan;
+        const to = lastCandle.close + halfSpan;
         const range = to - from;
         if (Number.isFinite(range) && range > 0) {
           yAxis.setRange({
@@ -6564,6 +6760,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     engulfingStudy,
     orderFlowStudy,
     crtStudy,
+    candleSRStudy,
     forecast,
     drawOverlay,
   ]);
@@ -7188,6 +7385,126 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 onClick={closeCRTOverlay}
                 className="p-0.5 rounded hover:bg-slate-500/20 opacity-65 hover:opacity-100"
                 title="Hide CRT overlay Pro+ indicator"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
+          {showCandleSR && candleSRStudy && (
+            <div
+              className={`pointer-events-auto flex flex-wrap items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] backdrop-blur-sm ${
+                theme === 'dark'
+                  ? 'bg-[#0b101b]/90 border-amber-500/35 text-slate-200'
+                  : 'bg-white/90 border-amber-300 text-slate-800 shadow-sm'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setEffectiveActiveIndicatorSettingsId('showCandleSR')}
+                title="Configure Candle S/R Breakout (Time, Candle Size, Breakout Rule, Colors)"
+                className="font-extrabold tracking-tight flex items-center gap-1 hover:text-amber-400 transition"
+              >
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{
+                    backgroundColor:
+                      effectiveIndicatorConfigs.candleSR?.resistanceColor || '#f59e0b',
+                  }}
+                />
+                <span>
+                  Candle S/R (
+                  {String(effectiveIndicatorConfigs.candleSR?.targetHour ?? 9).padStart(2, '0')}:
+                  {String(effectiveIndicatorConfigs.candleSR?.targetMinute ?? 15).padStart(2, '0')} ·{' '}
+                  {(effectiveIndicatorConfigs.candleSR?.candleDurationMinutes ?? 15) >= 60 &&
+                  (effectiveIndicatorConfigs.candleSR?.candleDurationMinutes ?? 15) % 60 === 0
+                    ? `${(effectiveIndicatorConfigs.candleSR?.candleDurationMinutes ?? 15) / 60}H`
+                    : `${effectiveIndicatorConfigs.candleSR?.candleDurationMinutes ?? 15}m`}
+                  )
+                </span>
+                <Settings2 className="w-2.5 h-2.5 opacity-70" />
+              </button>
+
+              {/* Quick 15m / 1H Switcher */}
+              <div className="flex items-center gap-0.5 border-l border-slate-500/25 pl-1.5">
+                {([15, 60] as const).map((mins) => {
+                  const active =
+                    (effectiveIndicatorConfigs.candleSR?.candleDurationMinutes ?? 15) === mins;
+                  return (
+                    <button
+                      key={mins}
+                      type="button"
+                      onClick={() =>
+                        handleUpdateIndicatorConfigs((prev) => ({
+                          ...prev,
+                          candleSR: {
+                            ...(prev.candleSR || {
+                              timezone: 'America/New_York',
+                              targetHour: 9,
+                              targetMinute: 15,
+                              candleDurationMinutes: 15,
+                              breakoutMode: 'CLOSE',
+                              breakoutRule: 'CROSS',
+                              resistanceColor: '#f59e0b',
+                              supportColor: '#38bdf8',
+                              resistanceBreakColor: '#10b981',
+                              supportBreakColor: '#f43f5e',
+                              lineWidth: 1,
+                              showLabels: true,
+                            }),
+                            candleDurationMinutes: mins,
+                          },
+                        }))
+                      }
+                      className={`px-1.5 py-0.5 rounded font-mono font-bold transition ${
+                        active
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'opacity-65 hover:opacity-100'
+                      }`}
+                      title={`Use ${mins === 60 ? '1-hour' : '15-minute'} candle`}
+                    >
+                      {mins === 60 ? '1H' : '15m'}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {candleSRStudy.summary.activeLevel && (
+                <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-mono font-bold">
+                  R {candleSRStudy.summary.activeLevel.resistance.toFixed(instConfig.decimals)} · S{' '}
+                  {candleSRStudy.summary.activeLevel.support.toFixed(instConfig.decimals)}
+                </span>
+              )}
+
+              {candleSRStudy.summary.latestBreakout && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const b = candleSRStudy.summary.latestBreakout;
+                    if (b && chartRef.current) {
+                      chartRef.current.scrollToTimestamp(b.time * 1000, 220);
+                      drawOverlay();
+                    }
+                  }}
+                  title="Jump to latest S/R breakout candle"
+                  className={`px-1.5 py-0.5 rounded border font-mono font-bold transition ${
+                    candleSRStudy.summary.latestBreakout.direction === 'RESISTANCE_BREAK'
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                      : 'border-rose-500/40 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'
+                  }`}
+                >
+                  {candleSRStudy.summary.latestBreakout.direction === 'RESISTANCE_BREAK'
+                    ? '▲ R Break'
+                    : '▼ S Break'}
+                </button>
+              )}
+
+              <button
+                type="button"
+                aria-label="Hide Candle S/R Breakout indicator"
+                onClick={closeCandleSR}
+                className="p-0.5 rounded hover:bg-slate-500/20 opacity-65 hover:opacity-100"
+                title="Hide Candle S/R Breakout indicator"
               >
                 <X className="w-3 h-3" />
               </button>

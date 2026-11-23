@@ -22,6 +22,7 @@ import {
   InstrumentSymbol,
   PropFirmRules,
   StrategyRecord,
+  ThemeMode,
   TradingSession,
 } from '../types/trading';
 import {
@@ -2417,4 +2418,58 @@ export function deleteUserAccount(userEmail: string): boolean {
   purgeBrowserSensitiveStorage();
   void deleteAllUserSupabaseData(cleanEmail);
   return true;
+}
+
+const LAST_DASHBOARD_THEME_KEY = 'chartflow_last_dashboard_theme_v1';
+
+export function loadUserDashboardTheme(userId?: string): ThemeMode {
+  const store = runtimeStorage();
+  try {
+    if (userId) {
+      const scoped = store.getItem(`${getUserScopePrefix(userId)}_dashboard_theme_v1`);
+      if (scoped === 'light' || scoped === 'dark') return scoped;
+    }
+    const last = store.getItem(LAST_DASHBOARD_THEME_KEY);
+    if (last === 'light' || last === 'dark') return last;
+  } catch {
+    // ignore
+  }
+  return 'dark';
+}
+
+export function saveUserDashboardTheme(
+  userId: string | undefined,
+  theme: ThemeMode,
+  syncCloud = true
+): void {
+  const store = runtimeStorage();
+  try {
+    store.setItem(LAST_DASHBOARD_THEME_KEY, theme);
+    if (userId) {
+      store.setItem(`${getUserScopePrefix(userId)}_dashboard_theme_v1`, theme);
+    }
+  } catch {
+    // ignore
+  }
+  if (syncCloud && userId && userId !== 'trader@chartflow.io' && isSafeEmailFormat(userId)) {
+    void syncUserPreferencesToSupabase(userId, { dashboardTheme: theme });
+  }
+}
+
+export function loadActiveSessionId(userId: string): string | null {
+  try {
+    const val = runtimeStorage().getItem(`${getUserScopePrefix(userId)}_active_session_id_v1`);
+    return val && val.trim() ? val.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveActiveSessionId(userId: string, sessionId: string): void {
+  if (!userId || !sessionId) return;
+  try {
+    runtimeStorage().setItem(`${getUserScopePrefix(userId)}_active_session_id_v1`, sessionId);
+  } catch {
+    // ignore
+  }
 }

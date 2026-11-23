@@ -78,6 +78,7 @@ export interface ChartIndicatorsState {
   showEngulfing: boolean;
   showOrderFlow?: boolean;
   showCRTOverlay?: boolean;
+  showCandleSR?: boolean;
 }
 
 interface TopNavigationProps {
@@ -624,6 +625,19 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                         { label: `RSI (${cfg.rsi.period})`, key: 'showRSI', color: cfg.rsi.color, settingsId: 'showRSI' },
                         { label: '__ai__', key: null, color: '' },
                         { label: 'CRT overlay Pro+', key: 'showCRTOverlay', color: cfg.crtOverlay?.purgeColor || '#3b82f6', settingsId: 'showCRTOverlay' },
+                        {
+                          label: (() => {
+                            const csr = cfg.candleSR;
+                            const hh = String(csr?.targetHour ?? 9).padStart(2, '0');
+                            const mm = String(csr?.targetMinute ?? 15).padStart(2, '0');
+                            const dur = csr?.candleDurationMinutes ?? 15;
+                            const durStr = dur >= 60 && dur % 60 === 0 ? `${dur / 60}H` : `${dur}m`;
+                            return `Candle S/R Breakout (${hh}:${mm} · ${durStr})`;
+                          })(),
+                          key: 'showCandleSR',
+                          color: cfg.candleSR?.resistanceColor || '#f59e0b',
+                          settingsId: 'showCandleSR',
+                        },
                         { label: 'Order Flow (VP · OB/FVG · Delta)', key: 'showOrderFlow', color: cfg.orderFlow?.pocColor || '#f59e0b', settingsId: 'showOrderFlow' },
                         { label: 'Engulfing Vol / Momentum', key: 'showEngulfing', color: cfg.engulfing.upColor, settingsId: 'showEngulfing' },
                         { label: 'Momentum Pullback · 2R', key: 'showMomentum', color: cfg.momentum.fastColor, settingsId: 'showMomentum' },

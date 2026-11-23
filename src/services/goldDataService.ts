@@ -143,7 +143,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 100,
     quoteCurrency: 'USD',
     defaultSpread: 0.24,
-    basePrice: 4138.5,
+    basePrice: 3662.71,
     volatility1m: 1.15,
   },
   {
@@ -161,7 +161,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 5000,
     quoteCurrency: 'USD',
     defaultSpread: 0.025,
-    basePrice: 57.62,
+    basePrice: 43.615,
     volatility1m: 0.065,
   },
   // Forex Majors (Standard Lot = 100,000 units of Base Currency)
@@ -181,7 +181,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'EUR',
     quoteCurrency: 'USD',
     defaultSpread: 0.00008,
-    basePrice: 1.1235,
+    basePrice: 1.08845,
     volatility1m: 0.00014,
   },
   {
@@ -200,7 +200,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'GBP',
     quoteCurrency: 'USD',
     defaultSpread: 0.0001,
-    basePrice: 1.3392,
+    basePrice: 1.30164,
     volatility1m: 0.00017,
   },
   {
@@ -219,7 +219,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'USD',
     quoteCurrency: 'JPY',
     defaultSpread: 0.01,
-    basePrice: 158.05,
+    basePrice: 159.287,
     volatility1m: 0.022,
   },
   {
@@ -238,7 +238,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'USD',
     quoteCurrency: 'CHF',
     defaultSpread: 0.00011,
-    basePrice: 0.824,
+    basePrice: 0.84352,
     volatility1m: 0.00013,
   },
   {
@@ -257,7 +257,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'AUD',
     quoteCurrency: 'USD',
     defaultSpread: 0.00009,
-    basePrice: 0.7002,
+    basePrice: 0.6619,
     volatility1m: 0.00012,
   },
   {
@@ -276,7 +276,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'USD',
     quoteCurrency: 'CAD',
     defaultSpread: 0.00011,
-    basePrice: 1.4048,
+    basePrice: 1.43731,
     volatility1m: 0.00014,
   },
   {
@@ -295,7 +295,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'NZD',
     quoteCurrency: 'USD',
     defaultSpread: 0.00012,
-    basePrice: 0.5685,
+    basePrice: 0.54358,
     volatility1m: 0.00011,
   },
   // Major Forex Crosses (Standard Lot = 100,000 units of Base Currency)
@@ -315,7 +315,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'GBP',
     quoteCurrency: 'JPY',
     defaultSpread: 0.018,
-    basePrice: 211.62,
+    basePrice: 207.332,
     volatility1m: 0.032,
   },
   {
@@ -334,7 +334,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'EUR',
     quoteCurrency: 'JPY',
     defaultSpread: 0.015,
-    basePrice: 177.54,
+    basePrice: 173.375,
     volatility1m: 0.026,
   },
   {
@@ -353,7 +353,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'EUR',
     quoteCurrency: 'GBP',
     defaultSpread: 0.00009,
-    basePrice: 0.839,
+    basePrice: 0.83621,
     volatility1m: 0.00011,
   },
   {
@@ -372,7 +372,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'AUD',
     quoteCurrency: 'JPY',
     defaultSpread: 0.014,
-    basePrice: 110.63,
+    basePrice: 105.427,
     volatility1m: 0.024,
   },
   {
@@ -391,7 +391,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'EUR',
     quoteCurrency: 'AUD',
     defaultSpread: 0.00016,
-    basePrice: 1.6048,
+    basePrice: 1.64446,
     volatility1m: 0.0002,
   },
   {
@@ -410,7 +410,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'GBP',
     quoteCurrency: 'AUD',
     defaultSpread: 0.0002,
-    basePrice: 1.9126,
+    basePrice: 1.9666,
     volatility1m: 0.00024,
   },
   {
@@ -429,7 +429,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     baseCurrency: 'CAD',
     quoteCurrency: 'JPY',
     defaultSpread: 0.015,
-    basePrice: 112.49,
+    basePrice: 110.825,
     volatility1m: 0.022,
   },
   // Major Cash Indices (Prop Firm / MT5 CFD Standard: 1 contract per 1.00 lot, 1.0 index point = $1/€1/£1 per lot)
@@ -448,7 +448,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 1,
     quoteCurrency: 'USD',
     defaultSpread: 1.2,
-    basePrice: 29822.52,
+    basePrice: 26766.48,
     volatility1m: 12.5,
   },
   {
@@ -466,7 +466,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 1,
     quoteCurrency: 'USD',
     defaultSpread: 0.4,
-    basePrice: 7757.17,
+    basePrice: 7244,
     volatility1m: 2.8,
   },
   {
@@ -484,7 +484,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 1,
     quoteCurrency: 'USD',
     defaultSpread: 1.8,
-    basePrice: 52856.09,
+    basePrice: 49605,
     volatility1m: 16.0,
   },
   {
@@ -502,7 +502,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 1,
     quoteCurrency: 'EUR',
     defaultSpread: 1.0,
-    basePrice: 25338.68,
+    basePrice: 25337.27,
     volatility1m: 9.5,
   },
   {
@@ -520,7 +520,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 1,
     quoteCurrency: 'GBP',
     defaultSpread: 1.0,
-    basePrice: 10681.11,
+    basePrice: 10480.82,
     volatility1m: 5.5,
   },
   // Major Energies (Oil CFD Standard: 100 barrels per 1.00 lot -> $1.00 oil move = $100 per lot, $0.01 pip = $1.00 per lot)
@@ -539,7 +539,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 100,
     quoteCurrency: 'USD',
     defaultSpread: 0.03,
-    basePrice: 99.43,
+    basePrice: 80.4,
     volatility1m: 0.12,
   },
   {
@@ -557,7 +557,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 100,
     quoteCurrency: 'USD',
     defaultSpread: 0.03,
-    basePrice: 112.17,
+    basePrice: 86.83,
     volatility1m: 0.13,
   },
   // Major Cryptocurrencies (1 coin per 1.00 standard lot)
@@ -576,7 +576,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 1,
     quoteCurrency: 'USD',
     defaultSpread: 1.5,
-    basePrice: 81685.84,
+    basePrice: 61706.05,
     volatility1m: 38.0,
   },
   {
@@ -594,7 +594,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     nativeContractUnits: 1,
     quoteCurrency: 'USD',
     defaultSpread: 0.25,
-    basePrice: 2397.59,
+    basePrice: 1757.31,
     volatility1m: 2.1,
   },
 ];
@@ -1416,21 +1416,21 @@ export interface InstrumentHistoricalCoverage {
  */
 export function getInstrumentHistoricalCoverage(symbol: InstrumentSymbol): InstrumentHistoricalCoverage {
   let minDate = '2015-01-02';
-  let maxDate = '2026-11-06';
+  let maxDate = '2026-11-23';
   let missingRange: { start: string; end: string; label: string } | undefined;
 
   if (symbol === 'BTCUSD') {
     minDate = '2015-01-01';
-    maxDate = '2026-11-12';
+    maxDate = '2026-11-23';
   } else if (symbol === 'ETHUSD') {
     minDate = '2016-06-01';
-    maxDate = '2026-11-12';
+    maxDate = '2026-11-23';
   } else if (symbol === 'US30') {
     minDate = '2015-01-02';
-    maxDate = '2026-11-03';
+    maxDate = '2026-11-23';
   } else if (symbol === 'USOIL') {
     minDate = '2015-01-02';
-    maxDate = '2026-11-06';
+    maxDate = '2026-11-23';
     missingRange = {
       start: '2024-01-01',
       end: '2026-06-14',

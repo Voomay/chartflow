@@ -79,14 +79,18 @@ import {
   getDeletedSessionIds,
   getDeletedStrategyIds,
   isSessionOwnedByUser,
+  loadActiveSessionId,
   loadUserCustomRuleProfiles,
+  loadUserDashboardTheme,
   loadUserSessions,
   loadUserStrategies,
   loadUserStrategyNotes,
   mergeRemoteDeletedSessionIds,
   mergeRemoteDeletedStrategyIds,
   purgeBrowserSensitiveStorage,
+  saveActiveSessionId,
   saveUserCustomRuleProfiles,
+  saveUserDashboardTheme,
   saveUserSessions,
   stampSessionOwner,
   deleteUserSession,
@@ -619,7 +623,13 @@ export function App() {
         )
       );
     setTradingSessions(loadedSessions);
-    setActiveSessionId(loadedSessions[0]?.id || 'session-default');
+    const savedActiveId = loadActiveSessionId(email);
+    const initialActive =
+      (savedActiveId && loadedSessions.find((s) => s.id === savedActiveId)?.id) ||
+      loadedSessions[0]?.id ||
+      'session-default';
+    setActiveSessionId(initialActive);
+    setDashboardTheme(loadUserDashboardTheme(email));
     setStrategies(loadUserStrategies(email));
     setCustomRuleProfiles(loadUserCustomRuleProfiles(email));
 
@@ -640,6 +650,13 @@ export function App() {
         if (remotePrefs) {
           if (typeof remotePrefs.skipWelcome === 'boolean' && remotePrefs.skipWelcome) {
             setMotivationEnabled(email, false, false);
+          }
+          if (
+            remotePrefs.dashboardTheme === 'light' ||
+            remotePrefs.dashboardTheme === 'dark'
+          ) {
+            setDashboardTheme(remotePrefs.dashboardTheme);
+            saveUserDashboardTheme(email, remotePrefs.dashboardTheme, false);
           }
           if (remotePrefs.deletedSessionIds?.length) {
             mergeRemoteDeletedSessionIds(email, remotePrefs.deletedSessionIds);
@@ -722,12 +739,19 @@ export function App() {
           activeRemoteSessions.find((r) => !isUntouchedStarterSession(r)) ||
           activeRemoteSessions[0];
         setActiveSessionId((prevId) => {
+          const savedId = loadActiveSessionId(email);
           const prevSession = activeRemoteSessions.find((r) => r.id === prevId);
           if (prevSession && !isUntouchedStarterSession(prevSession)) {
             return prevId;
           }
           if (locallyCreatedSessionIdsRef.current.has(prevId)) {
             return prevId;
+          }
+          if (savedId) {
+            const savedRemote = activeRemoteSessions.find((r) => r.id === savedId);
+            if (savedRemote && !isUntouchedStarterSession(savedRemote)) {
+              return savedRemote.id;
+            }
           }
           return preferredSession.id;
         });
@@ -793,6 +817,17 @@ export function App() {
   useEffect(() => {
     purgeBrowserSensitiveStorage();
   }, [activeView, currentUser, activeSession?.id]);
+
+  useEffect(() => {
+    if (
+      currentUser?.email &&
+      activeSessionId &&
+      activeSessionId !== 'session-default' &&
+      !activeSessionId.startsWith('session-empty-')
+    ) {
+      saveActiveSessionId(currentUser.email, activeSessionId);
+    }
+  }, [currentUser?.email, activeSessionId]);
 
   const updateActiveSession = useCallback(
     (updater: (prev: TradingSession) => TradingSession) => {
@@ -1065,19 +1100,66 @@ export function App() {
   }, [visibleCandles, symbol]);
 
   // 6. Theme & Visual Preferences
-  const [theme, setTheme] = useState<ThemeMode>('dark');
+  const [dashboardTheme, setDashboardTheme] = useState<ThemeMode>(() =>
+    loadUserDashboardTheme(getActiveLoggedInUser()?.email)
+  );
+  const terminalTheme: ThemeMode = activeSession.chartTheme ?? dashboardTheme;
+  const theme: ThemeMode =
+    activeView === 'terminal' ? terminalTheme : dashboardTheme;
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
-  const [candleStyle, setCandleStyle] =
-    useState<CandleColorStyle>('classic_green_red');
-  const [customCandleColors, setCustomCandleColors] =
-    useState<CustomCandleColors>({
-      upColor: '#089981',
-      downColor: '#f23645',
+  const handleToggleDashboardTheme = useCallback(() => {
+    setDashboardTheme((prev) => {
+      const next: ThemeMode = prev === 'light' ? 'dark' : 'light';
+      saveUserDashboardTheme(currentUser?.email, next, true);
+      return next;
     });
+  }, [currentUser?.email]);
+
+  const handleToggleTerminalTheme = useCallback(() => {
+    const next: ThemeMode = terminalTheme === 'light' ? 'dark' : 'light';
+    updateActiveSession((s) => ({
+      ...s,
+      chartTheme: next,
+      updatedAt: new Date().toISOString(),
+    }));
+  }, [terminalTheme, updateActiveSession]);
+
+  const candleStyle: CandleColorStyle =
+    activeSession.candleStyle ?? 'classic_green_red';
+  const customCandleColors: CustomCandleColors = useMemo(
+    () =>
+      activeSession.customCandleColors ?? {
+        upColor: '#089981',
+        downColor: '#f23645',
+      },
+    [activeSession.customCandleColors]
+  );
+
+  const handleSelectCandleStyle = useCallback(
+    (nextStyle: CandleColorStyle) => {
+      updateActiveSession((s) => ({
+        ...s,
+        candleStyle: nextStyle,
+        updatedAt: new Date().toISOString(),
+      }));
+    },
+    [updateActiveSession]
+  );
+
+  const handleChangeCustomCandleColors = useCallback(
+    (nextColors: CustomCandleColors) => {
+      updateActiveSession((s) => ({
+        ...s,
+        customCandleColors: nextColors,
+        updatedAt: new Date().toISOString(),
+      }));
+    },
+    [updateActiveSession]
+  );
 
   // 7. Replay Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -1391,6 +1473,7 @@ export function App() {
     showEngulfing: false,
     showOrderFlow: false,
     showCRTOverlay: false,
+    showCandleSR: false,
   }));
   const resetChartIndicatorsOff = useCallback(() => {
     setChartIndicators({
@@ -1408,6 +1491,7 @@ export function App() {
       showEngulfing: false,
       showOrderFlow: false,
       showCRTOverlay: false,
+      showCandleSR: false,
     });
     setIndicatorConfigs((prev) => {
       if (!prev.customMAs?.some((ma) => ma.enabled)) return prev;
@@ -1707,7 +1791,10 @@ export function App() {
 
   // 10. Replay Step & Skip Engine Handlers
   const handleAdvanceOrRewindToTimestamp = useCallback(
-    (targetTs: number): { ok: boolean; error?: string } => {
+    (
+      targetTs: number,
+      options?: { focusViewport?: boolean }
+    ): { ok: boolean; error?: string } => {
       const currTs = activeSession.replayTimestamp || activeSession.startTimestamp || authoritativeClockTs;
       const stepSec = TIMEFRAME_CONFIG[replayStepTimeframe]?.seconds || 900;
 
@@ -1780,6 +1867,13 @@ export function App() {
       setTradingSessions((prevList) =>
         prevList.map((s) => (s.id === activeSession.id ? nextSessionState : s))
       );
+
+      if (
+        options?.focusViewport ||
+        Math.abs(alignedTarget - currTs) > stepSec
+      ) {
+        setViewportFocusVersion((v) => v + 1);
+      }
 
       if (outcome.closedTrades.length > 0) {
         const lastClosed =
@@ -3693,9 +3787,7 @@ export function App() {
           }}
           onLogout={signOut}
           theme={theme}
-          onToggleTheme={() =>
-            setTheme((t) => (t === 'light' ? 'dark' : 'light'))
-          }
+          onToggleTheme={handleToggleDashboardTheme}
           initialSection={
             activeView === 'analytics_page' ? 'analytics' : hubInitialSection
           }
@@ -3875,13 +3967,11 @@ export function App() {
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
         theme={theme}
-        onToggleTheme={() =>
-          setTheme((t) => (t === 'light' ? 'dark' : 'light'))
-        }
+        onToggleTheme={handleToggleTerminalTheme}
         candleStyle={candleStyle}
-        onSelectCandleStyle={setCandleStyle}
+        onSelectCandleStyle={handleSelectCandleStyle}
         customCandleColors={customCandleColors}
-        onChangeCustomCandleColors={setCustomCandleColors}
+        onChangeCustomCandleColors={handleChangeCustomCandleColors}
         onOpenLanding={() => setActiveView('landing')}
         onOpenLogin={() => setActiveView('login')}
         currentUser={currentUser}
@@ -4207,9 +4297,9 @@ export function App() {
               onChangeActiveIndicatorSettingsId={setActiveIndicatorSettingsId}
               onTakeScreenshotRef={takeScreenshotRef}
               candleStyle={candleStyle}
-              onSelectCandleStyle={setCandleStyle}
+              onSelectCandleStyle={handleSelectCandleStyle}
               customCandleColors={customCandleColors}
-              onChangeCustomCandleColors={setCustomCandleColors}
+              onChangeCustomCandleColors={handleChangeCustomCandleColors}
               stayInDrawingMode={stayInDrawingMode}
               lockDrawings={lockDrawings}
               hideDrawings={hideDrawings}
@@ -4361,9 +4451,9 @@ export function App() {
               onUpdateIndicatorConfigs={handleUpdateIndicatorConfigs}
               onChangeActiveIndicatorSettingsId={setActiveIndicatorSettingsId}
               candleStyle={candleStyle}
-                  onSelectCandleStyle={setCandleStyle}
+                  onSelectCandleStyle={handleSelectCandleStyle}
                   customCandleColors={customCandleColors}
-                  onChangeCustomCandleColors={setCustomCandleColors}
+                  onChangeCustomCandleColors={handleChangeCustomCandleColors}
                   stayInDrawingMode={stayInDrawingMode}
                   lockDrawings={lockDrawings}
                   hideDrawings={hideDrawings}
@@ -4451,7 +4541,9 @@ export function App() {
           onSetPlaybackSpeedMs={setPlaybackSpeedMs}
           onTogglePlay={() => { if (isPresentTime) return; setIsPlaying((v) => !v); }}
           onStepBar={handleStepBar}
-          onSkipToTimestamp={handleAdvanceOrRewindToTimestamp}
+          onSkipToTimestamp={(targetTs) =>
+            handleAdvanceOrRewindToTimestamp(targetTs, { focusViewport: true })
+          }
           onBranchSession={handleBranchSession}
           activeTool={activeTool}
           onSetActiveTool={setActiveTool}

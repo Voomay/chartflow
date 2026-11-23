@@ -2,6 +2,8 @@ import {ChartAnnouncement,markChartAnnouncementSeen} from './ChartAnnouncement';
 import {applyPageSeo} from '../services/seo';
 import { WorkspaceTour } from './WorkspaceTour';
 import { PerformanceOverview } from './PerformanceOverview';
+import { AnalystCoachPopup, AnalystReportSection } from './AnalystReportCard';
+import { generateAnalystReport } from '../services/analystReport';
 import { DashboardOverview } from './DashboardOverview';
 import { PropEvaluationCalculator } from './PropEvaluationCalculator';
 import { StrategyNotes } from './StrategyNotes';
@@ -350,6 +352,12 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
     () => computeAnalyticsReport(sessions, activeSession, filters),
     [sessions, activeSession, filters]
   );
+
+  const analystReport = useMemo(
+    () => generateAnalystReport(report, currentUser?.name),
+    [report, currentUser?.name]
+  );
+  const [coachPopupDismissed, setCoachPopupDismissed] = useState(false);
 
   const selectedAnalyticsSession = useMemo(() => {
     if (filters.sessionId === 'ALL') return activeSession;
@@ -1922,6 +1930,11 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             )}
 
             <PerformanceOverview report={report} isLight={isLight} />
+            <AnalystReportSection
+              analystReport={analystReport}
+              currency={report.accountCurrency}
+              isLight={isLight}
+            />
             <details className="hub-surface rounded-2xl p-4 space-y-4"><summary className="cursor-pointer text-xs font-semibold opacity-75">Advanced metrics, drawdown &amp; execution costs</summary>
             {/* 13 Explicit KPIs Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -3577,6 +3590,21 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
           </div>
         </div>
       )}
+
+      {sidebarSection === 'analytics' &&
+        !coachPopupDismissed &&
+        report.totalClosedTrades > 0 && (
+          <AnalystCoachPopup
+            analystReport={analystReport}
+            isLight={isLight}
+            onDismiss={() => setCoachPopupDismissed(true)}
+            onViewReport={() => {
+              document
+                .getElementById('analyst-report-section')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+          />
+        )}
     </div>
   );
 };

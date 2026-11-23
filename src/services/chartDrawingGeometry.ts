@@ -531,6 +531,20 @@ export const DEFAULT_INDICATOR_CONFIGS: ChartIndicatorConfigs = {
     removeOldFvg: true,
     showFvg50: true,
   },
+  candleSR: {
+    timezone: 'America/New_York',
+    targetHour: 9,
+    targetMinute: 15,
+    candleDurationMinutes: 15,
+    breakoutMode: 'CLOSE',
+    breakoutRule: 'CROSS',
+    resistanceColor: '#f59e0b',
+    supportColor: '#38bdf8',
+    resistanceBreakColor: '#10b981',
+    supportBreakColor: '#f43f5e',
+    lineWidth: 1,
+    showLabels: true,
+  },
 };
 
 const INDICATOR_CONFIGS_STORAGE_KEY = 'chart_flow_indicator_configs_v1';
@@ -562,6 +576,7 @@ export function loadSavedIndicatorConfigs(): ChartIndicatorConfigs {
             forecast: { ...DEFAULT_INDICATOR_CONFIGS.forecast, ...(parsed.forecast || {}) },
             orderFlow: { ...DEFAULT_INDICATOR_CONFIGS.orderFlow, ...(parsed.orderFlow || {}) },
             crtOverlay: { ...DEFAULT_INDICATOR_CONFIGS.crtOverlay, ...(parsed.crtOverlay || {}) },
+            candleSR: { ...DEFAULT_INDICATOR_CONFIGS.candleSR!, ...(parsed.candleSR || {}) },
           };
         }
       }

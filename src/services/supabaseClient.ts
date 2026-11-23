@@ -4,6 +4,7 @@ import {
   CustomRuleProfile,
   InstrumentSymbol,
   StrategyRecord,
+  ThemeMode,
   Timeframe,
   TradingSession,
 } from '../types/trading';
@@ -149,6 +150,7 @@ export interface UserCloudPreferences {
   celebrateWins?: boolean;
   deletedSessionIds?: string[];
   deletedStrategyIds?: string[];
+  dashboardTheme?: ThemeMode;
   updatedAt?: string;
 }
 

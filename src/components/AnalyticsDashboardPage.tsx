@@ -42,13 +42,12 @@ import { ChartFlowUser } from './LoginPage';
 import { QuickStartGuide } from './QuickStartGuide';
 import { DrawdownChart, EquityCurveChart, GradientBar } from './analytics/charts';
 import { TradeSimulator } from './analytics/TradeSimulator';
+import { PnlCalendar } from './analytics/PnlCalendar';
 import {
   BarChart2,
   BookOpen,
   Calculator,
   NotebookPen,
-  Calendar as CalendarIcon,
-  ChevronLeft,
   ChevronRight,
   Compass,
   Download,
@@ -410,80 +409,6 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
     }_${report.accountCurrency}.csv`;
     triggerCsvDownload(csv, filename);
   };
-
-  // Calendar grid for Daily P&L Calendar
-  const calendarDays = useMemo(() => {
-    const year = calendarMonthDate.getUTCFullYear();
-    const month = calendarMonthDate.getUTCMonth();
-    const firstDay = new Date(Date.UTC(year, month, 1));
-    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-    const startWeekday = firstDay.getUTCDay();
-
-    const byDateMap = new Map<
-      string,
-      { pnl: number; tradesCount: number; winsCount: number; lossesCount: number }
-    >();
-
-    for (const tr of report.filteredClosedTrades) {
-      const ts = tr.exitTime || tr.entryTime;
-      const dKey = new Date(ts * 1000).toISOString().slice(0, 10);
-      const prev = byDateMap.get(dKey) || {
-        pnl: 0,
-        tradesCount: 0,
-        winsCount: 0,
-        lossesCount: 0,
-      };
-      prev.pnl = Number((prev.pnl + tr.pnl).toFixed(2));
-      prev.tradesCount += 1;
-      if (tr.pnl > 0.005) prev.winsCount += 1;
-      else if (tr.pnl < -0.005) prev.lossesCount += 1;
-      byDateMap.set(dKey, prev);
-    }
-
-    const cells: {
-      dayNumber: number | null;
-      dateKey: string;
-      pnl: number;
-      tradesCount: number;
-      winsCount: number;
-      lossesCount: number;
-    }[] = [];
-
-    for (let i = 0; i < startWeekday; i++) {
-      cells.push({
-        dayNumber: null,
-        dateKey: `empty-${i}`,
-        pnl: 0,
-        tradesCount: 0,
-        winsCount: 0,
-        lossesCount: 0,
-      });
-    }
-
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(
-        2,
-        '0'
-      )}`;
-      const entry = byDateMap.get(dateKey);
-      cells.push({
-        dayNumber: d,
-        dateKey,
-        pnl: entry?.pnl || 0,
-        tradesCount: entry?.tradesCount || 0,
-        winsCount: entry?.winsCount || 0,
-        lossesCount: entry?.lossesCount || 0,
-      });
-    }
-    return {
-      monthLabel: firstDay.toLocaleDateString('en-US', {
-        month: 'long',
-        year: 'numeric',
-        timeZone: 'UTC',
-      }),
-      cells,
-    };
-  }, [calendarMonthDate, report.filteredClosedTrades]);
 
   const bgMain = isLight
     ? 'bg-[#f4f6fb] text-[#131722]'
@@ -2356,96 +2281,19 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
             </details>
 
-            {/* Daily P&L Calendar & Breakdowns by Instrument / Strategy / Hour */}
+            {/* P&L Calendar (Daily / Weekly / Monthly / Yearly) & Breakdowns by Instrument / Strategy / Hour */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 min-w-0">
-              {/* Daily P&L Calendar */}
-              <div className={`lg:col-span-6 min-w-0 overflow-hidden p-4 rounded-2xl border space-y-3 ${cardBg}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CalendarIcon className="w-4 h-4 text-[#2962ff]" />
-                    <h3 className="text-xs font-extrabold uppercase tracking-wider">
-                      Daily P&L Calendar ({calendarDays.monthLabel})
-                    </h3>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() =>
-                        setCalendarMonthDate(
-                          (d) =>
-                            new Date(
-                              Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)
-                            )
-                        )
-                      }
-                      className={`p-1 rounded border ${subCardBg}`}
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() =>
-                        setCalendarMonthDate(
-                          (d) =>
-                            new Date(
-                              Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)
-                            )
-                        )
-                      }
-                      className={`p-1 rounded border ${subCardBg}`}
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-mono">
-                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-                    <div key={d} className="opacity-60 font-bold py-1">
-                      {d}
-                    </div>
-                  ))}
-                  {calendarDays.cells.map((cell) => {
-                    if (cell.dayNumber === null) {
-                      return (
-                        <div
-                          key={cell.dateKey}
-                          className="h-14 rounded-lg bg-transparent"
-                        />
-                      );
-                    }
-                    const hasTrades = cell.tradesCount > 0;
-                    return (
-                      <div
-                        key={cell.dateKey}
-                        className={`h-14 p-1.5 rounded-lg border flex flex-col justify-between text-left ${
-                          !hasTrades
-                            ? subCardBg
-                            : cell.pnl > 0
-                            ? isLight
-                              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-800'
-                              : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                            : cell.pnl < 0
-                            ? isLight
-                              ? 'bg-rose-500/15 border-rose-500/40 text-rose-800'
-                              : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
-                            : 'bg-blue-500/15 border-blue-500/30'
-                        }`}
-                      >
-                        <div className="flex justify-between items-center text-[9px]">
-                          <span className="font-bold">{cell.dayNumber}</span>
-                          {hasTrades && <span>{cell.tradesCount}T</span>}
-                        </div>
-                        {hasTrades && (
-                          <div className="text-[10px] font-extrabold truncate">
-                            {cell.pnl >= 0 ? '+' : '-'}
-                            {CURRENCY_SYMBOLS[report.accountCurrency] || '$'}
-                            {Math.round(Math.abs(cell.pnl)).toLocaleString('en-US')}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              {/* P&L Calendar */}
+              <PnlCalendar
+                trades={report.filteredClosedTrades}
+                accountCurrency={report.accountCurrency}
+                startingBalance={report.startingBalance}
+                calendarMonthDate={calendarMonthDate}
+                onChangeCalendarMonthDate={setCalendarMonthDate}
+                isLight={isLight}
+                cardBg={cardBg}
+                subCardBg={subCardBg}
+              />
 
               {/* Performance by Instrument, Strategy, Direction & Hour */}
               <div className={`lg:col-span-6 min-w-0 overflow-hidden p-4 rounded-2xl border space-y-4 ${cardBg}`}>

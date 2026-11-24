@@ -39,12 +39,22 @@ import {
   isSessionOwnedByUser,
   triggerCsvDownload,
 } from '../services/storageAndAnalytics';
+import {
+  filterAndSortClosedTradeLedger,
+  TRADE_LEDGER_SORT_OPTIONS,
+  TradeLedgerOutcomeFilter,
+  TradeLedgerSideFilter,
+  TradeLedgerSortOption,
+} from '../services/tradeLedgerSortFilter';
 import { ChartFlowUser } from './LoginPage';
 import { QuickStartGuide } from './QuickStartGuide';
 import { DrawdownChart, EquityCurveChart, GradientBar } from './analytics/charts';
 import { TradeSimulator } from './analytics/TradeSimulator';
 import { PnlCalendar } from './analytics/PnlCalendar';
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   BarChart2,
   BookOpen,
   Calculator,
@@ -407,6 +417,109 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
     });
     return Array.from(set);
   }, [sessions]);
+
+  // Closed Trade Ledger Sort & Quick Filter State
+  const [ledgerSortBy, setLedgerSortBy] =
+    useState<TradeLedgerSortOption>('LATEST');
+  const [ledgerOutcomeFilter, setLedgerOutcomeFilter] =
+    useState<TradeLedgerOutcomeFilter>('ALL');
+  const [ledgerSideFilter, setLedgerSideFilter] =
+    useState<TradeLedgerSideFilter>('ALL');
+  const [ledgerSymbolFilter, setLedgerSymbolFilter] = useState<string>('ALL');
+
+  const resolveLedgerTradeSymbol = React.useCallback(
+    (tr: BacktestPosition): string => {
+      if (tr.symbol) return tr.symbol;
+      const parentSess =
+        sessions.find(
+          (s) =>
+            s.id === tr.sessionId ||
+            (s.positions || []).some((p) => p.id === tr.id)
+        ) || selectedAnalyticsSession;
+      return parentSess?.activeAsset || 'XAUUSD';
+    },
+    [sessions, selectedAnalyticsSession]
+  );
+
+  const ledgerSymbolOptions = useMemo(() => {
+    const set = new Set<string>();
+    report.filteredClosedTrades.forEach((tr) => {
+      set.add(resolveLedgerTradeSymbol(tr));
+    });
+    return Array.from(set).sort();
+  }, [report.filteredClosedTrades, resolveLedgerTradeSymbol]);
+
+  useEffect(() => {
+    if (
+      ledgerSymbolFilter !== 'ALL' &&
+      !ledgerSymbolOptions.includes(ledgerSymbolFilter)
+    ) {
+      setLedgerSymbolFilter('ALL');
+    }
+  }, [ledgerSymbolFilter, ledgerSymbolOptions]);
+
+  const ledgerCounts = useMemo(() => {
+    let winners = 0;
+    let losers = 0;
+    let breakeven = 0;
+    for (const tr of report.filteredClosedTrades) {
+      if (tr.pnl > 0.005) winners++;
+      else if (tr.pnl < -0.005) losers++;
+      else breakeven++;
+    }
+    return {
+      total: report.filteredClosedTrades.length,
+      winners,
+      losers,
+      breakeven,
+    };
+  }, [report.filteredClosedTrades]);
+
+  const displayedLedgerTrades = useMemo(
+    () =>
+      filterAndSortClosedTradeLedger(
+        report.filteredClosedTrades,
+        {
+          outcome: ledgerOutcomeFilter,
+          side: ledgerSideFilter,
+          symbol: ledgerSymbolFilter,
+          sortBy: ledgerSortBy,
+        },
+        resolveLedgerTradeSymbol
+      ),
+    [
+      report.filteredClosedTrades,
+      ledgerOutcomeFilter,
+      ledgerSideFilter,
+      ledgerSymbolFilter,
+      ledgerSortBy,
+      resolveLedgerTradeSymbol,
+    ]
+  );
+
+  const hasActiveLedgerFilter =
+    ledgerOutcomeFilter !== 'ALL' ||
+    ledgerSideFilter !== 'ALL' ||
+    ledgerSymbolFilter !== 'ALL' ||
+    Boolean(filters.searchQuery.trim());
+
+  const resetLedgerFilters = () => {
+    setLedgerOutcomeFilter('ALL');
+    setLedgerSideFilter('ALL');
+    setLedgerSymbolFilter('ALL');
+    if (filters.searchQuery) {
+      setFilters((f) => ({ ...f, searchQuery: '' }));
+    }
+  };
+
+  const handleColumnSortToggle = (
+    primary: TradeLedgerSortOption,
+    alternate?: TradeLedgerSortOption
+  ) => {
+    setLedgerSortBy((prev) =>
+      prev === primary && alternate ? alternate : primary
+    );
+  };
 
   const handleExportCsv = () => {
     const csv = exportFilteredTradesToCsv(
@@ -2419,18 +2532,22 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
             {/* SEARCHABLE TRADE TABLE */}
             <div className={`min-w-0 max-w-full overflow-hidden p-4 rounded-2xl border space-y-3 ${cardBg}`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-xs font-extrabold uppercase tracking-wider">
-                    Searchable Closed Trade Ledger ({report.filteredClosedTrades.length}{' '}
-                    Trades)
+                    Searchable Closed Trade Ledger (
+                    {displayedLedgerTrades.length !==
+                    report.filteredClosedTrades.length
+                      ? `${displayedLedgerTrades.length} of ${report.filteredClosedTrades.length} Trades`
+                      : `${report.filteredClosedTrades.length} Trades`}
+                    )
                   </h3>
                   <p className="text-[11px] opacity-65">
                     Click any trade row to inspect its execution fills, journal entry, and historical candlestick chart context (without altering the active replay clock).
                   </p>
                 </div>
-                <div className="relative w-full sm:w-72">
-                  <Search className="w-3.5 h-3.5 opacity-50 absolute left-3 top-1/2 -translate-y-1/2" />
+                <div className="relative w-full lg:w-72 shrink-0">
+                  <Search className="w-3.5 h-3.5 opacity-50 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     value={filters.searchQuery}
@@ -2438,40 +2555,308 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                       setFilters((f) => ({ ...f, searchQuery: e.target.value }))
                     }
                     placeholder="Search symbol, strategy, notes, tag..."
-                    className={`w-full pl-8 pr-3 py-1.5 rounded-lg border text-xs outline-none ${subCardBg}`}
+                    className={`w-full pl-8 pr-7 py-1.5 rounded-lg border text-xs outline-none focus:border-blue-500/60 transition ${subCardBg}`}
                   />
+                  {filters.searchQuery && (
+                    <button
+                      type="button"
+                      aria-label="Clear ledger search"
+                      onClick={() =>
+                        setFilters((f) => ({ ...f, searchQuery: '' }))
+                      }
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-55 hover:opacity-100 transition"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* SORT & QUICK FILTER CONTROLS */}
+              <div
+                className={`flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 p-2.5 rounded-xl border text-xs ${subCardBg}`}
+              >
+                {/* Sort Presets + Full Sort Selector */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider opacity-65 mr-1">
+                    <ArrowUpDown className="w-3 h-3" />
+                    <span>Sort:</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLedgerSortBy('LATEST')}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${
+                      ledgerSortBy === 'LATEST'
+                        ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                        : `${cardBg} opacity-80 hover:opacity-100 hover:border-blue-400/60`
+                    }`}
+                  >
+                    Latest Trades
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLedgerSortBy('MOST_PROFITABLE')}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${
+                      ledgerSortBy === 'MOST_PROFITABLE'
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                        : `${cardBg} opacity-80 hover:opacity-100 hover:border-emerald-400/60`
+                    }`}
+                  >
+                    Most Profitable
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLedgerSortBy('BIGGEST_LOSS')}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${
+                      ledgerSortBy === 'BIGGEST_LOSS'
+                        ? 'bg-rose-600 text-white border-rose-500 shadow-sm'
+                        : `${cardBg} opacity-80 hover:opacity-100 hover:border-rose-400/60`
+                    }`}
+                  >
+                    Biggest Loss
+                  </button>
+                  <select
+                    aria-label="Sort closed trade ledger"
+                    value={ledgerSortBy}
+                    onChange={(e) =>
+                      setLedgerSortBy(e.target.value as TradeLedgerSortOption)
+                    }
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold outline-none focus:border-blue-500/60 cursor-pointer ${cardBg}`}
+                  >
+                    {TRADE_LEDGER_SORT_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Quick Outcome, Side & Symbol Filters */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider opacity-65 mr-1">
+                    <Filter className="w-3 h-3" />
+                    <span>Filter:</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLedgerOutcomeFilter('ALL')}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${
+                      ledgerOutcomeFilter === 'ALL'
+                        ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                        : `${cardBg} opacity-80 hover:opacity-100`
+                    }`}
+                  >
+                    All ({ledgerCounts.total})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLedgerOutcomeFilter('WINNERS')}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${
+                      ledgerOutcomeFilter === 'WINNERS'
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                        : `${cardBg} opacity-80 hover:opacity-100 hover:border-emerald-400/60`
+                    }`}
+                  >
+                    Winners ({ledgerCounts.winners})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLedgerOutcomeFilter('LOSERS')}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${
+                      ledgerOutcomeFilter === 'LOSERS'
+                        ? 'bg-rose-600 text-white border-rose-500 shadow-sm'
+                        : `${cardBg} opacity-80 hover:opacity-100 hover:border-rose-400/60`
+                    }`}
+                  >
+                    Losses ({ledgerCounts.losers})
+                  </button>
+                  {(ledgerCounts.breakeven > 0 ||
+                    ledgerOutcomeFilter === 'BREAKEVEN') && (
+                    <button
+                      type="button"
+                      onClick={() => setLedgerOutcomeFilter('BREAKEVEN')}
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${
+                        ledgerOutcomeFilter === 'BREAKEVEN'
+                          ? 'bg-slate-600 text-white border-slate-500 shadow-sm'
+                          : `${cardBg} opacity-80 hover:opacity-100`
+                      }`}
+                    >
+                      BE ({ledgerCounts.breakeven})
+                    </button>
+                  )}
+
+                  <select
+                    aria-label="Filter closed trade ledger by side"
+                    value={ledgerSideFilter}
+                    onChange={(e) =>
+                      setLedgerSideFilter(
+                        e.target.value as TradeLedgerSideFilter
+                      )
+                    }
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold outline-none focus:border-blue-500/60 cursor-pointer ${cardBg}`}
+                  >
+                    <option value="ALL">All Sides</option>
+                    <option value="LONG">Long Only</option>
+                    <option value="SHORT">Short Only</option>
+                  </select>
+
+                  {(ledgerSymbolOptions.length > 1 ||
+                    ledgerSymbolFilter !== 'ALL') && (
+                    <select
+                      aria-label="Filter closed trade ledger by symbol"
+                      value={ledgerSymbolFilter}
+                      onChange={(e) => setLedgerSymbolFilter(e.target.value)}
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold outline-none focus:border-blue-500/60 cursor-pointer ${cardBg}`}
+                    >
+                      <option value="ALL">All Symbols</option>
+                      {ledgerSymbolOptions.map((sym) => (
+                        <option key={sym} value={sym}>
+                          {sym}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  {hasActiveLedgerFilter && (
+                    <button
+                      type="button"
+                      onClick={resetLedgerFilters}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-bold hover:border-blue-400/70 transition ${cardBg}`}
+                      title="Reset ledger filters and search"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Reset</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs font-mono">
                   <thead>
-                    <tr className="border-b border-gray-500/20 text-[10px] uppercase opacity-70">
-                      <th className="py-2 px-2">Exit Time</th>
+                    <tr className="border-b border-gray-500/20 text-[10px] uppercase opacity-75">
+                      <th className="py-2 px-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleColumnSortToggle('LATEST', 'OLDEST')
+                          }
+                          className="inline-flex items-center gap-1 uppercase font-bold hover:text-blue-500 transition"
+                          title="Sort by Exit Time"
+                        >
+                          <span>Exit Time</span>
+                          {ledgerSortBy === 'LATEST' ? (
+                            <ArrowDown className="w-3 h-3 text-blue-500" />
+                          ) : ledgerSortBy === 'OLDEST' ? (
+                            <ArrowUp className="w-3 h-3 text-blue-500" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 opacity-40" />
+                          )}
+                        </button>
+                      </th>
                       <th className="py-2 px-2">Account Balance</th>
                       <th className="py-2 px-2">Symbol</th>
                       <th className="py-2 px-2">Side</th>
-                      <th className="py-2 px-2">Lots</th>
+                      <th className="py-2 px-2">
+                        <button
+                          type="button"
+                          onClick={() => handleColumnSortToggle('LARGEST_LOTS')}
+                          className="inline-flex items-center gap-1 uppercase font-bold hover:text-blue-500 transition"
+                          title="Sort by Lot Size"
+                        >
+                          <span>Lots</span>
+                          {ledgerSortBy === 'LARGEST_LOTS' ? (
+                            <ArrowDown className="w-3 h-3 text-blue-500" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 opacity-40" />
+                          )}
+                        </button>
+                      </th>
                       <th className="py-2 px-2">Entry → Exit</th>
                       <th className="py-2 px-2">Strategy / Tags</th>
-                      <th className="py-2 px-2">Realised R</th>
-                      <th className="py-2 px-2">Costs</th>
-                      <th className="py-2 px-2">Net P&L</th>
+                      <th className="py-2 px-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleColumnSortToggle('HIGHEST_R', 'LOWEST_R')
+                          }
+                          className="inline-flex items-center gap-1 uppercase font-bold hover:text-blue-500 transition"
+                          title="Sort by Realised R-Multiple"
+                        >
+                          <span>Realised R</span>
+                          {ledgerSortBy === 'HIGHEST_R' ? (
+                            <ArrowDown className="w-3 h-3 text-emerald-500" />
+                          ) : ledgerSortBy === 'LOWEST_R' ? (
+                            <ArrowUp className="w-3 h-3 text-rose-500" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 opacity-40" />
+                          )}
+                        </button>
+                      </th>
+                      <th className="py-2 px-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleColumnSortToggle('HIGHEST_COSTS')
+                          }
+                          className="inline-flex items-center gap-1 uppercase font-bold hover:text-blue-500 transition"
+                          title="Sort by Execution Costs"
+                        >
+                          <span>Costs</span>
+                          {ledgerSortBy === 'HIGHEST_COSTS' ? (
+                            <ArrowDown className="w-3 h-3 text-amber-500" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 opacity-40" />
+                          )}
+                        </button>
+                      </th>
+                      <th className="py-2 px-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleColumnSortToggle(
+                              'MOST_PROFITABLE',
+                              'BIGGEST_LOSS'
+                            )
+                          }
+                          className="inline-flex items-center gap-1 uppercase font-bold hover:text-blue-500 transition"
+                          title="Sort by Net P&L (Most Profitable / Biggest Loss)"
+                        >
+                          <span>Net P&amp;L</span>
+                          {ledgerSortBy === 'MOST_PROFITABLE' ? (
+                            <ArrowDown className="w-3 h-3 text-emerald-500" />
+                          ) : ledgerSortBy === 'BIGGEST_LOSS' ? (
+                            <ArrowUp className="w-3 h-3 text-rose-500" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 opacity-40" />
+                          )}
+                        </button>
+                      </th>
                       <th className="py-2 px-2 text-right">Inspect Context</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-500/15">
-                    {report.filteredClosedTrades.length === 0 ? (
+                    {displayedLedgerTrades.length === 0 ? (
                       <tr>
                         <td
                           colSpan={11}
-                          className="py-8 text-center opacity-60 font-sans"
+                          className="py-8 text-center opacity-70 font-sans space-y-2"
                         >
-                          No closed trades match the current filters.
+                          <div>No closed trades match the current filters.</div>
+                          {hasActiveLedgerFilter && (
+                            <button
+                              type="button"
+                              onClick={resetLedgerFilters}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Clear Ledger Filters</span>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ) : (
-                      report.filteredClosedTrades.map((tr) => {
+                      displayedLedgerTrades.map((tr) => {
                         const parentSess =
                           sessions.find(
                             (s) =>

@@ -373,7 +373,9 @@ export interface TradeJournalEntry {
   entryReasoning: string;
   exitReasoning: string;
   notes: string;
-  screenshots: string[]; // Data URLs or SVG snapshots
+  entryScreenshot?: string; // Auto-captured KB-compressed chart snapshot when trade opens (Before)
+  exitScreenshot?: string; // Auto-captured KB-compressed chart snapshot when trade closes (After)
+  screenshots: string[]; // Additional manual Data URLs or SVG snapshots
   emotionalState: EmotionalStateTag;
   checklist: TradeChecklistItem[];
   lessonsLearned: string;

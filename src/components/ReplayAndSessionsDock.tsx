@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  compressCanvasToKbDataUrl,
+  formatScreenshotSizeKb,
+} from '../services/chartScreenshot';
+import {
   BacktestPosition,
   Candle,
   DrawingTool,
@@ -105,6 +109,7 @@ interface ReplayAndSessionsDockProps {
     target: 'LONDON' | 'NEW_YORK' | 'TOKYO' | 'SYDNEY' | 'NEXT_DAY' | 'TRADE_EXIT'
   ) => void;
   onSaveJournalEntry: (tradeId: string, entry: TradeJournalEntry) => void;
+  onCaptureTradeSnapshot?: (trade?: BacktestPosition) => string | null;
   /** Persists Skip To preferences onto the active session (all account modes). */
   onSaveSkipSettings?: (settings: SkipToSettings) => void;
   onOpenAnalyticsPage?: () => void;
@@ -464,6 +469,7 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
   onMoveToBreakEven,
   onGoToSessionOpen,
   onSaveJournalEntry,
+  onCaptureTradeSnapshot,
   onSaveSkipSettings,
   onOpenAnalyticsPage,
   onStartNewChallengeAttempt,
@@ -1208,23 +1214,25 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
 
   const handleCaptureChartSnapshot = () => {
     if (!activeJournalTrade) return;
-    const canvases = document.querySelectorAll('canvas');
-    let snapshotDataUrl = '';
-    for (let i = 0; i < canvases.length; i++) {
-      const c = canvases[i];
-      if (c.width > 300 && c.height > 200) {
-        try {
-          snapshotDataUrl = c.toDataURL('image/png');
-          break;
-        } catch {
-          // ignore
+    let snapshotDataUrl = onCaptureTradeSnapshot?.(activeJournalTrade) || '';
+    if (!snapshotDataUrl) {
+      const canvases = document.querySelectorAll('canvas');
+      for (let i = 0; i < canvases.length; i++) {
+        const c = canvases[i];
+        if (c.width > 300 && c.height > 200) {
+          const compressed = compressCanvasToKbDataUrl(c, {
+            maxWidth: 1080,
+            maxBytes: 70 * 1024,
+            backgroundColor: isLight ? '#ffffff' : '#0b0e14',
+          });
+          if (compressed?.dataUrl) {
+            snapshotDataUrl = compressed.dataUrl;
+            break;
+          }
         }
       }
     }
-    if (!snapshotDataUrl) {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="320" viewBox="0 0 600 320"><rect width="600" height="320" fill="#0b0e14"/><text x="30" y="60" fill="#2962ff" font-family="monospace" font-size="20" font-weight="bold">AURUM REPLAY CHART SNAPSHOT</text><text x="30" y="110" fill="#e2e8f0" font-family="monospace" font-size="16">${activeJournalTrade.symbol} ${activeJournalTrade.side} @ ${activeJournalTrade.entryPrice}</text><text x="30" y="150" fill="#94a3b8" font-family="monospace" font-size="14">Replay Clock: ${formatTimestampInTimezone(replayTs, session.displayTimezone)}</text></svg>`;
-      snapshotDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-    }
+    if (!snapshotDataUrl) return;
     updateActiveJournal({
       screenshots: [...currentJournalEntry.screenshots, snapshotDataUrl],
     });
@@ -2269,23 +2277,93 @@ export const ReplayAndSessionsDock: React.FC<ReplayAndSessionsDockProps> = ({
                       </button>
                     </div>
 
-                    <div className="pt-1 border-t border-gray-500/20 flex items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={handleCaptureChartSnapshot}
-                        className="px-2 py-1 rounded bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-400 text-[10px] font-bold flex items-center gap-1"
-                      >
-                        <Camera className="w-3 h-3" /> Capture Screenshot (
-                        {currentJournalEntry.screenshots.length})
-                      </button>
-                      {currentJournalEntry.screenshots.length > 0 && (
+                    <div className="pt-1 border-t border-gray-500/20 space-y-1.5">
+                      <div className="flex items-center justify-between">
                         <button
                           type="button"
-                          onClick={() => updateActiveJournal({ screenshots: [] })}
-                          className="text-[10px] text-rose-400 hover:underline"
+                          onClick={handleCaptureChartSnapshot}
+                          className="px-2 py-1 rounded bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-400 text-[10px] font-bold flex items-center gap-1"
                         >
-                          Clear
+                          <Camera className="w-3 h-3" /> Capture Screenshot (
+                          {(currentJournalEntry.entryScreenshot ? 1 : 0) +
+                            (currentJournalEntry.exitScreenshot ? 1 : 0) +
+                            currentJournalEntry.screenshots.length}
+                          )
                         </button>
+                        {currentJournalEntry.screenshots.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => updateActiveJournal({ screenshots: [] })}
+                            className="text-[10px] text-rose-400 hover:underline"
+                          >
+                            Clear manual
+                          </button>
+                        )}
+                      </div>
+                      {(currentJournalEntry.entryScreenshot ||
+                        currentJournalEntry.exitScreenshot ||
+                        currentJournalEntry.screenshots.length > 0) && (
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                          {currentJournalEntry.entryScreenshot && (
+                            <div className="relative shrink-0 w-24 h-14 rounded-md overflow-hidden border border-blue-500/40 bg-[#0b0e14]">
+                              <img
+                                src={currentJournalEntry.entryScreenshot}
+                                alt="Before (Entry) chart snapshot"
+                                className="w-full h-full object-cover"
+                              />
+                              <span className="absolute top-0.5 left-0.5 px-1 rounded bg-blue-600/90 text-[7px] font-mono font-bold text-white">
+                                BEFORE
+                              </span>
+                              <span className="absolute bottom-0.5 left-0.5 px-1 rounded bg-black/75 text-[8px] font-mono text-white">
+                                {formatScreenshotSizeKb(currentJournalEntry.entryScreenshot)}
+                              </span>
+                            </div>
+                          )}
+                          {currentJournalEntry.exitScreenshot && (
+                            <div className="relative shrink-0 w-24 h-14 rounded-md overflow-hidden border border-emerald-500/40 bg-[#0b0e14]">
+                              <img
+                                src={currentJournalEntry.exitScreenshot}
+                                alt="After (Exit) chart snapshot"
+                                className="w-full h-full object-cover"
+                              />
+                              <span className="absolute top-0.5 left-0.5 px-1 rounded bg-emerald-600/90 text-[7px] font-mono font-bold text-white">
+                                AFTER
+                              </span>
+                              <span className="absolute bottom-0.5 left-0.5 px-1 rounded bg-black/75 text-[8px] font-mono text-white">
+                                {formatScreenshotSizeKb(currentJournalEntry.exitScreenshot)}
+                              </span>
+                            </div>
+                          )}
+                          {currentJournalEntry.screenshots.map((shot, idx) => (
+                            <div
+                              key={idx}
+                              className="relative shrink-0 w-24 h-14 rounded-md overflow-hidden border border-gray-500/30 bg-[#0b0e14] group"
+                            >
+                              <img
+                                src={shot}
+                                alt={`Trade chart snapshot ${idx + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                              <span className="absolute bottom-0.5 left-0.5 px-1 py-0.2 rounded bg-black/75 text-[8px] font-mono text-white">
+                                {formatScreenshotSizeKb(shot)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateActiveJournal({
+                                    screenshots: currentJournalEntry.screenshots.filter(
+                                      (_, i) => i !== idx
+                                    ),
+                                  })
+                                }
+                                title="Remove screenshot"
+                                className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/75 text-white text-[9px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>

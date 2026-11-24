@@ -1,4 +1,5 @@
 import {MomentumStudy} from './MomentumStudy';
+import {compressCanvasToKbDataUrl} from '../services/chartScreenshot';
 import {computeMomentumPullback,MOMENTUM_DEFAULTS,MomentumOptions} from '../services/momentumPullback';
 import {computeEngulfingVolumeMomentum,EngulfingFilter} from '../services/engulfingVolumeMomentum';
 import {computeHistoricalOrderFlow,OrderFlowSignalFilter} from '../services/orderFlowIndicator';
@@ -191,6 +192,9 @@ interface TradingChartProps {
   activeIndicatorSettingsId?: string | null;
   onChangeActiveIndicatorSettingsId?: (id: string | null) => void;
   onTakeScreenshotRef?: React.MutableRefObject<(() => void) | null>;
+  onCaptureTradeSnapshotRef?: React.MutableRefObject<
+    ((trade?: BacktestPosition, phase?: 'ENTRY' | 'EXIT') => string | null) | null
+  >;
   viewportFocusVersion?: number;
 }
 
@@ -441,6 +445,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   activeIndicatorSettingsId: propActiveIndicatorSettingsId,
   onChangeActiveIndicatorSettingsId,
   onTakeScreenshotRef,
+  onCaptureTradeSnapshotRef,
   viewportFocusVersion,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -884,92 +889,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     [showSessionBoxes, candles, sessions, timeframe, instConfig.decimals]
   );
 
-  // 1-Click Composite Chart Screenshot (KLineChart Canvases + Custom Overlay Canvas)
-  const handleTakeChartScreenshot = useCallback(() => {
-    const container = containerRef.current;
-    const overlay = overlayCanvasRef.current;
-    if (!container) return;
-
-    const rect = container.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const outCanvas = document.createElement('canvas');
-    outCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
-    outCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
-    const outCtx = outCanvas.getContext('2d');
-    if (!outCtx) return;
-
-    // 1) Background fill
-    outCtx.fillStyle = theme === 'light' ? '#ffffff' : '#0b0e14';
-    outCtx.fillRect(0, 0, outCanvas.width, outCanvas.height);
-
-    // 2) Composite all KLineChart sub-canvases at their exact bounding rects
-    const innerCanvases = container.querySelectorAll('canvas');
-    innerCanvases.forEach((c) => {
-      if (c === overlay) return;
-      const cRect = c.getBoundingClientRect();
-      if (cRect.width <= 0 || cRect.height <= 0) return;
-      const dx = (cRect.left - rect.left) * dpr;
-      const dy = (cRect.top - rect.top) * dpr;
-      const dw = cRect.width * dpr;
-      const dh = cRect.height * dpr;
-      try {
-        outCtx.drawImage(c, dx, dy, dw, dh);
-      } catch {
-        // ignore tainted canvas if any
-      }
-    });
-
-    // 3) Composite our synchronized custom overlay canvas (Drawings, Fibonacci, EMAs, Positions)
-    if (overlay && overlay.width > 0 && overlay.height > 0) {
-      const oRect = overlay.getBoundingClientRect();
-      const dx = (oRect.left - rect.left) * dpr;
-      const dy = (oRect.top - rect.top) * dpr;
-      const dw = oRect.width * dpr;
-      const dh = oRect.height * dpr;
-      try {
-        outCtx.drawImage(overlay, dx, dy, dw, dh);
-      } catch {
-        // ignore
-      }
-    }
-
-    // 4) Crisp Header Badge on Screenshot
-    outCtx.save();
-    outCtx.scale(dpr, dpr);
-    const title = `${instConfig.name} (${symbol}) · ${timeframe}`;
-    outCtx.font = 'bold 12px Inter, JetBrains Mono, sans-serif';
-    const tw = outCtx.measureText(title).width + 20;
-    outCtx.fillStyle = theme === 'light' ? 'rgba(255,255,255,0.92)' : 'rgba(19,23,34,0.92)';
-    outCtx.strokeStyle = theme === 'light' ? '#cbd5e1' : '#2a2e39';
-    outCtx.lineWidth = 1;
-    outCtx.beginPath();
-    outCtx.roundRect(12, 12, tw, 26, 6);
-    outCtx.fill();
-    outCtx.stroke();
-    outCtx.fillStyle = theme === 'light' ? '#0f172a' : '#f8fafc';
-    outCtx.fillText(title, 22, 29);
-    outCtx.restore();
-
-    try {
-      const dataUrl = outCanvas.toDataURL('image/png');
-      const link = document.createElement('a');
-      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-      link.download = `${symbol}_${timeframe}_${stamp}.png`;
-      link.href = dataUrl;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch {
-      // ignore in headless/test env
-    }
-  }, [instConfig.name, symbol, theme, timeframe]);
-
-  useEffect(() => {
-    if (onTakeScreenshotRef) {
-      onTakeScreenshotRef.current = handleTakeChartScreenshot;
-    }
-  }, [handleTakeChartScreenshot, onTakeScreenshotRef]);
-
   const stateRef = useRef({
     symbol,
     instConfig,
@@ -1360,6 +1279,301 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     },
     []
   );
+
+  // Composite Chart Canvas (KLineChart Canvases + Custom Overlay Canvas + optional Closed Trade Execution Box)
+  const buildCompositeChartCanvas = useCallback(
+    (
+      trade?: BacktestPosition,
+      phase?: 'ENTRY' | 'EXIT'
+    ): HTMLCanvasElement | null => {
+      const container = containerRef.current;
+      const overlay = overlayCanvasRef.current;
+      if (!container) return null;
+
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      outCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      const outCtx = outCanvas.getContext('2d');
+      if (!outCtx) return null;
+
+      // 1) Background fill
+      outCtx.fillStyle = theme === 'light' ? '#ffffff' : '#0b0e14';
+      outCtx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+
+      // 2) Composite all KLineChart sub-canvases at their exact bounding rects
+      const innerCanvases = container.querySelectorAll('canvas');
+      innerCanvases.forEach((c) => {
+        if (c === overlay) return;
+        const cRect = c.getBoundingClientRect();
+        if (cRect.width <= 0 || cRect.height <= 0) return;
+        const dx = (cRect.left - rect.left) * dpr;
+        const dy = (cRect.top - rect.top) * dpr;
+        const dw = cRect.width * dpr;
+        const dh = cRect.height * dpr;
+        try {
+          outCtx.drawImage(c, dx, dy, dw, dh);
+        } catch {
+          // ignore tainted canvas if any
+        }
+      });
+
+      // 3) Composite our synchronized custom overlay canvas (Drawings, Fibonacci, EMAs, Indicators, Positions)
+      if (overlay && overlay.width > 0 && overlay.height > 0) {
+        const oRect = overlay.getBoundingClientRect();
+        const dx = (oRect.left - rect.left) * dpr;
+        const dy = (oRect.top - rect.top) * dpr;
+        const dw = oRect.width * dpr;
+        const dh = oRect.height * dpr;
+        try {
+          outCtx.drawImage(overlay, dx, dy, dw, dh);
+        } catch {
+          // ignore
+        }
+      }
+
+      // 4) If capturing a closed trade snapshot, paint its Entry / SL / TP zones & exit outcome cleanly on top
+      const chart = chartRef.current;
+      const currCandles = stateRef.current.candles;
+      if (
+        trade &&
+        (!trade.symbol || trade.symbol === symbol) &&
+        !trade.hideOnChart &&
+        trade.status !== 'OPEN' &&
+        trade.status !== 'PENDING' &&
+        chart &&
+        currCandles.length > 0
+      ) {
+        const { chartPlotWidth, chartPlotHeight } = getCandlePaneMetrics(
+          chart,
+          rect.width,
+          rect.height
+        );
+        const yEntry = priceToY(trade.entryPrice, chart);
+        const yTp = trade.takeProfit > 0 ? priceToY(trade.takeProfit, chart) : null;
+        const ySl = trade.stopLoss > 0 ? priceToY(trade.stopLoss, chart) : null;
+        const yExit =
+          typeof trade.exitPrice === 'number'
+            ? priceToY(trade.exitPrice, chart)
+            : null;
+        const xEntryRaw = resolveTimeToX(trade.entryTime, currCandles, chart);
+        const xExitRaw = resolveTimeToX(
+          trade.exitTime ?? currCandles[currCandles.length - 1].time,
+          currCandles,
+          chart
+        );
+
+        if (yEntry !== null) {
+          const xStart = Math.max(8, Math.min(chartPlotWidth - 60, xEntryRaw ?? chartPlotWidth * 0.45));
+          const xEnd = Math.max(
+            xStart + 36,
+            Math.min(chartPlotWidth - 8, xExitRaw ?? xStart + 120)
+          );
+          const boxW = Math.max(36, xEnd - xStart);
+
+          outCtx.save();
+          outCtx.scale(dpr, dpr);
+          outCtx.beginPath();
+          outCtx.rect(0, 0, chartPlotWidth, chartPlotHeight);
+          outCtx.clip();
+
+          // Take Profit shaded zone
+          if (yTp !== null) {
+            const topY = Math.min(yEntry, yTp);
+            const zoneH = Math.abs(yTp - yEntry);
+            outCtx.fillStyle = 'rgba(8, 153, 129, 0.16)';
+            outCtx.fillRect(xStart, topY, boxW, zoneH);
+            outCtx.strokeStyle = '#089981';
+            outCtx.lineWidth = 1.25;
+            outCtx.setLineDash([4, 3]);
+            outCtx.beginPath();
+            outCtx.moveTo(xStart, yTp);
+            outCtx.lineTo(xEnd, yTp);
+            outCtx.stroke();
+          }
+
+          // Stop Loss shaded zone
+          if (ySl !== null) {
+            const topY = Math.min(yEntry, ySl);
+            const zoneH = Math.abs(ySl - yEntry);
+            outCtx.fillStyle = 'rgba(242, 54, 69, 0.16)';
+            outCtx.fillRect(xStart, topY, boxW, zoneH);
+            outCtx.strokeStyle = '#f23645';
+            outCtx.lineWidth = 1.25;
+            outCtx.setLineDash([4, 3]);
+            outCtx.beginPath();
+            outCtx.moveTo(xStart, ySl);
+            outCtx.lineTo(xEnd, ySl);
+            outCtx.stroke();
+          }
+
+          // Entry line
+          outCtx.setLineDash([]);
+          outCtx.strokeStyle = '#3b82f6';
+          outCtx.lineWidth = 1.5;
+          outCtx.beginPath();
+          outCtx.moveTo(xStart, yEntry);
+          outCtx.lineTo(xEnd, yEntry);
+          outCtx.stroke();
+
+          // Entry dot
+          outCtx.fillStyle = '#3b82f6';
+          outCtx.beginPath();
+          outCtx.arc(xStart, yEntry, 4, 0, Math.PI * 2);
+          outCtx.fill();
+          outCtx.strokeStyle = '#ffffff';
+          outCtx.lineWidth = 1.5;
+          outCtx.stroke();
+
+          // Exit dot & outcome pill
+          if (yExit !== null) {
+            const won = trade.pnl >= 0;
+            const dotColor = won ? '#10b981' : '#f43f5e';
+            outCtx.fillStyle = dotColor;
+            outCtx.beginPath();
+            outCtx.arc(xEnd, yExit, 4.5, 0, Math.PI * 2);
+            outCtx.fill();
+            outCtx.strokeStyle = '#ffffff';
+            outCtx.lineWidth = 1.5;
+            outCtx.stroke();
+
+            const outcomeCode =
+              trade.status === 'CLOSED_TP'
+                ? 'TP HIT'
+                : trade.status === 'CLOSED_SL'
+                ? 'SL HIT'
+                : trade.status === 'CLOSED_BREACH'
+                ? 'BREACH'
+                : 'CLOSED';
+            const pnlStr = formatMoney(
+              trade.pnl,
+              accountCurrency as AccountCurrency,
+              true
+            );
+            const pillText = `${outcomeCode} ${pnlStr}`;
+            outCtx.font = 'bold 10.5px JetBrains Mono, monospace';
+            const pillW = outCtx.measureText(pillText).width + 14;
+            const pillX = Math.min(
+              chartPlotWidth - pillW - 6,
+              Math.max(8, xEnd - pillW / 2)
+            );
+            const pillY = won
+              ? Math.max(46, yExit - 26)
+              : Math.min(chartPlotHeight - 24, yExit + 10);
+
+            outCtx.fillStyle = won
+              ? 'rgba(8, 153, 129, 0.94)'
+              : 'rgba(242, 54, 69, 0.94)';
+            outCtx.beginPath();
+            outCtx.roundRect(pillX, pillY, pillW, 18, 4);
+            outCtx.fill();
+            outCtx.fillStyle = '#ffffff';
+            outCtx.fillText(pillText, pillX + 7, pillY + 12.5);
+          }
+
+          outCtx.restore();
+        }
+      }
+
+      // 5) Crisp Header Badge on Screenshot
+      outCtx.save();
+      outCtx.scale(dpr, dpr);
+      const effectivePhase: 'ENTRY' | 'EXIT' | null = trade
+        ? phase ??
+          (trade.status === 'OPEN' || trade.status === 'PENDING'
+            ? 'ENTRY'
+            : 'EXIT')
+        : null;
+      const outcomeSuffix =
+        trade && effectivePhase === 'ENTRY'
+          ? ` · ${trade.side} · BEFORE (ENTRY @ ${trade.entryPrice})`
+          : trade && effectivePhase === 'EXIT'
+          ? ` · ${trade.side} · AFTER (${
+              trade.status === 'CLOSED_TP'
+                ? 'TP'
+                : trade.status === 'CLOSED_SL'
+                ? 'SL'
+                : trade.status === 'CLOSED_BREACH'
+                ? 'BREACH'
+                : 'EXIT'
+            } ${formatMoney(trade.pnl, accountCurrency as AccountCurrency, true)})`
+          : '';
+      const title = `${instConfig.name} (${symbol}) · ${timeframe}${outcomeSuffix}`;
+      outCtx.font = 'bold 12px Inter, JetBrains Mono, sans-serif';
+      const tw = outCtx.measureText(title).width + 20;
+      outCtx.fillStyle =
+        theme === 'light' ? 'rgba(255,255,255,0.92)' : 'rgba(19,23,34,0.92)';
+      outCtx.strokeStyle = theme === 'light' ? '#cbd5e1' : '#2a2e39';
+      outCtx.lineWidth = 1;
+      outCtx.beginPath();
+      outCtx.roundRect(12, 12, tw, 26, 6);
+      outCtx.fill();
+      outCtx.stroke();
+      outCtx.fillStyle = theme === 'light' ? '#0f172a' : '#f8fafc';
+      outCtx.fillText(title, 22, 29);
+      outCtx.restore();
+
+      return outCanvas;
+    },
+    [
+      accountCurrency,
+      getCandlePaneMetrics,
+      instConfig.name,
+      priceToY,
+      resolveTimeToX,
+      symbol,
+      theme,
+      timeframe,
+    ]
+  );
+
+  // 1-Click Composite Chart Screenshot Download
+  const handleTakeChartScreenshot = useCallback(() => {
+    const outCanvas = buildCompositeChartCanvas();
+    if (!outCanvas) return;
+    try {
+      const dataUrl = outCanvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      link.download = `${symbol}_${timeframe}_${stamp}.png`;
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      // ignore in headless/test env
+    }
+  }, [buildCompositeChartCanvas, symbol, timeframe]);
+
+  // Compressed KB-sized Chart Snapshot for Auto-Journaling (Before/After) & Analytics Modal
+  const handleCaptureCompressedTradeSnapshot = useCallback(
+    (trade?: BacktestPosition, phase?: 'ENTRY' | 'EXIT'): string | null => {
+      const outCanvas = buildCompositeChartCanvas(trade, phase);
+      if (!outCanvas) return null;
+      const compressed = compressCanvasToKbDataUrl(outCanvas, {
+        maxWidth: 1080,
+        maxBytes: 60 * 1024,
+        backgroundColor: theme === 'light' ? '#ffffff' : '#0b0e14',
+      });
+      return compressed?.dataUrl ?? null;
+    },
+    [buildCompositeChartCanvas, theme]
+  );
+
+  useEffect(() => {
+    if (onTakeScreenshotRef) {
+      onTakeScreenshotRef.current = handleTakeChartScreenshot;
+    }
+  }, [handleTakeChartScreenshot, onTakeScreenshotRef]);
+
+  useEffect(() => {
+    if (onCaptureTradeSnapshotRef) {
+      onCaptureTradeSnapshotRef.current = handleCaptureCompressedTradeSnapshot;
+    }
+  }, [handleCaptureCompressedTradeSnapshot, onCaptureTradeSnapshotRef]);
 
   // Draw sleek TradingView Handle Dot (hollow circle, white/dark center, #2962ff border)
   const drawSmallDot = (

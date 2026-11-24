@@ -20,6 +20,7 @@ import {getSpotQuote, getSpotFeedStatus, SPOT_SYMBOLS} from './services/spotFeed
 import {createLivePaperSession} from './services/livePaperTrading';
 import React, { Suspense, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
+  BacktestPosition,
   BacktestSessionMode,
   BreachEventRecord,
   CandleColorStyle,
@@ -1521,6 +1522,20 @@ export function App() {
   );
   const [activeIndicatorSettingsId, setActiveIndicatorSettingsId] = useState<string | null>(null);
   const takeScreenshotRef = useRef<(() => void) | null>(null);
+  const captureTradeSnapshotRef = useRef<
+    ((trade?: BacktestPosition, phase?: 'ENTRY' | 'EXIT') => string | null) | null
+  >(null);
+  const prevTradeSnapshotSessionIdRef = useRef<string | null>(null);
+  const prevTradeStatusMapRef = useRef<Map<string, BacktestPosition['status']>>(new Map());
+  const autoCapturedEntryIdsRef = useRef<Set<string>>(new Set());
+  const autoCapturedExitIdsRef = useRef<Set<string>>(new Set());
+  const isAppMountedRef = useRef(true);
+  useEffect(() => {
+    isAppMountedRef.current = true;
+    return () => {
+      isAppMountedRef.current = false;
+    };
+  }, []);
 
   const handleStartTour = useCallback(() => {
     if (!detectMobile()) setShowRightWidget(true);
@@ -2458,7 +2473,7 @@ export function App() {
                   journalEmotionalState: entry.emotionalState,
                   journalLessonsLearned: entry.lessonsLearned,
                   journalChecklist: entry.checklist,
-                  journalScreenshots: entry.screenshots,
+                  journalScreenshots: undefined,
                   journalUpdatedAt: entry.updatedAt,
                 }
               : p
@@ -2477,6 +2492,155 @@ export function App() {
     },
     [activeSession.id]
   );
+
+  // Auto-capture compressed KB-sized BEFORE (Entry) & AFTER (Exit) chart screenshots for every trade
+  useEffect(() => {
+    const positions = activeSession.positions || [];
+    const closedStatuses = new Set<BacktestPosition['status']>([
+      'CLOSED_TP',
+      'CLOSED_SL',
+      'CLOSED_MANUAL',
+      'CLOSED_BREACH',
+    ]);
+
+    if (prevTradeSnapshotSessionIdRef.current !== activeSession.id) {
+      prevTradeSnapshotSessionIdRef.current = activeSession.id;
+      const seeded = new Map<string, BacktestPosition['status']>();
+      for (const p of positions) {
+        seeded.set(p.id, p.status);
+      }
+      prevTradeStatusMapRef.current = seeded;
+      return;
+    }
+
+    const newlyOpened: BacktestPosition[] = [];
+    const newlyClosed: BacktestPosition[] = [];
+    const nextMap = new Map<string, BacktestPosition['status']>();
+
+    for (const p of positions) {
+      const prevStatus = prevTradeStatusMapRef.current.get(p.id);
+      nextMap.set(p.id, p.status);
+
+      const existingJournal = activeSession.journals?.[p.id];
+
+      // 1) BEFORE screenshot when trade opens (Market order placed OR Pending order triggered)
+      if (
+        p.status === 'OPEN' &&
+        prevStatus !== 'OPEN' &&
+        !existingJournal?.entryScreenshot &&
+        !autoCapturedEntryIdsRef.current.has(p.id)
+      ) {
+        newlyOpened.push(p);
+      }
+
+      // 2) AFTER screenshot when trade closes (TP, SL, Manual, or Breach)
+      const isNowClosed = closedStatuses.has(p.status);
+      const wasAlreadyClosed = prevStatus ? closedStatuses.has(prevStatus) : false;
+      if (
+        isNowClosed &&
+        !wasAlreadyClosed &&
+        !existingJournal?.exitScreenshot &&
+        !autoCapturedExitIdsRef.current.has(p.id)
+      ) {
+        newlyClosed.push(p);
+      }
+    }
+    prevTradeStatusMapRef.current = nextMap;
+
+    if (
+      (newlyOpened.length === 0 && newlyClosed.length === 0) ||
+      activeView !== 'terminal'
+    ) {
+      return;
+    }
+
+    const targetSessionId = activeSession.id;
+    const strategyFallback = activeSession.strategyName || 'Price Action';
+    for (const tr of newlyOpened) {
+      autoCapturedEntryIdsRef.current.add(tr.id);
+    }
+    for (const tr of newlyClosed) {
+      autoCapturedExitIdsRef.current.add(tr.id);
+    }
+
+    // Wait two animation frames so KLineChart + overlay canvas finish painting the entry/exit candle
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!isAppMountedRef.current) return;
+        const captureFn = captureTradeSnapshotRef.current;
+        if (!captureFn) return;
+
+        const entryShots = new Map<string, string>();
+        for (const tr of newlyOpened) {
+          const dataUrl = captureFn(tr, 'ENTRY');
+          if (dataUrl) entryShots.set(tr.id, dataUrl);
+        }
+
+        const exitShots = new Map<string, string>();
+        for (const tr of newlyClosed) {
+          const dataUrl = captureFn(tr, 'EXIT');
+          if (dataUrl) exitShots.set(tr.id, dataUrl);
+        }
+
+        if (entryShots.size === 0 && exitShots.size === 0) return;
+
+        const nowIso = new Date().toISOString();
+        setTradingSessions((prevList) =>
+          prevList.map((s) => {
+            if (s.id !== targetSessionId) return s;
+            const nextJournals: Record<string, TradeJournalEntry> = {
+              ...(s.journals || {}),
+            };
+
+            const ensureJournal = (tr: BacktestPosition): TradeJournalEntry =>
+              nextJournals[tr.id] || {
+                positionId: tr.id,
+                sessionId: targetSessionId,
+                strategyTag: strategyFallback,
+                setupTags: tr.journalTags || ['Standard'],
+                entryReasoning: tr.journalEntryReasoning || '',
+                exitReasoning: tr.journalExitReasoning || '',
+                notes: tr.journalNotes || '',
+                screenshots: tr.journalScreenshots || [],
+                emotionalState: tr.journalEmotionalState || 'Calm & Focused',
+                checklist: tr.journalChecklist || [],
+                lessonsLearned: tr.journalLessonsLearned || '',
+                rating: tr.journalRating || 4,
+                updatedAt: nowIso,
+              };
+
+            for (const tr of newlyOpened) {
+              const shot = entryShots.get(tr.id);
+              if (!shot) continue;
+              const base = ensureJournal(tr);
+              nextJournals[tr.id] = {
+                ...base,
+                entryScreenshot: shot,
+                updatedAt: nowIso,
+              };
+            }
+
+            for (const tr of newlyClosed) {
+              const shot = exitShots.get(tr.id);
+              if (!shot) continue;
+              const base = ensureJournal(tr);
+              nextJournals[tr.id] = {
+                ...base,
+                exitScreenshot: shot,
+                updatedAt: nowIso,
+              };
+            }
+
+            return {
+              ...s,
+              journals: nextJournals,
+              updatedAt: nowIso,
+            };
+          })
+        );
+      });
+    });
+  }, [activeSession.id, activeSession.positions, activeSession.journals, activeSession.strategyName, activeView]);
 
   const handleStartNewChallengeAttempt = useCallback(
     (targetSessionId?: string, targetPhase?: 'PHASE_1' | 'PHASE_2') => {
@@ -4296,6 +4460,7 @@ export function App() {
               activeIndicatorSettingsId={activeIndicatorSettingsId}
               onChangeActiveIndicatorSettingsId={setActiveIndicatorSettingsId}
               onTakeScreenshotRef={takeScreenshotRef}
+              onCaptureTradeSnapshotRef={captureTradeSnapshotRef}
               candleStyle={candleStyle}
               onSelectCandleStyle={handleSelectCandleStyle}
               customCandleColors={customCandleColors}
@@ -4564,6 +4729,9 @@ export function App() {
           onGoToSessionOpen={handleGoToSessionOpen}
           onSaveJournalEntry={(tradeId, entry) =>
             handleSaveJournalEntry(tradeId, entry)
+          }
+          onCaptureTradeSnapshot={(trade) =>
+            captureTradeSnapshotRef.current?.(trade) ?? null
           }
           onSaveSkipSettings={handleSaveSkipSettings}
           onOpenAnalyticsPage={() => {

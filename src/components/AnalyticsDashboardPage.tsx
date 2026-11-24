@@ -1,4 +1,5 @@
 import {ChartAnnouncement,markChartAnnouncementSeen} from './ChartAnnouncement';
+import {formatScreenshotSizeKb} from '../services/chartScreenshot';
 import {applyPageSeo} from '../services/seo';
 import { WorkspaceTour } from './WorkspaceTour';
 import { PerformanceOverview } from './PerformanceOverview';
@@ -333,6 +334,17 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
     trade: BacktestPosition;
     session: TradingSession;
   } | null>(null);
+  const [inspectedShotView, setInspectedShotView] = useState<
+    'BOTH' | 'BEFORE' | 'AFTER' | 'MANUAL'
+  >('BOTH');
+  const [inspectedShotIndex, setInspectedShotIndex] = useState(0);
+  const [lightboxShotUrl, setLightboxShotUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setInspectedShotView('BOTH');
+    setInspectedShotIndex(0);
+    setLightboxShotUrl(null);
+  }, [inspectedTrade?.trade.id]);
 
   // Strategy Manager Form
   const [newStrategyName, setNewStrategyName] = useState('');
@@ -3112,6 +3124,284 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
             {(() => {
               const tr = inspectedTrade.trade;
               const sess = inspectedTrade.session;
+              const journal = sess.journals?.[tr.id];
+              const beforeShot = journal?.entryScreenshot || null;
+              const afterShot = journal?.exitScreenshot || null;
+              const manualShots =
+                (journal?.screenshots?.length
+                  ? journal.screenshots
+                  : tr.journalScreenshots) || [];
+              const hasAnyShot = Boolean(
+                beforeShot || afterShot || manualShots.length > 0
+              );
+
+              if (hasAnyShot) {
+                const outcomeLabel =
+                  tr.status === 'CLOSED_TP'
+                    ? 'TP HIT'
+                    : tr.status === 'CLOSED_SL'
+                    ? 'SL HIT'
+                    : tr.status === 'CLOSED_BREACH'
+                    ? 'BREACH'
+                    : tr.status === 'CLOSED_MANUAL'
+                    ? 'MANUAL EXIT'
+                    : 'EXIT';
+                const outcomeTone =
+                  tr.pnl >= 0
+                    ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
+                    : 'bg-rose-500/15 text-rose-500 border-rose-500/30';
+
+                // Resolve active view cleanly based on what screenshots exist
+                const effectiveView: 'BOTH' | 'BEFORE' | 'AFTER' | 'MANUAL' =
+                  inspectedShotView === 'BOTH' && beforeShot && afterShot
+                    ? 'BOTH'
+                    : inspectedShotView === 'BEFORE' && beforeShot
+                    ? 'BEFORE'
+                    : inspectedShotView === 'AFTER' && afterShot
+                    ? 'AFTER'
+                    : inspectedShotView === 'MANUAL' && manualShots.length > 0
+                    ? 'MANUAL'
+                    : beforeShot && afterShot
+                    ? 'BOTH'
+                    : afterShot
+                    ? 'AFTER'
+                    : beforeShot
+                    ? 'BEFORE'
+                    : 'MANUAL';
+
+                const safeManualIdx = Math.min(
+                  inspectedShotIndex,
+                  Math.max(0, manualShots.length - 1)
+                );
+
+                return (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] font-bold opacity-85">
+                          Trade Chart Screenshots
+                        </span>
+                        <span
+                          className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${outcomeTone}`}
+                        >
+                          {outcomeLabel}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {beforeShot && afterShot && (
+                          <button
+                            type="button"
+                            onClick={() => setInspectedShotView('BOTH')}
+                            className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${
+                              effectiveView === 'BOTH'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-500/15 hover:bg-gray-500/25 opacity-80'
+                            }`}
+                          >
+                            Before & After
+                          </button>
+                        )}
+                        {beforeShot && (
+                          <button
+                            type="button"
+                            onClick={() => setInspectedShotView('BEFORE')}
+                            className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${
+                              effectiveView === 'BEFORE'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-500/15 hover:bg-gray-500/25 opacity-80'
+                            }`}
+                          >
+                            Before (Entry)
+                          </button>
+                        )}
+                        {afterShot && (
+                          <button
+                            type="button"
+                            onClick={() => setInspectedShotView('AFTER')}
+                            className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${
+                              effectiveView === 'AFTER'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-500/15 hover:bg-gray-500/25 opacity-80'
+                            }`}
+                          >
+                            After (Exit)
+                          </button>
+                        )}
+                        {manualShots.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setInspectedShotView('MANUAL')}
+                            className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${
+                              effectiveView === 'MANUAL'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-500/15 hover:bg-gray-500/25 opacity-80'
+                            }`}
+                          >
+                            Manual ({manualShots.length})
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {effectiveView === 'BOTH' && beforeShot && afterShot && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[10px] font-mono">
+                            <span className="font-bold text-blue-400">
+                              BEFORE · ENTRY
+                            </span>
+                            <span className="opacity-65">
+                              {formatScreenshotSizeKb(beforeShot)} · click to expand
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setLightboxShotUrl(beforeShot)}
+                            className="block w-full rounded-xl overflow-hidden border border-gray-500/25 bg-[#0b0e14] hover:border-blue-500/60 transition"
+                            title="Click to expand Before (Entry) screenshot"
+                          >
+                            <img
+                              src={beforeShot}
+                              alt={`${tr.symbol} ${tr.side} before entry chart`}
+                              className="w-full h-56 object-contain mx-auto"
+                            />
+                          </button>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[10px] font-mono">
+                            <span
+                              className={`font-bold ${
+                                tr.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                              }`}
+                            >
+                              AFTER · {outcomeLabel}
+                            </span>
+                            <span className="opacity-65">
+                              {formatScreenshotSizeKb(afterShot)} · click to expand
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setLightboxShotUrl(afterShot)}
+                            className="block w-full rounded-xl overflow-hidden border border-gray-500/25 bg-[#0b0e14] hover:border-blue-500/60 transition"
+                            title="Click to expand After (Exit) screenshot"
+                          >
+                            <img
+                              src={afterShot}
+                              alt={`${tr.symbol} ${tr.side} after exit chart`}
+                              className="w-full h-56 object-contain mx-auto"
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {effectiveView === 'BEFORE' && beforeShot && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[10px] font-mono">
+                          <span className="font-bold text-blue-400">
+                            BEFORE · ENTRY ({tr.entryPrice})
+                          </span>
+                          <span className="opacity-65">
+                            {formatScreenshotSizeKb(beforeShot)} · click to expand
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setLightboxShotUrl(beforeShot)}
+                          className="block w-full rounded-xl overflow-hidden border border-gray-500/25 bg-[#0b0e14] hover:border-blue-500/60 transition"
+                        >
+                          <img
+                            src={beforeShot}
+                            alt={`${tr.symbol} ${tr.side} before entry chart`}
+                            className="w-full max-h-[380px] object-contain mx-auto"
+                          />
+                        </button>
+                      </div>
+                    )}
+
+                    {effectiveView === 'AFTER' && afterShot && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[10px] font-mono">
+                          <span
+                            className={`font-bold ${
+                              tr.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                            }`}
+                          >
+                            AFTER · {outcomeLabel}
+                          </span>
+                          <span className="opacity-65">
+                            {formatScreenshotSizeKb(afterShot)} · click to expand
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setLightboxShotUrl(afterShot)}
+                          className="block w-full rounded-xl overflow-hidden border border-gray-500/25 bg-[#0b0e14] hover:border-blue-500/60 transition"
+                        >
+                          <img
+                            src={afterShot}
+                            alt={`${tr.symbol} ${tr.side} after exit chart`}
+                            className="w-full max-h-[380px] object-contain mx-auto"
+                          />
+                        </button>
+                      </div>
+                    )}
+
+                    {effectiveView === 'MANUAL' && manualShots.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[10px] font-mono">
+                          <span className="font-bold opacity-80">
+                            MANUAL SNAPSHOT #{safeManualIdx + 1}
+                          </span>
+                          <span className="opacity-65">
+                            {formatScreenshotSizeKb(manualShots[safeManualIdx])} · click to expand
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLightboxShotUrl(manualShots[safeManualIdx])
+                          }
+                          className="block w-full rounded-xl overflow-hidden border border-gray-500/25 bg-[#0b0e14] hover:border-blue-500/60 transition"
+                        >
+                          <img
+                            src={manualShots[safeManualIdx]}
+                            alt={`${tr.symbol} ${tr.side} manual chart snapshot`}
+                            className="w-full max-h-[380px] object-contain mx-auto"
+                          />
+                        </button>
+                        {manualShots.length > 1 && (
+                          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                            {manualShots.map((shot, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => setInspectedShotIndex(idx)}
+                                className={`relative shrink-0 w-24 h-14 rounded-lg overflow-hidden border-2 transition ${
+                                  idx === safeManualIdx
+                                    ? 'border-blue-500'
+                                    : 'border-transparent opacity-70 hover:opacity-100'
+                                }`}
+                              >
+                                <img
+                                  src={shot}
+                                  alt={`Snapshot ${idx + 1}`}
+                                  className="w-full h-full object-cover"
+                                />
+                                <span className="absolute bottom-0.5 right-0.5 px-1 rounded bg-black/75 text-[8px] font-mono text-white">
+                                  #{idx + 1}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
               const trSym = tr.symbol || sess.activeAsset || 'XAUUSD';
               const spec = getEffectiveInstrumentSpec(trSym, sess);
               const ctxCandles = getTradeContextCandles(tr, '15m', sess);
@@ -3133,8 +3423,13 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
 
               return (
                 <div className="space-y-1.5">
-                  <div className="text-[11px] font-bold opacity-75">
-                    15m Historical Price Context Around Entry & Exit
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-bold opacity-75">
+                      15m Historical Price Context Around Entry & Exit
+                    </div>
+                    <span className="text-[10px] font-mono opacity-60">
+                      No chart snapshot recorded (older trade)
+                    </span>
                   </div>
                   <svg
                     viewBox={`0 0 ${w} ${h}`}
@@ -3295,6 +3590,33 @@ export const AnalyticsDashboardPage: React.FC<AnalyticsDashboardPageProps> = ({
                 })()}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* FULLSCREEN LIGHTBOX FOR CAPTURED TRADE CHART SCREENSHOT */}
+      {lightboxShotUrl && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setLightboxShotUrl(null)}
+        >
+          <div
+            className="relative max-w-[95vw] max-h-[92vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxShotUrl(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-900 border border-white/20 text-white flex items-center justify-center shadow-lg hover:bg-slate-800"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <img
+              src={lightboxShotUrl}
+              alt="Expanded trade chart screenshot"
+              className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl border border-white/15 shadow-2xl"
+            />
           </div>
         </div>
       )}
